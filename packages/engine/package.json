@@ -1,0 +1,26 @@
+{
+  "name": "@metardu/engine",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Surveying engine libraries — reused verbatim from error302/metardu. Traverse, COGO, LSA, TIN/contours, coordinate transforms, importers, exporters, statutory documents.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@turf/turf": "^7.0.0",
+    "exceljs": "^4.4.0",
+    "pdfkit": "^0.14.0",
+    "proj4": "^2.11.0",
+    "xmlbuilder2": "^3.1.1"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0"
+  }
+}

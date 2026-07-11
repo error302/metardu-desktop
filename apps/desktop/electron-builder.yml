@@ -1,0 +1,95 @@
+# METARDU Desktop — electron-builder configuration
+# Per ADR-001: ship signed installers for Win/Mac/Ubuntu.
+# Per §11: macOS notarization requires APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD env vars.
+# Per §11: Windows EV code-signing requires CSC_LINK / CSC_KEY_PASSWORD env vars.
+
+appId: com.metardu.desktop
+productName: METARDU Desktop
+copyright: Copyright © 2025 METARDU Desktop contributors (original metardu by error302)
+
+directories:
+  output: release
+  buildResources: build
+
+# The main entry — built from electron/main.ts → dist-electron/main.js
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - node_modules/**/*
+  - package.json
+  - "!**/*.{ts,tsx,map}"
+  - "!**/.DS_Store"
+
+extraMetadata:
+  main: dist-electron/main.js
+
+# Windows
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: msix
+      arch: [x64]
+  artifactName: metardu-desktop-${version}-${arch}.${ext}
+  # Signing: set CSC_LINK (path to .pfx) and CSC_KEY_PASSWORD env vars before build
+  # timeStampServer: http://timestamp.digicert.com
+
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: METARDU Desktop
+
+# macOS
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  category: public.app-category.productivity
+  artifactName: metardu-desktop-${version}-${arch}.${ext}
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Notarize: set APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID env vars
+  notarize: false  # enable in M8 hardening phase
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# Linux
+linux:
+  target:
+    - target: deb
+      arch: [x64]
+    - target: AppImage
+      arch: [x64]
+  maintainer: metardu-desktop contributors
+  vendor: METARDU Desktop
+  category: Office
+  artifactName: metardu-desktop-${version}-${arch}.${ext}
+
+deb:
+  depends:
+    - libsqlite3-0
+    - libnss3
+    - libgtk-3-0
+    - libgbm1
+    - libasound2
+
+# Auto-update
+publish:
+  provider: github
+  owner: metardu-desktop
+  repo: metardu-desktop
+  releaseType: release

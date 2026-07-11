@@ -1,0 +1,13 @@
+point_number,easting,northing,elevation,code,description
+1,4075000.00,-175000.00,1523.45,BM,Control point on rocky outcrop near Thika Road
+2,4075050.00,-174950.00,1524.10,BM,Corner beacon BM2
+3,4075100.00,-174900.00,1525.30,BM,Corner beacon BM3
+4,4075150.00,-174850.00,1524.80,BM,Corner beacon BM4
+5,4075200.00,-174800.00,1523.90,BM,Control point near river crossing
+6,4075250.00,-174750.00,1522.50,FB,Fence corner
+7,4075300.00,-174700.00,1521.20,FB,Fence corner
+8,4075350.00,-174650.00,1520.10,BM,Beacon near road junction
+9,4075400.00,-174600.00,1519.40,BM,Benchmark on bridge abutment
+10,4075450.00,-174550.00,1518.80,TR,Tree reference
+11,4075500.00,-174500.00,1518.20,BM,Survey beacon
+12,4075550.00,-174450.00,1517.50,BM,Survey beacon

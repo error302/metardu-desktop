@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev libspatialite-dev
+          npm ci
+
+      - name: Install dependencies (macOS / Windows)
+        if: matrix.os != 'ubuntu-latest'
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck --if-present
+
+      - name: Lint
+        run: npm run lint --if-present
+        continue-on-error: true  # lint warnings shouldn't fail CI in phase 2
+
+      - name: Test
+        run: npm test --if-present
+        env:
+          CI: true
+
+      - name: Build
+        run: npm run build --if-present
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build artifacts
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: metardu-desktop-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            apps/desktop/dist/
+            apps/desktop/dist-electron/
+          retention-days: 7
+
+  release:
+    name: Release installers
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev libspatialite-dev
+          npm ci
+
+      - name: Install dependencies (macOS / Windows)
+        if: matrix.os != 'ubuntu-latest'
+        run: npm ci
+
+      - name: Build & package
+        run: npm run package --if-present
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS notarization (set in GitHub Actions secrets before v1.0 release)
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows code-signing (set in GitHub Actions secrets before v1.0 release)
+          # CSC_LINK: ${{ secrets.CSC_LINK }}
+          # CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: metardu-desktop-installers-${{ matrix.os }}-${{ github.ref_name }}
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.msi
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.AppImage
+          retention-days: 30

@@ -1,0 +1,11 @@
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- DEPRECATED: This file is kept for reference only.
+-- The canonical schema is defined in: src/lib/db/migrations/000_canonical_schema.sql
+-- The canonical RLS policies are in: src/lib/db/migrations/002_rls_fixed.sql
+--
+-- This file previously defined a conflicting `submissions` table with columns
+-- (submission_ref, isk_number, qa_passed) that don't match the canonical schema.
+-- It has been superseded by migration 000 which defines the proper schema.
+--
+-- DO NOT RUN THIS FILE AGAINST THE DATABASE.
+-- ═══════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,35 @@
+{
+  "name": "metardu-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "METARDU Desktop — Production surveying platform for cadastral, engineering, and topographical surveyors. Fork of error302/metardu.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/desktop",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "eslint . --ext .ts,.tsx",
+    "clean": "rm -rf apps/desktop/dist apps/desktop/node_modules packages/engine/dist packages/engine/node_modules",
+    "package:win": "npm run build && electron-builder --win --config apps/desktop/electron-builder.yml",
+    "package:mac": "npm run build && electron-builder --mac --config apps/desktop/electron-builder.yml",
+    "package:linux": "npm run build && electron-builder --linux --config apps/desktop/electron-builder.yml"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

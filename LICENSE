@@ -1,0 +1,42 @@
+MIT License
+
+Copyright (c) 2024-2025 error302 (original author of metardu)
+Copyright (c) 2025 METARDU Desktop contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+ATTRIBUTION
+
+This software is a desktop application fork of the metardu project
+(https://github.com/error302/metardu), originally licensed under the MIT
+License by error302. The original web application's surveying engine,
+coordinate-transformation libraries, importers, exporters, and statutory
+document generators have been reused, with minimal modification, as the
+"packages/engine" subpackage of this desktop distribution.
+
+The original metardu project's README declared MIT licensing but did not
+ship a LICENSE file at the repository root. This LICENSE file is added by
+the METARDU Desktop fork to formally grant the same MIT permissions, with
+attribution to error302 as the original author of the surveying engine.
+
+Vendored third-party agent-prompt directories (.agents/, .claude/, skills/)
+present in the original metardu repository have been REMOVED from this fork
+as they are not surveying code and carry their own separate licenses.

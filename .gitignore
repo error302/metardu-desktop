@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build artifacts
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Electron
+apps/desktop/release/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test artifacts
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+
+# SQLite databases (project files)
+*.metardu
+*.sqlite
+*.sqlite3
+*.db
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Python worker (built artifacts)
+python_worker/dist/
+python_worker/__pycache__/
+**/__pycache__/
+*.pyc
