@@ -50,3 +50,5 @@ python_worker/dist/
 python_worker/__pycache__/
 **/__pycache__/
 *.pyc
+dist-electron/
+apps/desktop/dist/
