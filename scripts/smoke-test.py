@@ -168,6 +168,57 @@ def test_project_file_creation():
         db.close()
 
 
+def test_typescript_compiles():
+    """Verify TypeScript compiles cleanly for both renderer and electron main."""
+    print("7. Testing TypeScript compilation…")
+    repo_root = Path(__file__).resolve().parent.parent
+    import subprocess
+
+    # Electron main
+    result = subprocess.run(
+        ['npx', 'tsc', '-p', 'apps/desktop/electron/tsconfig.json', '--noEmit'],
+        cwd=repo_root, capture_output=True, text=True, timeout=120
+    )
+    if result.returncode != 0:
+        print(f"   ❌ Electron main typecheck failed:\n{result.stderr[-500:]}")
+        return False
+    print("   ✅ Electron main typecheck: clean")
+
+    # Renderer
+    result = subprocess.run(
+        ['npx', 'tsc', '-p', 'apps/desktop/tsconfig.json', '--noEmit'],
+        cwd=repo_root, capture_output=True, text=True, timeout=120
+    )
+    if result.returncode != 0:
+        print(f"   ❌ Renderer typecheck failed:\n{result.stderr[-500:]}")
+        return False
+    print("   ✅ Renderer typecheck: clean")
+
+    return True
+
+
+def test_vite_build():
+    """Verify Vite can build the renderer bundle."""
+    print("8. Testing Vite production build…")
+    repo_root = Path(__file__).resolve().parent.parent
+    import subprocess
+    result = subprocess.run(
+        ['npx', 'vite', 'build'],
+        cwd=str(repo_root / 'apps/desktop'), capture_output=True, text=True, timeout=120
+    )
+    if result.returncode != 0:
+        print(f"   ❌ Vite build failed:\n{result.stderr[-500:]}")
+        return False
+    # Verify the dist/index.html exists
+    dist_index = repo_root / 'apps/desktop' / 'dist' / 'index.html'
+    if not dist_index.exists():
+        print(f"   ❌ dist/index.html not produced")
+        return False
+    size = dist_index.stat().st_size
+    print(f"   ✅ Vite build: dist/index.html ({size} bytes)")
+    return True
+
+
 def test_file_structure():
     """Verify the expected files exist in the walking skeleton."""
     print("4. Testing repository structure…")
@@ -265,6 +316,10 @@ def main():
         test_license_attribution()
         if not test_vendored_dirs_stripped():
             sys.exit(1)
+        if not test_typescript_compiles():
+            sys.exit(1)
+        if not test_vite_build():
+            sys.exit(1)
 
         print()
         print("=" * 64)
@@ -278,8 +333,10 @@ def main():
         print("  ✅ Repository structure matches the plan")
         print("  ✅ License attribution to error302 in place")
         print("  ✅ Vendored third-party dirs stripped")
+        print("  ✅ TypeScript compiles cleanly (electron main + renderer)")
+        print("  ✅ Vite production build succeeds")
         print()
-        print("Next: npm install && npm run dev to launch the Electron app.")
+        print("Next: npm run dev to launch the Electron app in dev mode.")
         sys.exit(0)
     except AssertionError as e:
         print(f"\n❌ ASSERTION FAILED: {e}")

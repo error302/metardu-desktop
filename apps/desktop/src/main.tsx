@@ -9,10 +9,3 @@ root.render(
     <App />
   </StrictMode>,
 );
-
-// TypeScript global declaration for window.metardu (set by preload.ts)
-declare global {
-  interface Window {
-    metardu: import('../../electron/preload.js').MetarduApi;
-  }
-}

@@ -2,7 +2,7 @@ import { useState } from 'react';
 
 interface TopBarProps {
   projectName: string;
-  onImportCsv: () => void;
+  onImportCsv: (filePath: string) => void;
   onNewProject: () => void;
   loading: boolean;
 }
@@ -53,7 +53,9 @@ export function TopBar({ projectName, onImportCsv, onNewProject, loading }: TopB
             input.accept = '.csv';
             input.onchange = (e) => {
               const file = (e.target as HTMLInputElement).files?.[0];
-              if (file) onImportCsv();
+              // In Electron, the File object has a `path` property with the absolute filesystem path
+              const filePath = (file as File & { path?: string }).path;
+              if (file && filePath) onImportCsv(filePath);
             };
             input.click();
           }}

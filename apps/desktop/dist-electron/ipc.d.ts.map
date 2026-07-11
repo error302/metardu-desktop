@@ -1,0 +1,1 @@
+{"version":3,"file":"ipc.d.ts","sourceRoot":"","sources":["../electron/ipc.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;;;;;;;;GAiBG;AAMH,OAAO,EAAE,eAAe,EAAoB,MAAM,eAAe,CAAC;AAGlE,KAAK,QAAQ,GAAG,MAAM,eAAe,GAAG,IAAI,CAAC;AAC7C,KAAK,QAAQ,GAAG,CAAC,EAAE,EAAE,eAAe,GAAG,IAAI,KAAK,IAAI,CAAC;AAErD,wBAAgB,mBAAmB,CAAC,KAAK,EAAE,QAAQ,EAAE,KAAK,EAAE,QAAQ,QA6FnE"}

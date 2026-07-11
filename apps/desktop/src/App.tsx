@@ -16,7 +16,13 @@ import { MapView } from './components/MapView.js';
 import { Sidebar } from './components/Sidebar.js';
 import { StatusBar } from './components/StatusBar.js';
 import { TopBar } from './components/TopBar.js';
-import type { SurveyPoint, ProjectRow } from '../electron/preload.js';
+import type { SurveyPoint, ProjectRow, MetarduApi } from './types.js';
+
+declare global {
+  interface Window {
+    metardu: MetarduApi;
+  }
+}
 
 export default function App() {
   const [appVersion, setAppVersion] = useState('0.0.0');
@@ -33,9 +39,9 @@ export default function App() {
     window.metardu.app.platform().then(setPlatform);
 
     // Wire up menu handlers
-    window.metardu.menu.onFileNew(() => handleNewProject());
-    window.metardu.menu.onFileOpened((filePath) => handleOpenProject(filePath));
-    window.metardu.menu.onImportCsv((filePath) => handleImportCsv(filePath));
+    window.metardu.menu.onFileNew(() => { void handleNewProject(); });
+    window.metardu.menu.onFileOpened((filePath: string) => { void handleOpenProject(filePath); });
+    window.metardu.menu.onImportCsv((filePath: string) => { void handleImportCsv(filePath); });
   }, []);
 
   const refreshPoints = useCallback(async () => {

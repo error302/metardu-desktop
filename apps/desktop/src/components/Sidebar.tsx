@@ -1,4 +1,4 @@
-import type { SurveyPoint, ProjectRow } from '../../electron/preload.js';
+import type { SurveyPoint, ProjectRow } from '../types.js';
 
 interface SidebarProps {
   points: SurveyPoint[];

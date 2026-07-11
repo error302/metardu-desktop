@@ -9,7 +9,7 @@ import Point from 'ol/geom/Point';
 import Feature from 'ol/Feature';
 import { fromLonLat } from 'ol/proj';
 import { Style, Circle as CircleStyle, Fill, Stroke, Text as StyleText } from 'ol/style';
-import type { SurveyPoint, ProjectRow } from '../../electron/preload.js';
+import type { SurveyPoint, ProjectRow } from '../types.js';
 
 interface MapViewProps {
   points: SurveyPoint[];
@@ -95,7 +95,9 @@ export function MapView({ points, project }: MapViewProps) {
     // Auto-zoom to bounding box
     if (mapInstanceRef.current && features.length > 0) {
       const extent = source.getExtent();
-      mapInstanceRef.current.getView().fit(extent, { padding: [80, 80, 80, 80], maxZoom: 17 });
+      if (extent && extent.some(isFinite)) {
+        mapInstanceRef.current.getView().fit(extent, { padding: [80, 80, 80, 80], maxZoom: 17 });
+      }
     }
   }, [points]);
 

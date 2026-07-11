@@ -21,16 +21,14 @@
  *       app:version   — return app version
  */
 
-import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
+import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions } from 'electron';
 import * as path from 'node:path';
-import * as fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import log from 'electron-log/main';
 
-import { Database } from './database.js';
+import { MetarduDatabase } from './database.js';
 import { registerIpcHandlers } from './ipc.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// __dirname is a CommonJS global; no need to define it
 log.initialize();
 log.info('METARDU Desktop starting…');
 
@@ -38,7 +36,7 @@ const isDev = process.env.NODE_ENV === 'development' || !!process.env.VITE_DEV_S
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
 
 let mainWindow: BrowserWindow | null = null;
-let database: Database | null = null;
+let database: MetarduDatabase | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -77,7 +75,7 @@ function createWindow() {
 }
 
 function createMenu() {
-  const template: Electron.Menu = [
+  const template: MenuItemConstructorOptions[] = [
     {
       label: 'File',
       submenu: [
@@ -140,7 +138,7 @@ function createMenu() {
       label: 'Window',
       submenu: [{ role: 'minimize' }, { role: 'zoom' }, { role: 'close' }],
     },
-  ] as Electron.Menu;
+  ];
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }

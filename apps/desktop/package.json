@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "description": "METARDU Desktop — Production surveying platform. Electron shell wrapping the @metardu/engine libraries.",
-  "main": "electron/main.js",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "concurrently -k -n VITE,ELECTRON -c blue,magenta \"npm:dev:vite\" \"npm:dev:electron\"",
     "dev:vite": "vite",
@@ -22,7 +22,7 @@
     "better-sqlite3": "^11.0.0",
     "electron-updater": "^6.2.0",
     "electron-log": "^5.1.0",
-    "openlayers": "^10.0.0",
+    "ol": "^10.0.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-router-dom": "^6.24.0"
