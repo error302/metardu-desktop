@@ -1907,6 +1907,30 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (sync: web ↔ desktop bridge)');
+
+  // ─── P0 Math: Coordinate Converter (Cassini ↔ UTM) ──────────────────
+  ipcMain.handle('convert:coordinates', async (_evt, opts: {
+    easting: number; northing: number;
+    sourceCrs: 'cassini' | 'utm'; targetCrs: 'cassini' | 'utm';
+    cassiniSheet?: string; cassiniOriginLat?: number; cassiniOriginLon?: number;
+    utmZone?: number; hemisphere?: 'N' | 'S';
+  }) => {
+    const { convertCoordinates } = await import('./coordinate-converter.js');
+    return convertCoordinates(opts);
+  });
+
+  ipcMain.handle('convert:batch', async (_evt, opts: {
+    coordinates: Array<{ easting: number; northing: number; description?: string }>;
+    sourceCrs: 'cassini' | 'utm'; targetCrs: 'cassini' | 'utm';
+    cassiniSheet?: string; cassiniOriginLat?: number; cassiniOriginLon?: number;
+    utmZone?: number; hemisphere?: 'N' | 'S';
+  }) => {
+    const { batchConvert } = await import('./coordinate-converter.js');
+    const { coordinates, ...rest } = opts;
+    return batchConvert(coordinates, rest as any);
+  });
+
+  log.info('IPC handlers registered (P0 math: coordinate converter)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
