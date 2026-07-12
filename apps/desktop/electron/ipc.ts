@@ -1418,6 +1418,76 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (M6: engineering + machine control)');
+
+  // ─── OV2: Total Station Streaming (Overkill Vision) ──────────────────
+  // Real-time serial connection to total stations. The killer desktop feature.
+
+  let tsDriver: import('./total-station-driver.js').TotalStationDriver | null = null;
+
+  ipcMain.handle('ts:listPorts', async () => {
+    const { TotalStationDriver } = await import('./total-station-driver.js');
+    return TotalStationDriver.listPorts();
+  });
+
+  ipcMain.handle('ts:connect', async (_evt, portPath: string, baudRate?: number) => {
+    const { TotalStationDriver } = await import('./total-station-driver.js');
+    if (tsDriver) await tsDriver.disconnect();
+    tsDriver = new TotalStationDriver();
+
+    // Wire up events to forward to the renderer
+    tsDriver.on('connected', (info) => mainWindow?.webContents.send('ts:connected', info));
+    tsDriver.on('disconnected', () => mainWindow?.webContents.send('ts:disconnected'));
+    tsDriver.on('instrument_detected', (brand) => mainWindow?.webContents.send('ts:instrument_detected', brand));
+    tsDriver.on('measurement', (m) => mainWindow?.webContents.send('ts:measurement', m));
+    tsDriver.on('face_pair_averaged', (info) => mainWindow?.webContents.send('ts:face_pair_averaged', info));
+    tsDriver.on('error', (err) => mainWindow?.webContents.send('ts:error', err.message));
+    tsDriver.on('raw', (line) => mainWindow?.webContents.send('ts:raw', line));
+
+    await tsDriver.connect(portPath, baudRate ?? 9600);
+    return { connected: true, port: portPath };
+  });
+
+  ipcMain.handle('ts:disconnect', async () => {
+    if (tsDriver) { await tsDriver.disconnect(); tsDriver = null; }
+    return { disconnected: true };
+  });
+
+  ipcMain.handle('ts:setStation', async (_evt, setup: import('./total-station-driver.js').StationSetup) => {
+    if (!tsDriver) throw new Error('Total station not connected');
+    tsDriver.setStationSetup(setup);
+    return { stationSet: true };
+  });
+
+  ipcMain.handle('ts:measure', async (_evt, pointNumber?: string) => {
+    if (!tsDriver) throw new Error('Total station not connected');
+    await tsDriver.requestMeasurement(pointNumber);
+    return { measurementRequested: true };
+  });
+
+  ipcMain.handle('ts:status', async () => {
+    if (!tsDriver) return { connected: false };
+    return {
+      connected: tsDriver.isConnected,
+      brand: tsDriver.instrumentBrand,
+      lastShot: tsDriver.lastShot,
+    };
+  });
+
+  // ─── OV4: Auto-Blunder Detection (Overkill Vision) ───────────────────
+  // Statistical testing: Baarda, data snooping, reliability analysis.
+
+  ipcMain.handle('traverse:detectBlunders', async (_evt, opts: {
+    observations: Array<{ from: string; to: string; distance: number; bearing: number }>;
+    misclosure: number;
+    perimeter: number;
+    surveyType?: string;
+    stationCount?: number;
+  }) => {
+    const { detectBlunders } = await import('./blunder-detection.js');
+    return detectBlunders(opts);
+  });
+
+  log.info('IPC handlers registered (OV2+OV4: total station streaming + blunder detection)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
