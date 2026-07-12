@@ -168,6 +168,24 @@ const api = {
       signedAt?: string;
       warnings: string[];
     }>,
+    generateRinexLog: (opts: any) => ipcRenderer.invoke('form:generateRinexLog', opts) as Promise<{
+      pdfPath: string;
+      pdfSizeBytes: number;
+      pageCount: number;
+      sealed: boolean;
+      signatureFingerprint?: string;
+      signedAt?: string;
+      warnings: string[];
+    }>,
+    generateLevelingBook: (opts: any) => ipcRenderer.invoke('form:generateLevelingBook', opts) as Promise<{
+      pdfPath: string;
+      pdfSizeBytes: number;
+      pageCount: number;
+      sealed: boolean;
+      signatureFingerprint?: string;
+      signedAt?: string;
+      warnings: string[];
+    }>,
   },
   menu: {
     onFileNew: (cb: () => void) => ipcRenderer.on('menu:file:new', cb),

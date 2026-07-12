@@ -589,3 +589,207 @@ html, body, #root {
 .blunder-flag { background: #fdf2f2; }
 .std-fail { color: #92453e; font-weight: 700; }
 .lsa-report { font-size: 10px; font-family: 'JetBrains Mono', monospace; white-space: pre-wrap; max-height: 300px; overflow-y: auto; background: #1a1a2e; color: #0f0; padding: 10px; border-radius: 4px; }
+
+/* ===== Tab Navigation ===== */
+.tab-nav {
+  display: flex;
+  background: #0B2545;
+  border-bottom: 1px solid #1a3a5c;
+  padding: 0 8px;
+  gap: 4px;
+}
+.tab-nav .tab {
+  background: transparent;
+  border: none;
+  color: #a0b4d0;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s;
+}
+.tab-nav .tab:hover { color: white; background: rgba(255,255,255,0.05); }
+.tab-nav .tab.active { color: white; border-bottom-color: #4a9eff; background: rgba(74,158,255,0.08); }
+.tab-nav .tab .tab-icon { font-size: 15px; }
+
+/* ===== Panel Container ===== */
+.panel-container {
+  flex: 1;
+  overflow-y: auto;
+  background: #f8f9fb;
+  padding: 0;
+}
+
+/* ===== Statutory Forms Panel ===== */
+.statutory-forms-panel { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.panel-header h3 { margin: 0 0 4px; font-size: 18px; color: #0B2545; }
+.panel-subtitle { margin: 0 0 20px; color: #5b6470; font-size: 13px; }
+.forms-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.form-card {
+  background: white;
+  border: 1px solid #dfe3ea;
+  border-radius: 8px;
+  padding: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+.form-card:hover { border-color: #4a9eff; box-shadow: 0 2px 8px rgba(74,158,255,0.15); }
+.form-card.active { border-color: #4a9eff; background: #f0f7ff; }
+.form-card-icon { font-size: 22px; margin-bottom: 8px; }
+.form-card-title { font-size: 14px; font-weight: 600; color: #0B2545; margin-bottom: 4px; }
+.form-card-desc { font-size: 11px; color: #5b6470; line-height: 1.4; margin-bottom: 6px; }
+.form-card-reg { font-size: 10px; color: #4a9eff; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+
+.form-detail { background: white; border: 1px solid #dfe3ea; border-radius: 8px; padding: 18px; }
+.form-detail h4 { margin: 0 0 14px; font-size: 15px; color: #0B2545; }
+.form-fields fieldset { border: 1px solid #dfe3ea; border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+.form-fields legend { font-size: 11px; color: #5b6470; font-weight: 600; text-transform: uppercase; padding: 0 6px; }
+.form-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.form-row label { flex: 1; min-width: 180px; font-size: 11px; color: #5b6470; display: flex; flex-direction: column; gap: 3px; }
+.form-row input, .form-row select { padding: 6px 8px; border: 1px solid #dfe3ea; border-radius: 4px; font-size: 12px; }
+.form-actions { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+.form-note { font-size: 11px; color: #5b6470; }
+.form-error { margin-top: 12px; padding: 10px; background: #fdf2f2; border-left: 3px solid #92453e; border-radius: 4px; font-size: 12px; color: #92453e; }
+.form-success { margin-top: 12px; padding: 12px; background: #f0faf3; border-left: 3px solid #46875c; border-radius: 4px; font-size: 12px; color: #0B2545; }
+.form-warnings { margin: 8px 0 0; padding-left: 16px; font-size: 11px; color: #a18347; }
+.form-seal-info { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #dfe3ea; font-size: 11px; color: #5b6470; }
+.form-seal-info code { background: #f0f1f4; padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+
+/* ===== Workflow Dashboard ===== */
+.workflow-dashboard { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.dashboard-header h3 { margin: 0 0 4px; font-size: 18px; color: #0B2545; }
+.dashboard-subtitle { margin: 0 0 16px; color: #5b6470; font-size: 13px; }
+.workflow-tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+.workflow-tab {
+  background: white;
+  border: 1px solid #dfe3ea;
+  border-radius: 6px;
+  padding: 10px 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #5b6470;
+  transition: all 0.15s;
+}
+.workflow-tab:hover { border-color: #4a9eff; }
+.workflow-tab.active { background: #0B2545; color: white; border-color: #0B2545; }
+.workflow-tab .tab-icon { font-size: 16px; }
+
+.workflow-detail { background: white; border: 1px solid #dfe3ea; border-radius: 8px; overflow: hidden; }
+.workflow-banner { padding: 18px; background: linear-gradient(135deg, #0B2545 0%, #1a3a5c 100%); color: white; }
+.banner-title { font-size: 17px; font-weight: 700; }
+.banner-subtitle { font-size: 12px; opacity: 0.85; margin-top: 2px; }
+.banner-principle { font-size: 12px; margin-top: 10px; padding: 8px 12px; background: rgba(255,255,255,0.1); border-radius: 4px; border-left: 3px solid #4a9eff; }
+.banner-progress { margin-top: 12px; display: flex; align-items: center; gap: 10px; }
+.progress-bar { flex: 1; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; background: #4a9eff; transition: width 0.3s; }
+.progress-text { font-size: 11px; opacity: 0.9; }
+
+.workflow-steps { padding: 16px; }
+.workflow-step {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #dfe3ea;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.workflow-step:hover { background: #f8f9fb; }
+.workflow-step.status-complete { border-left: 3px solid #46875c; background: #f0faf3; }
+.workflow-step.status-in-progress { border-left: 3px solid #4a9eff; background: #f0f7ff; }
+.workflow-step.status-error { border-left: 3px solid #92453e; background: #fdf2f2; }
+.workflow-step.status-skipped { opacity: 0.6; border-left: 3px solid #dfe3ea; }
+.step-status-icon {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: #dfe3ea;
+  color: #5b6470;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.workflow-step.status-complete .step-status-icon { background: #46875c; color: white; }
+.workflow-step.status-in-progress .step-status-icon { background: #4a9eff; color: white; }
+.workflow-step.status-error .step-status-icon { background: #92453e; color: white; }
+.step-content { flex: 1; }
+.step-title { font-size: 13px; font-weight: 600; color: #0B2545; }
+.step-desc { font-size: 11px; color: #5b6470; margin-top: 3px; line-height: 1.4; }
+.step-validation { font-size: 10px; color: #0B2545; margin-top: 6px; padding: 4px 8px; background: #fff8ec; border-radius: 3px; border-left: 2px solid #a18347; }
+.step-output { font-size: 10px; color: #5b6470; margin-top: 4px; }
+.step-ipc { font-size: 10px; color: #4a9eff; font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
+.step-actions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+
+.workflow-footer { padding: 14px 18px; background: #f8f9fb; border-top: 1px solid #dfe3ea; }
+.footer-principle { font-size: 12px; color: #0B2545; }
+.footer-note { font-size: 11px; color: #5b6470; margin-top: 4px; }
+
+/* ===== Cadastral Workflow Panel ===== */
+.cadastral-workflow-panel { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.cadastral-workflow-panel .panel-header h3 { margin: 0 0 4px; font-size: 18px; color: #0B2545; }
+.cadastral-workflow-panel .panel-principle { font-size: 12px; color: #5b6470; margin: 0 0 18px; padding: 8px 12px; background: #fff8ec; border-left: 3px solid #a18347; border-radius: 4px; }
+.step-tabs { display: flex; gap: 4px; margin-bottom: 18px; flex-wrap: wrap; }
+.step-tab {
+  background: white;
+  border: 1px solid #dfe3ea;
+  border-radius: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #5b6470;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.step-tab:hover { border-color: #4a9eff; }
+.step-tab.active { background: #0B2545; color: white; border-color: #0B2545; }
+.step-tab .step-num { background: #dfe3ea; color: #5b6470; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; }
+.step-tab.active .step-num { background: #4a9eff; color: white; }
+.step-content { background: white; border: 1px solid #dfe3ea; border-radius: 8px; padding: 18px; }
+.step-pane h4 { margin: 0 0 8px; font-size: 15px; color: #0B2545; }
+.step-pane p { margin: 0 0 12px; font-size: 13px; color: #5b6470; line-height: 1.5; }
+.step-pane fieldset { border: 1px solid #dfe3ea; border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+.step-pane legend { font-size: 11px; color: #5b6470; font-weight: 600; text-transform: uppercase; padding: 0 6px; }
+.step-pane .form-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.step-pane .form-row label { flex: 1; min-width: 160px; font-size: 11px; color: #5b6470; display: flex; flex-direction: column; gap: 3px; }
+.step-pane .form-row input, .step-pane .form-row select { padding: 6px 8px; border: 1px solid #dfe3ea; border-radius: 4px; font-size: 12px; }
+.step-pane .form-actions { display: flex; gap: 8px; margin-top: 12px; }
+.legs-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; }
+.legs-table th { background: #f8f9fb; padding: 6px 8px; text-align: left; font-size: 11px; color: #5b6470; border-bottom: 1px solid #dfe3ea; }
+.legs-table td { padding: 4px 8px; border-bottom: 1px solid #f0f1f4; }
+.legs-table input { width: 100%; padding: 4px 6px; border: 1px solid #dfe3ea; border-radius: 3px; font-size: 11px; }
+.validation-note { font-size: 11px; color: #0B2545; margin-top: 12px; padding: 8px 12px; background: #f0f7ff; border-radius: 4px; border-left: 3px solid #4a9eff; }
+.hint { font-size: 11px; color: #5b6470; font-style: italic; margin-top: 8px; }
+.result-block { margin-top: 16px; padding: 14px; background: #f8f9fb; border-radius: 6px; border-left: 3px solid #4a9eff; }
+.result-block h5 { margin: 0 0 8px; font-size: 13px; color: #0B2545; }
+.result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 12px; margin-bottom: 12px; }
+.stations-table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+.stations-table th { background: #0B2545; color: white; padding: 5px 8px; text-align: right; }
+.stations-table th:first-child { text-align: left; }
+.stations-table td { padding: 4px 8px; border-bottom: 1px solid #f0f1f4; text-align: right; }
+.stations-table td:first-child { text-align: left; font-weight: 600; }
+.status-pass { color: #46875c; font-weight: 600; }
+.status-fail { color: #92453e; font-weight: 600; }
+.status-conditional { color: #a18347; font-weight: 600; }
+.qa-checks-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+.qa-checks-table th { background: #f8f9fb; padding: 6px; text-align: left; border-bottom: 1px solid #dfe3ea; }
+.qa-checks-table td { padding: 6px; border-bottom: 1px solid #f0f1f4; }
+.qa-checks-table tr.status-pass { background: #f0faf3; }
+.qa-checks-table tr.status-fail { background: #fdf2f2; }
+.qa-checks-table tr.status-warning { background: #fff8ec; }
+.step-error { margin-top: 12px; padding: 10px; background: #fdf2f2; border-left: 3px solid #92453e; border-radius: 4px; font-size: 12px; color: #92453e; }
+.step-loading { margin-top: 12px; padding: 8px; font-size: 12px; color: #4a9eff; }

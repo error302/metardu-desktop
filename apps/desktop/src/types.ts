@@ -171,5 +171,44 @@ export interface MetarduApi {
     onFileOpened: (cb: (filePath: string) => void) => void;
     onImportCsv: (cb: (filePath: string) => void) => void;
   };
+  // Optional namespaces — present when the corresponding preload module is loaded.
+  // Renderer code should feature-detect: `if (window.metardu.report) { ... }`.
+  report?: {
+    generate: (opts: any) => Promise<{
+      pdfPath: string;
+      pdfSizeBytes: number;
+      pageCount: number;
+      sealed: boolean;
+      signatureFingerprint?: string;
+      signedAt?: string;
+      warnings: string[];
+    }>;
+  };
+  form?: {
+    generateFormP: (opts: any) => Promise<any>;
+    generateTopoReport: (opts: any) => Promise<any>;
+    generateCrossSections: (opts: any) => Promise<any>;
+    generateRinexLog: (opts: any) => Promise<any>;
+    generateLevelingBook: (opts: any) => Promise<any>;
+  };
+  plan?: {
+    render: (opts: any) => Promise<any>;
+    autoGenerate: (opts: any) => Promise<any>;
+    renderTopo: (opts: any) => Promise<any>;
+    renderEngineering: (opts: any) => Promise<any>;
+    print: (opts: any) => Promise<any>;
+    listPrinters: () => Promise<any>;
+  };
+  qa?: {
+    gisReport: (opts: any) => Promise<any>;
+    gate: (opts: any) => Promise<any>;
+  };
+  export?: {
+    dxf: (opts: any) => Promise<any>;
+    dxfSoK: (opts: any) => Promise<any>;
+    landxml: (opts: any) => Promise<any>;
+    geojson: (opts: any) => Promise<any>;
+    shapefile: (opts: any) => Promise<any>;
+  };
 }
 

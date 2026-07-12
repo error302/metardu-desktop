@@ -205,6 +205,124 @@ volumes. Used for earthworks verification and payment certification.
   (borrow/spoil), average cut depth, average fill height, haul distance.
 - Color-coded: CUT (red), FILL (blue), BORROW/SPOIL (navy).
 
+### RINEX Observation Log (Topographical Supplementary)
+
+GNSS observation session log for static post-processing. Per Survey of
+Kenya GNSS Practice Notes.
+
+- Submission → Generate RINEX Log
+- Pages: Cover + Project Info + CORS Stations, then one page per session,
+  Surveyor's Certificate (RSA-2048 sealed).
+- Each session records: station info (marker, approx coords), receiver
+  info (make, model, serial, firmware), antenna info (make, model, serial,
+  height, measurement method), session info (start/end UTC, duration,
+  interval, satellites observed, ephemeris source, operator), weather
+  (temperature, pressure, humidity, conditions), notes.
+- Validation warnings emitted for sessions < 30 min, < 4 satellites, or
+  invalid antenna heights.
+
+### Leveling Book (Engineering Supplementary)
+
+Rise and fall method leveling book with automatic page check and run
+closure. Per RDM 1.1 Section 5.
+
+- Submission → Generate Leveling Book
+- Pages: Cover + Equipment + Closure Summary, one page per leveling page
+  (with readings table + page check), Surveyor's Certificate (RSA-2048 sealed).
+- Each leveling page records: starting BM (name + elevation), closing BM,
+  readings table (station, BS, IS, FS, rise, fall, RL, distance, remarks),
+  page check (Sum BS, Sum FS, Sum Rise, Sum Fall, BS-FS, Rise-Fall,
+  Last RL - First RL — must agree to ±0.001 m).
+- Run closure: misclosure vs allowable (10*sqrt(K) mm where K = distance in km).
+- Page check enforced: must PASS before leaving the field.
+
+## Workflow Dashboard
+
+Six production-grade workflows, each tuned to a specific surveyor type.
+All enforce the principle: NO ERRORS PROPAGATE. Every step validates
+inputs and outputs before proceeding.
+
+Access via the **All Workflows** tab.
+
+### 1. Cadastral Survey Workflow
+Perfect, error-free, no propagation. 13 steps:
+1. Import Field Data (CSV/RINEX/total station)
+2. Verify Control Network (against SoK control registry, ±10mm)
+3. Compute Traverse (Bowditch/Transit/LSA; Reg 97 1:5000 minimum)
+4. Blunder Detection (Baarda χ² + data snooping w-test)
+5. COGO Recovery (bearing/distance intersection, ±20mm tolerance)
+6. Create Parcel (simple polygon validation)
+7. Compute Area (Gauss/Green's theorem; for mutation: parent = sum + balance, ±0.01 m²)
+8. QA Gate (10-category pre-submission validation)
+9. Form J (Traverse Abstract per Reg 17)
+10. Deed Plan (Auto-Layout)
+11. Mutation Form (if applicable — Form P per Reg 38)
+12. NLIMS/ArdhiSasa Export (JSON schema validation)
+13. Survey Report (RSA-2048 sealed)
+
+### 2. Leveling Workflow (Large Project)
+For massive level runs. 10 steps:
+1. Bench Mark Schedule (TBM at 1km intervals)
+2. Equipment Calibration Check (two-peg test, staff calibration)
+3. Field Leveling (page by page, rise and fall, equal FS/BS)
+4. Page Check (per page — must pass ±0.001 m before leaving field)
+5. Run Closure (10*sqrt(K) mm allowable)
+6. Adjust Reduced Levels (proportional to distance)
+7. Second-Order Correction (curvature/refraction for sights > 50m)
+8. Leveling Book PDF (RDM 1.1 Section 5)
+9. Cross-Sections (if engineering)
+10. Archive + Seal (RSA-2048)
+
+### 3. KeNHA Road Engineering Workflow
+For survey engineers at KeNHA. 11 steps:
+1. Import Road Design (LandXML alignment + profile + template)
+2. Establish Control (GNSS static, 500m intervals, ±5mm + 1ppm)
+3. Alignment Design (curves per design speed, superelevation per RDM 1.1)
+4. Curve Setting Out (chainage + offset table)
+5. Staking Table (10m tangents, 5m curves)
+6. Cross-Section Survey (20m spacing, 50m flat terrain)
+7. Earthworks Computation (prismoidal method, < 5% error)
+8. Mass-Haul Diagram (freehaul vs overhaul economic analysis)
+9. Machine Control Export (7 formats: LandXML, DXF, Trimble, Leica, Topcon, generic, stakeout)
+10. As-Built Survey (±20mm H, ±10mm V tolerance)
+11. Engineering Report (RSA-2048 sealed)
+
+### 4. Construction Setting-Out Workflow
+For construction surveyors. 10 steps:
+1. Import Design Coordinates (DXF/CSV from architect/engineer)
+2. Establish Site Control (minimum 3 points, 1:10000 precision, daily check)
+3. Total Station Setup (free station or known station; residuals < 5mm)
+4. Compute Stakeout Coordinates (bearing + distance from station)
+5. Field Setting Out (peg tolerance ±5mm H, ±2mm V)
+6. Real-Time Deviation Check (deviation < ±10mm or as per spec)
+7. Re-Stake if Out of Tolerance (log original + corrected position)
+8. As-Built Record (final positions documented)
+9. Conformance Report (pass/fail per structural element)
+10. Archive + Seal (RSA-2048)
+
+### 5. Dam Construction Workflow
+For survey engineers building dams. 10 steps:
+1. Foundation Survey (1 point per 5m², breaklines along features)
+2. Dam Axis Control (1st-order GNSS, verified against national control)
+3. Grid Staking (10m × 10m typical, ±5mm tolerance)
+4. Base Volume Computation (DTM differencing, prismoidal, ±0.5% closure)
+5. Stage-Wise Construction Checking (per lift, volume variance < 2%)
+6. Spillway Alignment (per hydraulic design, ±10mm vertical)
+7. Embankment Cross-Sections (20m intervals along dam axis)
+8. As-Built vs Design (volume difference < 1% of total)
+9. GNSS Observation Log (RINEX log for all static GNSS sessions)
+10. Dam Survey Report (RSA-2048 sealed)
+
+### 6. Combined Survey Workflow
+For multi-discipline projects. 7 steps:
+1. Topographical Module (per SoK Practice Notes 2020)
+2. Cadastral Module (per Cap 299 + Survey Reg 1994)
+3. Engineering Module (per RDM 1.1 2025)
+4. GNSS Module (per SoK GNSS Practice Notes)
+5. Leveling Module (closure 10*sqrt(K) mm)
+6. Merge Deliverables (cross-module consistency check)
+7. Combined Survey Report (RSA-2048 sealed)
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |

@@ -3133,7 +3133,21 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
     return generateCrossSectionSheets(opts);
   });
 
-  log.info('IPC handlers registered (QA + topo/eng render + SoK DXF + Survey Report + Form P + Topo Report + Cross-Sections)');
+  // ─── RINEX Observation Log (Topographical supplementary) ────────────
+  // GNSS observation sessions for post-processing.
+  ipcMain.handle('form:generateRinexLog', async (_evt, opts: any) => {
+    const { generateRinexLog } = await import('./supplementary-forms.js');
+    return generateRinexLog(opts);
+  });
+
+  // ─── Leveling Book (Engineering supplementary) ──────────────────────
+  // Rise and fall method with page checks, per RDM 1.1 Section 5.
+  ipcMain.handle('form:generateLevelingBook', async (_evt, opts: any) => {
+    const { generateLevelingBook } = await import('./supplementary-forms.js');
+    return generateLevelingBook(opts);
+  });
+
+  log.info('IPC handlers registered (all forms + supplementary)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
