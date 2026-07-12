@@ -32,5 +32,8 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "proj4": "^2.20.9"
   }
 }

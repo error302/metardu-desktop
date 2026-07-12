@@ -53,4 +53,18 @@ export interface MetarduApi {
     onFileOpened: (cb: (filePath: string) => void) => void;
     onImportCsv: (cb: (filePath: string) => void) => void;
   };
+  map?: {
+    getLayers: () => Promise<any>;
+    getProjections: () => Promise<any>;
+    getMapSheets: () => Promise<any>;
+    getGridConfigs: () => Promise<any>;
+    getBeaconSymbology: () => Promise<any>;
+    getControlSymbology: () => Promise<any>;
+    getPapStatusColors: () => Promise<any>;
+    measureDistance: (points: any) => Promise<any>;
+    measureArea: (points: any) => Promise<any>;
+    measureBearing: (p1: any, p2: any) => Promise<any>;
+    generateScaleBar: (scaleDenominator: number, paperWidthMM?: number) => Promise<any>;
+    getLayersForSurveyType: (surveyType: string) => Promise<any>;
+  };
 }

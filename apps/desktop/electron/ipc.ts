@@ -119,7 +119,57 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
     return db.query('SELECT id, name, country_pack, default_crs_epsg, created_at, updated_at FROM projects');
   });
 
-  log.info('IPC handlers registered');
+  // ─── Map Standards (SoK layer registry + projections + Y717) ─────────
+  ipcMain.handle('map:getLayers', async () => {
+    const { SOK_LAYERS } = await import('./map-standards.js');
+    return SOK_LAYERS;
+  });
+  ipcMain.handle('map:getProjections', async () => {
+    const { KENYA_PROJECTIONS } = await import('./map-standards.js');
+    return KENYA_PROJECTIONS;
+  });
+  ipcMain.handle('map:getMapSheets', async () => {
+    const { Y717_MAP_SHEETS } = await import('./map-standards.js');
+    return Y717_MAP_SHEETS;
+  });
+  ipcMain.handle('map:getGridConfigs', async () => {
+    const { GRID_CONFIGS } = await import('./map-standards.js');
+    return GRID_CONFIGS;
+  });
+  ipcMain.handle('map:getBeaconSymbology', async () => {
+    const { BEACON_SYMBOLOGY } = await import('./map-standards.js');
+    return BEACON_SYMBOLOGY;
+  });
+  ipcMain.handle('map:getControlSymbology', async () => {
+    const { CONTROL_SYMBOLOGY } = await import('./map-standards.js');
+    return CONTROL_SYMBOLOGY;
+  });
+  ipcMain.handle('map:getPapStatusColors', async () => {
+    const { PAP_STATUS_COLORS } = await import('./map-standards.js');
+    return PAP_STATUS_COLORS;
+  });
+  ipcMain.handle('map:measureDistance', async (_evt, points: any) => {
+    const { measureDistance } = await import('./map-standards.js');
+    return measureDistance(points);
+  });
+  ipcMain.handle('map:measureArea', async (_evt, points: any) => {
+    const { measureArea } = await import('./map-standards.js');
+    return measureArea(points);
+  });
+  ipcMain.handle('map:measureBearing', async (_evt, p1: any, p2: any) => {
+    const { measureBearing } = await import('./map-standards.js');
+    return measureBearing(p1, p2);
+  });
+  ipcMain.handle('map:generateScaleBar', async (_evt, scaleDenominator: number, paperWidthMM?: number) => {
+    const { generateScaleBar } = await import('./map-standards.js');
+    return generateScaleBar(scaleDenominator, paperWidthMM);
+  });
+  ipcMain.handle('map:getLayersForSurveyType', async (_evt, surveyType: string) => {
+    const { getLayersForSurveyType } = await import('./map-standards.js');
+    return getLayersForSurveyType(surveyType as any);
+  });
+
+  log.info('IPC handlers registered (including map standards)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
