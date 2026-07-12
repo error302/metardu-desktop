@@ -1931,6 +1931,121 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (P0 math: coordinate converter)');
+
+  // ─── P0 Math: LSA Traverse Adjustment + Error Ellipses ──────────────
+  // The engine has 3,560 LOC of least squares adjustment with error
+  // ellipses, Baarda chi-square test, and redundancy numbers.
+  // This wires it to the traverse UI as an alternative to Bowditch.
+
+  ipcMain.handle('traverse:adjustLSA', async (_evt, opts: {
+    stations: Array<{
+      id: string; name: string; easting: number; northing: number; isFixed: boolean;
+    }>;
+    angles: Array<{
+      id: string; fromStationId: string; toStationId: string;
+      atStationId?: string; angle: number; stdDev?: number;
+    }>;
+    distances: Array<{
+      id: string; fromStationId: string; toStationId: string;
+      distance: number; stdDev?: number;
+    }>;
+  }) => {
+    const engine = await import('@metardu/engine');
+    // adjustTraverseLSA is in leastSquaresAdjustment.ts
+    const lasModulePath = require('path').resolve(__dirname, '../../packages/engine/src/engine/leastSquaresAdjustment');
+    const { adjustTraverseLSA } = await import(lasModulePath);
+
+    const result = adjustTraverseLSA({
+      stations: opts.stations.map((s) => ({
+        id: s.id, name: s.name, easting: s.easting, northing: s.northing, isFixed: s.isFixed,
+      })) as any,
+      angles: opts.angles.map((a) => ({
+        id: a.id, fromStationId: a.fromStationId, toStationId: a.toStationId,
+        atStationId: a.atStationId, angle: a.angle, stdDev: a.stdDev ?? 5,  // 5" default
+      })) as any,
+      distances: opts.distances.map((d) => ({
+        id: d.id, fromStationId: d.fromStationId, toStationId: d.toStationId,
+        distance: d.distance, stdDev: d.stdDev ?? 0.003,  // 3mm default
+      })) as any,
+    });
+
+    // Return a clean shape for the renderer
+    return {
+      adjustedStations: result.adjustedStations?.map((s: any) => ({
+        id: s.id, name: s.name,
+        easting: s.adjustedEasting, northing: s.adjustedNorthing,
+        correctionE: s.correctionE, correctionN: s.correctionN,
+        stdDevE: s.stdDevE, stdDevN: s.stdDevN,
+        errorEllipse: s.errorEllipse ? {
+          semiMajor: s.errorEllipse.semiMajor,
+          semiMinor: s.errorEllipse.semiMinor,
+          orientation: s.errorEllipse.orientation,
+        } : null,
+      })) ?? [],
+      residuals: result.residuals?.map((r: any) => ({
+        observationId: r.observationId,
+        type: r.type,
+        observed: r.observed,
+        computed: r.computed,
+        residual: r.residual,
+        standardized: r.standardized,
+        redundancyNumber: r.redundancyNumber,
+      })) ?? [],
+      referenceVariance: result.referenceVariance,
+      degreesOfFreedom: result.degreesOfFreedom,
+      standardError: result.standardError,
+      chiSquarePassed: result.passed,
+      chiSquareValue: result.chiSquareValue,
+      chiSquareCritical: result.chiSquareCritical,
+      report: result.report,
+    };
+  });
+
+  // ─── P0 Math: Clothoid Transition Curves ────────────────────────────
+  // Required by Kenya RDM 1.1 for roads with design speed > 50 km/h.
+  // The engine has computeClothoid in computations/clothoidTransition.ts.
+
+  ipcMain.handle('eng:clothoidCurve', async (_evt, opts: {
+    radius: number;           // metres
+    designSpeed: number;      // km/h
+    deflectionAngleDeg: number;  // degrees (intersection angle)
+    ipChainage: number;       // metres
+    transitionLength?: number;  // metres (optional — auto-computed if omitted)
+  }) => {
+    const clothoidPath = require('path').resolve(__dirname, '../../packages/engine/src/computations/clothoidTransition');
+    const { computeClothoid, clothoidSetOutTable } = await import(clothoidPath);
+
+    const result = computeClothoid({
+      radius: opts.radius,
+      designSpeed: opts.designSpeed,
+      deflectionAngleRad: opts.deflectionAngleDeg * Math.PI / 180,
+      ipChainage: opts.ipChainage,
+      transitionLength: opts.transitionLength,
+    } as any);
+
+    const setOutTable = clothoidSetOutTable ? clothoidSetOutTable(result as any) : [];
+
+    return {
+      spiralParamA: result.spiralParamA,
+      spiralAngleTau: result.spiralAngleTau,
+      spiralAngleTauDeg: result.spiralAngleTauDeg,
+      transitionLength: result.minTransitionLength ?? result.Ls,
+      shift: result.curveShiftP ?? result.shift,
+      tangentLength: result.modifiedTangent ?? result.T,
+      totalCurveLength: result.totalCurveLength ?? result.L,
+      circularCurveLength: result.circularArcLength ?? result.circularCurveLength,
+      chainageTS: result.tsChainage ?? result.chainageTS,
+      chainageSC: result.scChainage ?? result.chainageSC,
+      chainageCS: result.csChainage ?? result.chainageCS,
+      chainageST: result.stChainage ?? result.chainageST,
+      spiralInPoints: result.spiralInPoints?.length ?? 0,
+      spiralOutPoints: result.spiralOutPoints?.length ?? 0,
+      isLengthAdequate: result.isLengthAdequate,
+      setOutTable,
+    };
+  });
+
+  log.info('IPC handlers registered (P0 math: LSA traverse + clothoid)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
