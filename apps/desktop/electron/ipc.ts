@@ -3024,7 +3024,95 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
     return { file_path: filePath, size_bytes: dxfContent.length, layers: Object.keys(DXF_LAYERS).length };
   });
 
-  log.info('IPC handlers registered (QA gate + topo/engineering render + SoK DXF)');
+  // ─── Survey Report Generator (Statutory Report Package) ──────────────
+  // Consolidated PDF: Cover Sheet + Form J + Beacon Schedule + Area Schedule
+  // + Surveyor's Certificate (RSA-2048 sealed).
+  // 'No plan leaves METARDU Desktop without passing the QA gate.'
+  // No report leaves without the surveyor's seal.
+  ipcMain.handle('report:generate', async (_evt, opts: {
+    project: {
+      name: string;
+      surveyType: 'cadastral' | 'engineering' | 'topographical' | 'mutation';
+      parcelNumber: string;
+      lrNumber: string;
+      county: string;
+      subCounty?: string;
+      locality: string;
+      surveyDate: string;
+      submissionDate?: string;
+      projection: string;
+      datum: string;
+      zone?: string;
+      directorOfSurveysRef?: string;
+    };
+    surveyor: {
+      name: string;
+      license: string;
+      firmName?: string;
+      postalAddress?: string;
+      phoneNumber?: string;
+      email?: string;
+    };
+    traverse?: {
+      legs: Array<{
+        fromStation: string;
+        toStation: string;
+        observedBearing: number;
+        distance: number;
+        deltaE: number;
+        deltaN: number;
+        adjustedEasting: number;
+        adjustedNorthing: number;
+      }>;
+      startingStation: string;
+      startingEasting: number;
+      startingNorthing: number;
+      closingStation?: string;
+      linearMisclose: number;
+      ratioDenominator: number;
+      precisionClass: string;
+      adjustmentMethod: 'bowditch' | 'transit' | 'least_squares';
+      totalLength: number;
+    };
+    beacons: Array<{
+      number: string;
+      type: 'concrete' | 'iron_pin' | 'stone' | 'reference_object' | 'pipe' | 'natural';
+      easting: number;
+      northing: number;
+      elevation?: number;
+      description?: string;
+      placedDate?: string;
+    }>;
+    areaSchedule: {
+      parentParcelNumber: string;
+      parentAreaSqM: number;
+      rows: Array<{
+        parcelNumber: string;
+        areaSqM: number;
+        areaHa: number;
+        areaAcres: number;
+        percentage?: number;
+        notes?: string;
+      }>;
+      balanceAreaSqM?: number;
+      reconciliationPassed: boolean;
+      reconciliationDelta?: number;
+    };
+    planIndex?: Array<{
+      planTitle: string;
+      planNumber?: string;
+      paperSize: string;
+      scale: string;
+      fileName?: string;
+    }>;
+    outputPath: string;
+    sealWithRSA?: boolean;
+  }) => {
+    const { generateSurveyReport } = await import('./survey-report-generator.js');
+    return generateSurveyReport(opts as any);
+  });
+
+  log.info('IPC handlers registered (QA gate + topo/engineering render + SoK DXF + Survey Report)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {

@@ -106,16 +106,39 @@ const api = {
   qa: {
     gisReport: (opts: { points: Array<{ number: string; easting: number; northing: number; elevation?: number; code?: string }>; sourceFormat: string; projectName?: string; expectedCrs?: string }) =>
       ipcRenderer.invoke('qa:gisReport', opts) as Promise<GisQaReportResult>,
+    gate: (opts: any) =>
+      ipcRenderer.invoke('qa:gate', opts) as Promise<any>,
   },
   export: {
     dxf: (opts: ExportDxfInput) =>
       ipcRenderer.invoke('export:dxf', opts) as Promise<{ file_path: string; size_bytes: number }>,
+    dxfSoK: (opts: any) =>
+      ipcRenderer.invoke('export:dxfSoK', opts) as Promise<{ file_path: string; size_bytes: number; layers: number }>,
     landxml: (opts: ExportLandXmlInput) =>
       ipcRenderer.invoke('export:landxml', opts) as Promise<{ file_path: string; size_bytes: number }>,
     geojson: (opts: ExportGeoJsonInput) =>
       ipcRenderer.invoke('export:geojson', opts) as Promise<{ file_path: string }>,
     shapefile: (opts: ExportShapefileInput) =>
       ipcRenderer.invoke('export:shapefile', opts) as Promise<{ file_path: string; size_bytes: number }>,
+  },
+  plan: {
+    render: (opts: any) => ipcRenderer.invoke('plan:render', opts) as Promise<any>,
+    autoGenerate: (opts: any) => ipcRenderer.invoke('plan:autoGenerate', opts) as Promise<any>,
+    renderTopo: (opts: any) => ipcRenderer.invoke('plan:renderTopo', opts) as Promise<any>,
+    renderEngineering: (opts: any) => ipcRenderer.invoke('plan:renderEngineering', opts) as Promise<any>,
+    print: (opts: any) => ipcRenderer.invoke('plan:print', opts) as Promise<any>,
+    listPrinters: () => ipcRenderer.invoke('plan:listPrinters') as Promise<any>,
+  },
+  report: {
+    generate: (opts: any) => ipcRenderer.invoke('report:generate', opts) as Promise<{
+      pdfPath: string;
+      pdfSizeBytes: number;
+      pageCount: number;
+      sealed: boolean;
+      signatureFingerprint?: string;
+      signedAt?: string;
+      warnings: string[];
+    }>,
   },
   menu: {
     onFileNew: (cb: () => void) => ipcRenderer.on('menu:file:new', cb),

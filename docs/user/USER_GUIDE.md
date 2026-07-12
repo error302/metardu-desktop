@@ -27,6 +27,7 @@
 7. **Seal certificate**: Deed Plan → Seal with Surveyor Certificate
 8. **Export NLIMS**: Submission → Export NLIMS JSON
 9. **Generate workbook**: Submission → Generate Statutory Workbook
+10. **Generate survey report**: Submission → Generate Survey Report (consolidated 5-page PDF: Cover + Form J + Beacons + Areas + Surveyor's Certificate, RSA-2048 sealed)
 
 ### Quick Start (Topographic Survey)
 
@@ -36,6 +37,7 @@
 4. Generate contours (0.5m interval, index contours every 5th)
 5. Export DXF with SoK layer registry (61 layers)
 6. Export LandXML 1.2 / GeoJSON / Shapefile
+7. Run QA Gate before submission (10 check categories: Completeness, Precision, Blunder, Topology, Coordinate, Bearing/Distance, Area, Beacon, Title Block, NLIMS)
 
 ### Quick Start (Engineering Survey)
 
@@ -93,6 +95,62 @@ Supported instruments: Topcon, Leica, Sokkia, Trimble, Pentax, South
 - Auto-dimensioning: bearings/distances perpendicular to each edge
 - Pure constraint solver — no AI
 
+## Survey Report Generator (Statutory Report Package)
+
+The Survey Report Generator produces a single consolidated PDF containing the
+full suite of statutory documents required for Survey of Kenya examination.
+No plan leaves METARDU Desktop without the surveyor's RSA-2048 digital seal.
+
+- Submission → Generate Survey Report
+- Output: A4 portrait, multi-page PDF (typically 5 pages, expands with traverse length)
+- Sealed with RSA-2048 (SHA-256 hash signed with surveyor's private key)
+
+### Pages
+
+1. **Cover Sheet** — Project name, parcel number, LR number, surveyor name +
+   license + firm, county, locality, survey date, projection, datum, plan index.
+2. **Form J — Traverse Computation Sheet** — Traverse abstract per Reg 17:
+   station, observed bearing, distance, ΔE, ΔN, adjusted E/N.
+   Includes closure summary, precision class, and Reg 97 compliance check.
+3. **Schedule of Beacons** — All beacons with number, type, coordinates
+   (3 decimal places), elevation, and description.
+4. **Schedule of Areas** — Parent parcel area, subdivisions with percentage,
+   reconciliation (parent = sum of children + balance), delta check.
+5. **Surveyor's Certificate** — Per Reg 3(2): certificate text, surveyor
+   name + license + firm, signature line, RSA-2048 digital seal block
+   (algorithm, signed timestamp, document hash, key fingerprint, public key,
+   base64 signature).
+
+### Verification
+
+Anyone with the surveyor's public key can verify the seal:
+
+```bash
+# Extract the document hash (PDF bytes excluding the appended certificate page)
+sha256sum survey-report.pdf  # this is the hash that was signed
+
+# Verify with OpenSSL
+echo "<base64-signature>" | base64 -d > sig.bin
+openssl dgst -sha256 -verify surveyor_public.pem -signature sig.bin survey-report-pre-certificate.pdf
+```
+
+## QA Gate (Pre-Submission Validation)
+
+- Submission → Run QA Gate
+- No plan leaves METARDU Desktop without passing this gate.
+- 10 check categories:
+  1. Completeness — parcel number, LR number, minimum points
+  2. Precision — traverse precision vs Reg 97 standard
+  3. Blunder — Baarda global test + reliability rating
+  4. Topology — self-intersection + duplicate point check
+  5. Coordinate — CRS declared, precision format
+  6. Bearing/Distance — range validation (0–360°, >0 m)
+  7. Area — reconciliation (parent = sum of children for mutations)
+  8. Beacon — all beacons have type assigned
+  9. Title Block — surveyor name+license (Reg 3(2)), date, county, projection, datum
+  10. NLIMS — required fields present for ArdhiSasa submission
+- Overall result: PASS (submit) / CONDITIONAL (submit with notes) / FAIL (cannot submit)
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
@@ -107,6 +165,8 @@ Supported instruments: Topcon, Leica, Sokkia, Trimble, Pentax, South
 | Ctrl+Shift+S | Seal Certificate |
 | Ctrl+E | Export |
 | Ctrl+Shift+E | Export NLIMS |
+| Ctrl+R | Generate Survey Report |
+| Ctrl+Shift+G | Run QA Gate |
 | F1 | Help |
 | F11 | Fullscreen |
 | Ctrl+Shift+P | Command Palette |
