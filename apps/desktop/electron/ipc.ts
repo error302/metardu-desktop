@@ -801,7 +801,300 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
     return { file_path: filePath, pdf_hash: hash };
   });
 
-  log.info('IPC handlers registered (M3: crypto + nlims + workbook + mutation)');
+  // ─── Topographic handlers (M4) ───────────────────────────────────────
+  // TIN, contours, RINEX import, LAS import, DXF/LandXML/GeoJSON/Shapefile export.
+
+  ipcMain.handle('topo:generateTin', async (_evt, opts: {
+    points: Array<{ easting: number; northing: number; elevation: number }>;
+    breaklines?: Array<{
+      points: Array<{ easting: number; northing: number; elevation: number }>;
+      type: 'hard' | 'soft' | 'ridge' | 'valley';
+    }>;
+  }) => {
+    const { buildBreaklineTIN } = await import('@metardu/engine');
+    const surfacePoints = opts.points.map((p) => ({ x: p.easting, y: p.northing, z: p.elevation }));
+    const breaklines = (opts.breaklines ?? []).map((b) => ({
+      points: b.points.map((p) => ({ x: p.easting, y: p.northing, z: p.elevation })),
+      type: b.type,
+    }));
+    const tin = buildBreaklineTIN(surfacePoints as any, breaklines as any);
+    return {
+      triangle_count: tin.triangles.length,
+      point_count: tin.points.length,
+      removed_triangles: (tin as any).removedTriangles ?? 0,
+      added_triangles: (tin as any).addedTriangles ?? 0,
+      has_constraints: (tin as any).hasConstraints ?? false,
+      // Return triangles as flat array for renderer
+      triangles: tin.triangles.map((t: any) => ({
+        a: t.a, b: t.b, c: t.c,
+        a_xyz: [tin.points[t.a].x, tin.points[t.a].y, tin.points[t.a].z],
+        b_xyz: [tin.points[t.b].x, tin.points[t.b].y, tin.points[t.b].z],
+        c_xyz: [tin.points[t.c].x, tin.points[t.c].y, tin.points[t.c].z],
+      })),
+    };
+  });
+
+  ipcMain.handle('topo:generateContours', async (_evt, opts: {
+    points: Array<{ easting: number; northing: number; elevation: number }>;
+    interval: number;        // metres
+    indexInterval?: number;  // every Nth contour is an index contour (thicker)
+    gridResolution?: number; // metres (default 10.0)
+    breaklines?: Array<{
+      points: Array<{ easting: number; northing: number; elevation: number }>;
+      type: 'hard' | 'soft' | 'ridge' | 'valley';
+    }>;
+  }) => {
+    const { runIDWSync, generateContours } = await import('@metardu/engine');
+    // Build IDW grid from points
+    const samples = opts.points.map((p) => ({ x: p.easting, y: p.northing, z: p.elevation }));
+    // IDWOptions.resolution = number of cells along longest dimension
+    // For 50k points, 100 cells gives a reasonable grid (~100x100 = 10,000 cells)
+    const idwResolution = opts.gridResolution ?? 100;
+
+    const idwGrid = runIDWSync(samples as any, {
+      power: 2,
+      resolution: idwResolution,
+      noDataValue: -9999,
+    } as any);
+
+    // Map IDWGrid → IDWOutput (what generateContours expects)
+    const idwResult = {
+      grid: idwGrid.grid,
+      gridMinE: idwGrid.minX,
+      gridMinN: idwGrid.minY,
+      gridResolution: idwGrid.cellSize,
+      cols: idwGrid.cols,
+      rows: idwGrid.rows,
+    };
+
+    const contours = generateContours(idwResult as any, {
+      interval: opts.interval,
+      indexInterval: opts.indexInterval ?? 5,
+    } as any);
+
+    return {
+      contour_count: contours.length,
+      interval: opts.interval,
+      grid: {
+        minE: idwGrid.minX,
+        minN: idwGrid.minY,
+        maxE: idwGrid.minX + idwGrid.cols * idwGrid.cellSize,
+        maxN: idwGrid.minY + idwGrid.rows * idwGrid.cellSize,
+        resolution: idwGrid.cellSize,
+        cols: idwGrid.cols,
+        rows: idwGrid.rows,
+      },
+      contours: contours.map((c: any) => ({
+        elevation: c.elevation,
+        isIndex: c.isIndex ?? false,
+        coordinates: c.coordinates,  // Array of [easting, northing][]
+      })),
+    };
+  });
+
+  ipcMain.handle('topo:importRinex', async (_evt, filePath: string) => {
+    const fs = await import('node:fs');
+    const { parseRinexHeader } = await import('@metardu/engine');
+    if (!filePath || !fs.existsSync(filePath)) {
+      throw new Error(`RINEX file not found: ${filePath}`);
+    }
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const header = parseRinexHeader(content);
+    return {
+      file_path: filePath,
+      header,
+      file_size: fs.statSync(filePath).size,
+    };
+  });
+
+  ipcMain.handle('topo:importLas', async (_evt, _filePath: string) => {
+    // LAS/LAZ parser uses File API (browser) — for desktop we need to adapt it
+    // to read from disk. Defer to M5 (full topo UI). For now return a stub.
+    throw new Error('LAS/LAZ import from disk requires M5 File API adaptation. Use RINEX or CSV for now.');
+  });
+
+  // ─── Export handlers (M4) ─────────────────────────────────────────────
+  // DXF, LandXML, GeoJSON, Shapefile export.
+
+  ipcMain.handle('export:dxf', async (_evt, opts: {
+    points: Array<{ number: string; easting: number; northing: number; elevation?: number; code?: string }>;
+    parcel?: {
+      parcelNumber: string;
+      boundaries: Array<{ fromIndex: number; toIndex: number; bearing?: string; distance?: string }>;
+    };
+    traverse?: {
+      legs: Array<{ from: string; to: string; distance: number; bearing: number }>;
+    };
+    contours?: Array<{ elevation: number; isIndex: boolean; points: Array<[number, number]> }>;
+    outputDir?: string;
+    fileName?: string;
+  }) => {
+    const { generateDXF } = await import('@metardu/engine');
+    const path = await import('node:path');
+    const fs = await import('node:fs');
+
+    const dxfContent = generateDXF({
+      points: opts.points.map((p) => ({
+        number: p.number,
+        easting: p.easting,
+        northing: p.northing,
+        elevation: p.elevation ?? 0,
+        code: p.code,
+      })) as any,
+      parcel: opts.parcel as any,
+      traverse: opts.traverse as any,
+      contours: opts.contours as any,
+    } as any);
+
+    const outputDir = opts.outputDir ?? path.join(process.cwd(), 'exports');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const fileName = opts.fileName ?? `export-${Date.now()}.dxf`;
+    const filePath = path.join(outputDir, fileName);
+    fs.writeFileSync(filePath, dxfContent);
+
+    return { file_path: filePath, size_bytes: dxfContent.length };
+  });
+
+  ipcMain.handle('export:landxml', async (_evt, opts: {
+    project: {
+      name: string;
+      county: string;
+      surveyDate: string;
+      surveyorName: string;
+      surveyorLicense: string;
+    };
+    points: Array<{ number: string; easting: number; northing: number; elevation: number; code?: string }>;
+    outputDir?: string;
+    fileName?: string;
+  }) => {
+    const { generateLandXML } = await import('@metardu/engine');
+    const path = await import('node:path');
+    const fs = await import('node:fs');
+
+    // generateLandXML takes (project, points[]) — map our shape to the engine's
+    const xmlContent = generateLandXML(
+      opts.project as any,
+      opts.points.map((p) => ({
+        name: p.number,
+        easting: p.easting,
+        northing: p.northing,
+        elevation: p.elevation,
+        is_control: p.code === 'CTRL',
+      })) as any,
+    );
+
+    const outputDir = opts.outputDir ?? path.join(process.cwd(), 'exports');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const fileName = opts.fileName ?? `landxml-${Date.now()}.xml`;
+    const filePath = path.join(outputDir, fileName);
+    fs.writeFileSync(filePath, xmlContent);
+
+    return { file_path: filePath, size_bytes: xmlContent.length };
+  });
+
+  ipcMain.handle('export:geojson', async (_evt, opts: {
+    points: Array<{ number: string; easting: number; northing: number; elevation?: number; code?: string }>;
+    parcel?: {
+      parcelNumber: string;
+      points: Array<{ easting: number; northing: number }>;
+    };
+    projectName?: string;
+    utmZone?: number;
+    hemisphere?: 'N' | 'S';
+    outputDir?: string;
+    fileName?: string;
+  }) => {
+    const { generateGeoJSON } = await import('@metardu/engine');
+    const path = await import('node:path');
+    const fs = await import('node:fs');
+
+    const geojson = generateGeoJSON(
+      opts.points as any,
+      opts.projectName ?? 'METARDU Desktop Export',
+      opts.utmZone ?? 37,
+      opts.hemisphere ?? 'S',
+    );
+
+    const outputDir = opts.outputDir ?? path.join(process.cwd(), 'exports');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const fileName = opts.fileName ?? `export-${Date.now()}.geojson`;
+    const filePath = path.join(outputDir, fileName);
+    fs.writeFileSync(filePath, typeof geojson === 'string' ? geojson : JSON.stringify(geojson, null, 2));
+
+    return { file_path: filePath };
+  });
+
+  ipcMain.handle('export:shapefile', async (_evt, opts: {
+    parcel: {
+      parcelNumber: string;
+      area: number;
+      perimeter: number;
+      points: Array<{ easting: number; northing: number; beaconNumber?: string }>;
+    };
+    beacons?: Array<{
+      beaconNumber: string;
+      easting: number;
+      northing: number;
+      elevation?: number;
+      beaconType?: string;
+    }>;
+    utmZone?: number;        // default 37 (Kenya)
+    hemisphere?: 'N' | 'S';  // default 'S' (Kenya)
+    submissionNumber?: string;
+    outputDir?: string;
+    fileName?: string;
+  }) => {
+    const { generateShapefileZip } = await import('@metardu/engine');
+    const path = await import('node:path');
+    const fs = await import('node:fs');
+
+    // Build the engine's expected shape: beacons[], boundaries[], parcels[], submissionNumber, utmZone, hemisphere
+    const beacons = (opts.beacons ?? []).map((b) => ({
+      beaconNumber: b.beaconNumber,
+      easting: b.easting,
+      northing: b.northing,
+      elevation: b.elevation ?? 0,
+      beaconType: b.beaconType ?? 'concrete',
+    }));
+    const boundaries: Array<{ fromIndex: number; toIndex: number; type: string; bearing?: string; distance?: number }> = [];
+    for (let i = 0; i < opts.parcel.points.length; i++) {
+      const next = (i + 1) % opts.parcel.points.length;
+      boundaries.push({
+        fromIndex: i,
+        toIndex: next,
+        type: 'parcel',
+      });
+    }
+    const parcels = [{
+      parcelNumber: opts.parcel.parcelNumber,
+      area: opts.parcel.area,
+      perimeter: opts.parcel.perimeter,
+      points: opts.parcel.points,
+    }];
+
+    const blob = await generateShapefileZip(
+      beacons as any,
+      boundaries as any,
+      parcels as any,
+      opts.submissionNumber ?? `SUB-${Date.now()}`,
+      opts.utmZone ?? 37,
+      opts.hemisphere ?? 'S',
+    );
+
+    // Convert Blob to Buffer
+    const arrayBuffer = await (blob as any).arrayBuffer();
+    const zipBuffer = Buffer.from(arrayBuffer);
+
+    const outputDir = opts.outputDir ?? path.join(process.cwd(), 'exports');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const fileName = opts.fileName ?? `shapefile-${Date.now()}.zip`;
+    const filePath = path.join(outputDir, fileName);
+    fs.writeFileSync(filePath, zipBuffer);
+
+    return { file_path: filePath, size_bytes: zipBuffer.length };
+  });
+
+  log.info('IPC handlers registered (M4: topo + export)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {

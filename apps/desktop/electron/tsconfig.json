@@ -2,15 +2,20 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "../dist-electron",
-    "rootDir": ".",
-    "composite": true,
+    "composite": false,
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": ["ES2022", "DOM"],
     "types": ["node"],
     "noEmit": false,
     "skipLibCheck": true,
-    "ignoreDeprecations": "5.0"
+    "noImplicitAny": false,
+    "strict": false,
+    "ignoreDeprecations": "5.0",
+    "paths": {
+      "@metardu/engine": ["../../../packages/engine/src/index.ts"],
+      "@metardu/engine/*": ["../../../packages/engine/src/*"]
+    }
   },
   "include": ["./**/*.ts"]
 }

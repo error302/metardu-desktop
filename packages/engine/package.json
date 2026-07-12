@@ -28,6 +28,7 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
+    "@types/d3-contour": "^3.0.6",
     "@types/pdfkit": "^0.17.6",
     "@vitest/coverage-v8": "^1.6.1",
     "fast-check": "^3.23.2",

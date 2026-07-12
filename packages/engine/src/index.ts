@@ -74,6 +74,29 @@ export {
 export { generateMutationForm } from './submission/generators/mutationForm';
 export type { MutationFormInput } from './submission/generators/mutationForm';
 
+// Topographic (M4) — TIN, contours, IDW, feature codes
+export { buildTIN, interpolateZ, computeCutFill } from './survey/surfaceTIN';
+export type { SurfacePoint, Triangle, TIN, CutFillResult } from './survey/surfaceTIN';
+export { buildBreaklineTIN, checkContourSanity } from './topo/breaklineTIN';
+export type { Breakline, BreaklineTINResult, ContourSanityResult } from './topo/breaklineTIN';
+export { generateContours } from './topo/contourGenerator';
+export type { ContourLine, ContourGeneratorOptions } from './topo/contourGenerator';
+export { runIDW, runIDWSync, gridToFlat } from './topo/idwEngine';
+export type { IDWSample, IDWGrid, IDWOptions } from './topo/idwEngine';
+
+// Importers (M4) — RINEX, LAS/LAZ, CSV, GSI, JobXML, RW5, South
+export { parseRinexHeader } from './importers/parsers/rinex';
+export type { RinexHeader, RinexObservation } from './importers/parsers/rinex';
+
+// Exporters (M4) — DXF, LandXML, GeoJSON, Shapefile
+export { generateDXF } from './export/generateDXF';
+export type { DXFExportOptions } from './export/generateDXF';
+export { generateLandXML } from './export/generateLandXML';
+export type { LandXMLProject, LandXMLPoint } from './export/generateLandXML';
+export { generateGeoJSON } from './export/generateGeoJSON';
+export { generateShapefileZip } from './export/generateShapefile';
+export type { ParcelData, BoundaryLine, BeaconData } from './export/generateShapefile';
+
 // Package version
 export const ENGINE_VERSION = '0.1.0';
 export const ENGINE_PROVENANCE = 'Reused verbatim from error302/metardu @ v1.0.1';

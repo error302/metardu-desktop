@@ -87,6 +87,26 @@ const api = {
     generate: (opts: MutationGenerateInput) =>
       ipcRenderer.invoke('mutation:generate', opts) as Promise<{ file_path: string; pdf_hash: string }>,
   },
+  topo: {
+    generateTin: (opts: TopoTinInput) =>
+      ipcRenderer.invoke('topo:generateTin', opts) as Promise<TopoTinResult>,
+    generateContours: (opts: TopoContourInput) =>
+      ipcRenderer.invoke('topo:generateContours', opts) as Promise<TopoContourResult>,
+    importRinex: (filePath: string) =>
+      ipcRenderer.invoke('topo:importRinex', filePath) as Promise<{ file_path: string; header: unknown; file_size: number }>,
+    importLas: (filePath: string) =>
+      ipcRenderer.invoke('topo:importLas', filePath) as Promise<never>,  // throws in M4, full impl in M5
+  },
+  export: {
+    dxf: (opts: ExportDxfInput) =>
+      ipcRenderer.invoke('export:dxf', opts) as Promise<{ file_path: string; size_bytes: number }>,
+    landxml: (opts: ExportLandXmlInput) =>
+      ipcRenderer.invoke('export:landxml', opts) as Promise<{ file_path: string; size_bytes: number }>,
+    geojson: (opts: ExportGeoJsonInput) =>
+      ipcRenderer.invoke('export:geojson', opts) as Promise<{ file_path: string }>,
+    shapefile: (opts: ExportShapefileInput) =>
+      ipcRenderer.invoke('export:shapefile', opts) as Promise<{ file_path: string; size_bytes: number }>,
+  },
   menu: {
     onFileNew: (cb: () => void) => ipcRenderer.on('menu:file:new', cb),
     onFileOpened: (cb: (filePath: string) => void) => ipcRenderer.on('menu:file:opened', (_e, filePath: string) => cb(filePath)),
@@ -336,6 +356,109 @@ export interface MutationGenerateInput {
   surveyDate: string;
   referenceNumber: string;
   outputDir?: string;
+}
+
+// ─── Topographic types (M4) ────────────────────────────────────────────
+
+export interface TopoTinInput {
+  points: Array<{ easting: number; northing: number; elevation: number }>;
+  breaklines?: Array<{
+    points: Array<{ easting: number; northing: number; elevation: number }>;
+    type: 'hard' | 'soft' | 'ridge' | 'valley';
+  }>;
+}
+
+export interface TopoTinResult {
+  triangle_count: number;
+  point_count: number;
+  removed_triangles: number;
+  added_triangles: number;
+  has_constraints: boolean;
+  triangles: Array<{
+    a: number; b: number; c: number;
+    a_xyz: [number, number, number];
+    b_xyz: [number, number, number];
+    c_xyz: [number, number, number];
+  }>;
+}
+
+export interface TopoContourInput {
+  points: Array<{ easting: number; northing: number; elevation: number }>;
+  interval: number;
+  indexInterval?: number;
+  gridResolution?: number;
+  breaklines?: Array<{
+    points: Array<{ easting: number; northing: number; elevation: number }>;
+    type: 'hard' | 'soft' | 'ridge' | 'valley';
+  }>;
+}
+
+export interface TopoContourResult {
+  contour_count: number;
+  interval: number;
+  grid: { minE: number; minN: number; maxE: number; maxN: number; resolution: number; cols: number; rows: number };
+  contours: Array<{
+    elevation: number;
+    isIndex: boolean;
+    points: Array<[number, number]>;
+  }>;
+}
+
+// ─── Export types (M4) ─────────────────────────────────────────────────
+
+export interface ExportDxfInput {
+  points: Array<{ number: string; easting: number; northing: number; elevation?: number; code?: string }>;
+  parcel?: {
+    parcelNumber: string;
+    boundaries: Array<{ fromIndex: number; toIndex: number; bearing?: string; distance?: string }>;
+  };
+  traverse?: {
+    legs: Array<{ from: string; to: string; distance: number; bearing: number }>;
+  };
+  contours?: Array<{ elevation: number; isIndex: boolean; points: Array<[number, number]> }>;
+  outputDir?: string;
+  fileName?: string;
+}
+
+export interface ExportLandXmlInput {
+  project: {
+    name: string;
+    county: string;
+    surveyDate: string;
+    surveyorName: string;
+    surveyorLicense: string;
+  };
+  points: Array<{ number: string; easting: number; northing: number; elevation: number; code?: string }>;
+  outputDir?: string;
+  fileName?: string;
+}
+
+export interface ExportGeoJsonInput {
+  points: Array<{ number: string; easting: number; northing: number; elevation?: number; code?: string }>;
+  parcel?: {
+    parcelNumber: string;
+    points: Array<{ easting: number; northing: number }>;
+  };
+  outputDir?: string;
+  fileName?: string;
+}
+
+export interface ExportShapefileInput {
+  parcel: {
+    parcelNumber: string;
+    area: number;
+    perimeter: number;
+    points: Array<{ easting: number; northing: number; beaconNumber?: string }>;
+  };
+  beacons?: Array<{
+    beaconNumber: string;
+    easting: number;
+    northing: number;
+    elevation?: number;
+    beaconType?: string;
+  }>;
+  outputDir?: string;
+  fileName?: string;
 }
 
 contextBridge.exposeInMainWorld('metardu', api);
