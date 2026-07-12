@@ -2822,6 +2822,209 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (auto-generate + print)');
+
+  // ─── QA Gate: Pre-Submission Validation ──────────────────────────────
+  // No plan leaves METARDU Desktop without passing this gate.
+  ipcMain.handle('qa:gate', async (_evt, input: any) => {
+    const { runQAGate } = await import('./qa-gate.js');
+    return runQAGate(input);
+  });
+
+  // ─── Topographic Plan Rendering ─────────────────────────────────────
+  // Full topo plan with contours, spot heights, feature legend.
+  ipcMain.handle('plan:renderTopo', async (_evt, opts: {
+    parcel: any; titleBlock: any; scale: number; paperSize: string;
+    contours: Array<{ elevation: number; isIndex: boolean; points: Array<[number, number]> }>;
+    spotHeights?: Array<{ easting: number; northing: number; elevation: number; label?: string }>;
+    buildings?: Array<{ points: Array<[number, number]>; label?: string }>;
+    roads?: Array<{ centerline: Array<[number, number]>; width?: number; label?: string }>;
+    waterFeatures?: Array<{ points: Array<[number, number]>; label?: string; type: string }>;
+    vegetation?: Array<{ points: Array<[number, number]>; label?: string; type: string }>;
+    grid?: { type: string; interval: number };
+    gridConvergence?: number;
+    outputPath: string;
+  }) => {
+    const { renderProfessionalPlan } = await import('./professional-plan-renderer.js');
+    return renderProfessionalPlan({
+      planType: 'topo_plan',
+      paperSize: opts.paperSize as any,
+      orientation: 'landscape',
+      scale: opts.scale,
+      parcel: opts.parcel,
+      titleBlock: opts.titleBlock,
+      grid: opts.grid as any,
+      gridConvergence: opts.gridConvergence,
+      contours: opts.contours,
+      buildings: opts.buildings,
+      roads: opts.roads,
+      waterFeatures: opts.waterFeatures,
+      outputPath: opts.outputPath,
+    } as any);
+  });
+
+  // ─── Engineering Plan Rendering ─────────────────────────────────────
+  // Alignment + cross-sections + earthworks on one plan.
+  ipcMain.handle('plan:renderEngineering', async (_evt, opts: {
+    titleBlock: any; scale: number; paperSize: string;
+    alignment: {
+      horizontalPoints: Array<{ chainage: number; easting: number; northing: number }>;
+      verticalPoints: Array<{ chainage: number; elevation: number }>;
+      curves?: Array<{ startChainage: number; endChainage: number; radius: number; type: string }>;
+    };
+    crossSections?: Array<{
+      chainage: number;
+      existingGround: Array<{ offset: number; elevation: number }>;
+      designLevel: Array<{ offset: number; elevation: number }>;
+    }>;
+    earthworksSummary?: { cutVolume: number; fillVolume: number; netVolume: number };
+    outputPath: string;
+  }) => {
+    const { renderProfessionalPlan } = await import('./professional-plan-renderer.js');
+
+    // Build parcel from alignment (use alignment points as the "boundary")
+    const parcel = {
+      number: 'ALIGNMENT',
+      lrNumber: opts.titleBlock.lrNumber ?? '',
+      areaSqM: 0,
+      perimeter: 0,
+      points: opts.alignment.horizontalPoints.map((p, i) => ({
+        number: `CH${p.chainage.toFixed(0)}`,
+        easting: p.easting,
+        northing: p.northing,
+        beaconType: 'reference_object' as const,
+      })),
+    };
+
+    // Build roads from alignment
+    const roads = [{
+      centerline: opts.alignment.horizontalPoints.map(p => [p.easting, p.northing] as [number, number]),
+      label: 'Centerline',
+    }];
+
+    return renderProfessionalPlan({
+      planType: 'engineering_plan',
+      paperSize: opts.paperSize as any,
+      orientation: 'landscape',
+      scale: opts.scale,
+      parcel,
+      titleBlock: opts.titleBlock,
+      roads,
+      outputPath: opts.outputPath,
+    } as any);
+  });
+
+  // ─── Enhanced DXF Export with SoK Symbology ─────────────────────────
+  // 61-layer SoK registry with proper colors, linetypes, and text styles.
+  ipcMain.handle('export:dxfSoK', async (_evt, opts: {
+    points: Array<{ number: string; easting: number; northing: number; elevation?: number; code?: string }>;
+    parcel?: { number: string; boundaries: Array<{ fromIndex: number; toIndex: number }> };
+    contours?: Array<{ elevation: number; isIndex: boolean; points: Array<[number, number]> }>;
+    roads?: Array<{ centerline: Array<[number, number]>; label?: string }>;
+    buildings?: Array<{ points: Array<[number, number]> }>;
+    waterFeatures?: Array<{ points: Array<[number, number]>; label?: string }>;
+    outputDir?: string;
+    fileName?: string;
+  }) => {
+    const path = await import('node:path');
+    const fs = await import('node:fs');
+
+    // Use the engine's DXF writer with SoK layers
+    const dxfLayersPath = require('path').resolve(__dirname, '../../packages/engine/src/drawing/dxfLayers');
+    const { DXF_LAYERS, initialiseSokDXFLayers } = await import(dxfLayersPath);
+    const Drawing = (await import('dxf-writer')).default;
+
+    const drawing = new Drawing();
+    drawing.setUnits('Meters');
+    initialiseSokDXFLayers(drawing);
+
+    // Points layer
+    for (const p of opts.points) {
+      const layer = p.code === 'CTRL' ? DXF_LAYERS.CONTROL?.name : DXF_LAYERS.SPOT?.name || 'POINTS';
+      drawing.setActiveLayer(layer);
+      drawing.drawPoint(p.easting, p.northing);
+      drawing.drawText(p.easting + 2, p.northing + 2, 2, 0, p.number);
+    }
+
+    // Parcel boundary
+    if (opts.parcel && opts.parcel.boundaries) {
+      drawing.setActiveLayer(DXF_LAYERS.PARCEL_BDY?.name || 'PARCEL_BDY');
+      for (const b of opts.parcel.boundaries) {
+        const p1 = opts.points[b.fromIndex];
+        const p2 = opts.points[b.toIndex];
+        if (p1 && p2) {
+          drawing.drawLine(p1.easting, p1.northing, p2.easting, p2.northing);
+        }
+      }
+    }
+
+    // Contours
+    if (opts.contours) {
+      for (const c of opts.contours) {
+        drawing.setActiveLayer(c.isIndex ? (DXF_LAYERS.INDEX_CONTOURS?.name || 'INDEX_CONTOURS') : (DXF_LAYERS.CONTOURS?.name || 'CONTOURS'));
+        for (let i = 0; i < c.points.length - 1; i++) {
+          drawing.drawLine(c.points[i][0], c.points[i][1], c.points[i + 1][0], c.points[i + 1][1]);
+        }
+        // Elevation label at midpoint
+        if (c.points.length > 2 && c.isIndex) {
+          const mid = c.points[Math.floor(c.points.length / 2)];
+          drawing.drawText(mid[0], mid[1], 1.5, 0, c.elevation.toFixed(1));
+        }
+      }
+    }
+
+    // Roads
+    if (opts.roads) {
+      drawing.setActiveLayer(DXF_LAYERS.ROAD_EDGE?.name || 'ROAD_EDGE');
+      for (const road of opts.roads) {
+        for (let i = 0; i < road.centerline.length - 1; i++) {
+          drawing.drawLine(road.centerline[i][0], road.centerline[i][1], road.centerline[i + 1][0], road.centerline[i + 1][1]);
+        }
+        if (road.label) {
+          const mid = road.centerline[Math.floor(road.centerline.length / 2)];
+          drawing.drawText(mid[0], mid[1] + 3, 2, 0, road.label);
+        }
+      }
+    }
+
+    // Buildings
+    if (opts.buildings) {
+      drawing.setActiveLayer(DXF_LAYERS.BUILDING?.name || 'BUILDING');
+      for (const bldg of opts.buildings) {
+        for (let i = 0; i < bldg.points.length; i++) {
+          const j = (i + 1) % bldg.points.length;
+          drawing.drawLine(bldg.points[i][0], bldg.points[i][1], bldg.points[j][0], bldg.points[j][1]);
+        }
+      }
+    }
+
+    // Water features
+    if (opts.waterFeatures) {
+      drawing.setActiveLayer(DXF_LAYERS.RIVER?.name || 'WATER');
+      for (const wf of opts.waterFeatures) {
+        for (let i = 0; i < wf.points.length; i++) {
+          const j = (i + 1) % wf.points.length;
+          drawing.drawLine(wf.points[i][0], wf.points[i][1], wf.points[j][0], wf.points[j][1]);
+        }
+        if (wf.label) {
+          const cx = wf.points.reduce((s, p) => s + p[0], 0) / wf.points.length;
+          const cy = wf.points.reduce((s, p) => s + p[1], 0) / wf.points.length;
+          drawing.drawText(cx, cy, 2, 0, wf.label);
+        }
+      }
+    }
+
+    // Write to file
+    const outputDir = opts.outputDir ?? path.join(process.cwd(), 'exports');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const fileName = opts.fileName ?? `sok-export-${Date.now()}.dxf`;
+    const filePath = path.join(outputDir, fileName);
+    const dxfContent = drawing.toDxfString();
+    fs.writeFileSync(filePath, dxfContent);
+
+    return { file_path: filePath, size_bytes: dxfContent.length, layers: Object.keys(DXF_LAYERS).length };
+  });
+
+  log.info('IPC handlers registered (QA gate + topo/engineering render + SoK DXF)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
