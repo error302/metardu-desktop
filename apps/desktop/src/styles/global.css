@@ -495,3 +495,31 @@ html, body, #root {
 
 /* ===== Small buttons ===== */
 .btn-sm { padding: 4px 10px; font-size: 11px; }
+
+/* ===== Sync Panel (Field ↔ Office) ===== */
+.sync-panel { padding: 16px; background: white; border-bottom: 1px solid #dfe3ea; }
+.sync-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.sync-header h3 { margin: 0; font-size: 14px; font-weight: 700; color: #0B2545; text-transform: uppercase; letter-spacing: 1.5px; }
+.sync-status { font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+.sync-status.online { color: #46875c; }
+.sync-status.offline { color: #92453e; }
+.sync-not-configured { text-align: center; padding: 20px 0; }
+.sync-not-configured p { color: #5b6470; font-size: 12px; margin: 0 0 8px; }
+.sync-hint { color: #8b95a3; font-style: italic; font-size: 11px; margin-bottom: 16px; }
+.sync-connected { display: flex; flex-direction: column; gap: 8px; }
+.sync-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sync-last-result { font-size: 11px; color: #46875c; font-family: 'JetBrains Mono', monospace; padding: 4px 8px; background: #f0faf3; border-radius: 4px; }
+.sync-config-form { display: flex; flex-direction: column; gap: 6px; padding: 12px; background: #f8f9fb; border-radius: 6px; }
+.sync-config-form input { padding: 6px 8px; border: 1px solid #dfe3ea; border-radius: 4px; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+.sync-config-form label { font-size: 11px; color: #5b6470; display: flex; align-items: center; gap: 6px; }
+.sync-sessions { margin-top: 12px; }
+.sync-sessions h4 { margin: 0 0 8px; font-size: 11px; color: #5b6470; text-transform: uppercase; }
+.sync-session-card { padding: 10px; background: #f8f9fb; border-radius: 6px; border-left: 3px solid #D97706; margin-bottom: 8px; }
+.sync-session-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.sync-session-project { font-size: 13px; font-weight: 600; color: #0B2545; }
+.sync-session-date { font-size: 11px; color: #5b6470; font-family: 'JetBrains Mono', monospace; }
+.sync-session-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 10px; color: #5b6470; margin-bottom: 6px; }
+.sync-session-points { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.sync-point-chip { background: #D97706; color: white; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; }
+.sync-point-more { font-size: 10px; color: #5b6470; padding: 2px 6px; }
+.sync-import-btn { width: 100%; }

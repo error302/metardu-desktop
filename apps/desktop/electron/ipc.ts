@@ -1840,6 +1840,73 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (M8: auto-update)');
+
+  // ─── Field-to-Office Sync (Web ↔ Desktop bridge) ─────────────────────
+  // When a surveyor works in the field with metardu web and picks up points,
+  // those points automatically sync to metardu desktop when they return to the office.
+  let syncService: import('./sync-service.js').SyncService | null = null;
+
+  ipcMain.handle('sync:configure', async (_evt, config: {
+    endpoint: string; apiKey?: string; autoSync?: boolean;
+    syncInterval?: number; surveyorId?: string; projectId?: string;
+  }) => {
+    const { SyncService } = await import('./sync-service.js');
+    if (!syncService) {
+      syncService = new SyncService();
+      syncService.on('sync-started', () => mainWindow?.webContents.send('sync:started'));
+      syncService.on('sync-complete', (result) => mainWindow?.webContents.send('sync:complete', result));
+      syncService.on('sync-error', (err) => mainWindow?.webContents.send('sync:error', err));
+      syncService.on('session-pulled', (session) => mainWindow?.webContents.send('sync:session-pulled', session));
+      syncService.on('session-pushed', (session) => mainWindow?.webContents.send('sync:session-pushed', session));
+    }
+    syncService.configure({
+      endpoint: config.endpoint,
+      apiKey: config.apiKey,
+      autoSync: config.autoSync ?? true,
+      syncInterval: config.syncInterval ?? 300000,
+      surveyorId: config.surveyorId,
+      projectId: config.projectId,
+    });
+    return { configured: true };
+  });
+
+  ipcMain.handle('sync:now', async () => {
+    if (!syncService) throw new Error('Sync not configured. Call sync:configure first.');
+    return syncService.syncNow();
+  });
+
+  ipcMain.handle('sync:status', async () => {
+    if (!syncService) return { configured: false, online: false, lastSync: null, sessionCount: 0 };
+    return {
+      configured: syncService.isConfigured,
+      online: syncService.isOnline,
+      lastSync: syncService.lastSync,
+      sessionCount: syncService.getSyncedSessions().length,
+    };
+  });
+
+  ipcMain.handle('sync:sessions', async () => {
+    if (!syncService) return [];
+    return syncService.getSyncedSessions();
+  });
+
+  ipcMain.handle('sync:getSession', async (_evt, sessionId: string) => {
+    if (!syncService) return null;
+    return syncService.getSession(sessionId);
+  });
+
+  ipcMain.handle('sync:importFile', async (_evt, filePath: string) => {
+    const { SyncService } = await import('./sync-service.js');
+    if (!syncService) syncService = new SyncService();
+    return syncService.importSessionFromFile(filePath);
+  });
+
+  ipcMain.handle('sync:pushSession', async (_evt, session: any) => {
+    if (!syncService) throw new Error('Sync not configured');
+    return syncService.pushSession(session);
+  });
+
+  log.info('IPC handlers registered (sync: web ↔ desktop bridge)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
