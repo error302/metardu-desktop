@@ -99,6 +99,25 @@ export { generateGeoJSON } from './export/generateGeoJSON';
 export { generateShapefileZip } from './export/generateShapefile';
 export type { ParcelData, BoundaryLine, BeaconData } from './export/generateShapefile';
 
+// ─── Engineering (M6) ──────────────────────────────────────────────────
+export {
+  horizontalCurve, verticalCurve, superelevationCalc,
+  crossSectionVolume, massHaulDiagram, wideningOnCurve,
+} from './engineering/compute';
+export { simpleCircularCurve } from './engineering/curves';
+export { riseAndFall, heightOfCollimation } from './engine/leveling';
+export { optimizeMassHaul } from './engineering/massHaulOptimization';
+export { manningPipeCapacity } from './engineering/drainageDesign';
+
+// ─── Machine control (M6) ──────────────────────────────────────────────
+export {
+  generateMachineControlExport, generateAlignmentLandXML,
+  generateStakeoutCSV, generate3DDXFFromTIN,
+} from './export/machineControl';
+export {
+  exportTrimbleCSV, exportLeicaGSI, exportTopconCSV, exportGenericCSV,
+} from './export/machineControlExport';
+
 // Package version
 export const ENGINE_VERSION = '0.1.0';
 export const ENGINE_PROVENANCE = 'Reused verbatim from error302/metardu @ v1.0.1';

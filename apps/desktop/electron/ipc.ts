@@ -1283,6 +1283,141 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (M4: topo + export)');
+
+  // ─── Engineering handlers (M6) ───────────────────────────────────────
+  // Road design, curves, leveling, earthworks, machine-control export.
+
+  ipcMain.handle('eng:horizontalCurve', async (_evt, input: {
+    radius: number; deflectionAngle: number; chainageIP: number;
+    bearingIn?: number; bearingOut?: number;
+  }) => {
+    const { horizontalCurve } = await import('@metardu/engine');
+    return horizontalCurve(input as any);
+  });
+
+  ipcMain.handle('eng:verticalCurve', async (_evt, input: {
+    gradeIn: number; gradeOut: number; length: number;
+    chainageVIP: number; elevationVIP: number;
+  }) => {
+    const { verticalCurve } = await import('@metardu/engine');
+    return verticalCurve(input as any);
+  });
+
+  ipcMain.handle('eng:superelevation', async (_evt, input: {
+    radius: number; designSpeed: number; sideFriction?: number;
+    normalCrossfall?: number; maxSuperelevation?: number;
+  }) => {
+    const { superelevationCalc } = await import('@metardu/engine');
+    return superelevationCalc(input as any);
+  });
+
+  ipcMain.handle('eng:leveling', async (_evt, input: {
+    method: 'riseAndFall' | 'heightOfCollimation';
+    readings: Array<{ station: string; backsight?: number; foresight?: number; intermediate?: number }>;
+    startingRL: number; closingRL?: number; distanceKm?: number;
+  }) => {
+    const { riseAndFall, heightOfCollimation } = await import('@metardu/engine');
+    const levelingInput = { readings: input.readings, startingRL: input.startingRL, closingRL: input.closingRL, distanceKm: input.distanceKm };
+    return input.method === 'riseAndFall' ? riseAndFall(levelingInput as any) : heightOfCollimation(levelingInput as any);
+  });
+
+  ipcMain.handle('eng:crossSectionVolume', async (_evt, input: {
+    sections: Array<{ chainage: number; existingLevels: Array<{ offset: number; elevation: number }>; designLevels: Array<{ offset: number; elevation: number }> }>;
+  }) => {
+    const { crossSectionVolume } = await import('@metardu/engine');
+    return crossSectionVolume(input as any);
+  });
+
+  ipcMain.handle('eng:massHaul', async (_evt, input: {
+    chainages: number[]; cutVolumes: number[]; fillVolumes: number[];
+    freehaulDistance?: number; overhaulRate?: number;
+  }) => {
+    const { massHaulDiagram } = await import('@metardu/engine');
+    return massHaulDiagram(input as any);
+  });
+
+  ipcMain.handle('eng:widening', async (_evt, input: { radius: number; baseWidth?: number }) => {
+    const { wideningOnCurve } = await import('@metardu/engine');
+    return wideningOnCurve(input.radius, input.baseWidth ?? 7.0);
+  });
+
+  ipcMain.handle('eng:drainage', async (_evt, input: {
+    pipeDiameter: number; pipeSlope: number; manningsN?: number; fullFlow?: boolean;
+  }) => {
+    const { manningPipeCapacity } = await import('@metardu/engine');
+    return manningPipeCapacity({ diameter: input.pipeDiameter / 1000, slope: input.pipeSlope / 100, manningsN: input.manningsN ?? 0.013, fullFlow: input.fullFlow ?? true } as any);
+  });
+
+  // ─── Machine control export (M6) ─────────────────────────────────────
+  // Generates alignment + stakeout for Leica/Trimble/Topcon machine control.
+
+  ipcMain.handle('eng:machineControl', async (_evt, opts: {
+    horizontalPoints: Array<{ chainage: number; easting: number; northing: number; radius?: number }>;
+    verticalPoints: Array<{ chainage: number; elevation: number; gradient?: number }>;
+    projectName: string; alignmentName?: string; offset?: number; interval?: number;
+    format?: 'trimble' | 'leica' | 'topcon' | 'generic' | 'all'; outputDir?: string;
+  }) => {
+    const { generateMachineControlExport, exportTrimbleCSV, exportLeicaGSI, exportTopconCSV, exportGenericCSV } =
+      await import('@metardu/engine');
+    const path = await import('node:path');
+    const fs = await import('node:fs');
+
+    const surface = { points: opts.horizontalPoints.map((p) => ({ x: p.easting, y: p.northing, z: 0 })), triangles: [] } as any;
+    const exportResult = generateMachineControlExport(
+      surface, opts.horizontalPoints as any, opts.verticalPoints as any,
+      opts.projectName, opts.alignmentName ?? 'MAIN', opts.offset ?? 0, opts.interval ?? 20,
+    );
+
+    const outputDir = opts.outputDir ?? path.join(process.cwd(), 'machine-control');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const files: Array<{ format: string; file_path: string; size_bytes: number }> = [];
+
+    const landxmlPath = path.join(outputDir, `${opts.alignmentName ?? 'MAIN'}-alignment.xml`);
+    fs.writeFileSync(landxmlPath, exportResult.landXML);
+    files.push({ format: 'landxml', file_path: landxmlPath, size_bytes: exportResult.landXML.length });
+
+    const dxfPath = path.join(outputDir, `${opts.alignmentName ?? 'MAIN'}-surface-3d.dxf`);
+    fs.writeFileSync(dxfPath, exportResult.dxf3D);
+    files.push({ format: 'dxf3d', file_path: dxfPath, size_bytes: exportResult.dxf3D.length });
+
+    const stakeoutPath = path.join(outputDir, `${opts.alignmentName ?? 'MAIN'}-stakeout.csv`);
+    fs.writeFileSync(stakeoutPath, exportResult.stakeoutCSV);
+    files.push({ format: 'stakeout', file_path: stakeoutPath, size_bytes: exportResult.stakeoutCSV.length });
+
+    const fmt = opts.format ?? 'all';
+    const mcPoints = opts.horizontalPoints.map((p, i) => ({
+      pointNumber: `${i + 1}`, easting: p.easting, northing: p.northing,
+      elevation: opts.verticalPoints[i]?.elevation ?? 0, code: 'STAKE', description: `CH${p.chainage}`,
+    })) as any;
+
+    if (fmt === 'trimble' || fmt === 'all') {
+      const csv = exportTrimbleCSV(mcPoints);
+      const fp = path.join(outputDir, `${opts.alignmentName ?? 'MAIN'}-trimble.csv`);
+      fs.writeFileSync(fp, csv); files.push({ format: 'trimble', file_path: fp, size_bytes: csv.length });
+    }
+    if (fmt === 'leica' || fmt === 'all') {
+      const gsi = exportLeicaGSI(mcPoints);
+      const fp = path.join(outputDir, `${opts.alignmentName ?? 'MAIN'}-leica.gsi`);
+      fs.writeFileSync(fp, gsi); files.push({ format: 'leica', file_path: fp, size_bytes: gsi.length });
+    }
+    if (fmt === 'topcon' || fmt === 'all') {
+      const csv = exportTopconCSV(mcPoints);
+      const fp = path.join(outputDir, `${opts.alignmentName ?? 'MAIN'}-topcon.csv`);
+      fs.writeFileSync(fp, csv); files.push({ format: 'topcon', file_path: fp, size_bytes: csv.length });
+    }
+    if (fmt === 'generic' || fmt === 'all') {
+      const csv = exportGenericCSV(mcPoints);
+      const fp = path.join(outputDir, `${opts.alignmentName ?? 'MAIN'}-generic.csv`);
+      fs.writeFileSync(fp, csv); files.push({ format: 'generic', file_path: fp, size_bytes: csv.length });
+    }
+
+    const db = getDb();
+    if (db) { db.audit('machine_control.export', 'project', getSingleProjectId(db), { projectName: opts.projectName, alignmentName: opts.alignmentName ?? 'MAIN', format: fmt, fileCount: files.length }); }
+
+    return { files, alignment_name: opts.alignmentName ?? 'MAIN' };
+  });
+
+  log.info('IPC handlers registered (M6: engineering + machine control)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
