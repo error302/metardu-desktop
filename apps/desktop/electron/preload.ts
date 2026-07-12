@@ -186,6 +186,45 @@ const api = {
       signedAt?: string;
       warnings: string[];
     }>,
+    // Electronic Cadastre Forms SR1-SR10 (LN 132 of 2020)
+    generateSR1: (opts: any) => ipcRenderer.invoke('form:generateSR1', opts) as Promise<any>,
+    generateSR2: (opts: any) => ipcRenderer.invoke('form:generateSR2', opts) as Promise<any>,
+    generateSR3: (opts: any) => ipcRenderer.invoke('form:generateSR3', opts) as Promise<any>,
+    generateSR4: (opts: any) => ipcRenderer.invoke('form:generateSR4', opts) as Promise<any>,
+    generateSR5: (opts: any) => ipcRenderer.invoke('form:generateSR5', opts) as Promise<any>,
+    generateSR6: (opts: any) => ipcRenderer.invoke('form:generateSR6', opts) as Promise<any>,
+    generateSR7: (opts: any) => ipcRenderer.invoke('form:generateSR7', opts) as Promise<any>,
+    generateSR8: (opts: any) => ipcRenderer.invoke('form:generateSR8', opts) as Promise<any>,
+    generateSR9: (opts: any) => ipcRenderer.invoke('form:generateSR9', opts) as Promise<any>,
+    generateSR10: (opts: any) => ipcRenderer.invoke('form:generateSR10', opts) as Promise<any>,
+  },
+  profile: {
+    load: () => ipcRenderer.invoke('profile:load') as Promise<any>,
+    save: (profile: any) => ipcRenderer.invoke('profile:save', profile) as Promise<any>,
+    validate: (profile: any) => ipcRenderer.invoke('profile:validate', profile) as Promise<{ valid: boolean; errors: string[] }>,
+  },
+  submission: {
+    create: (input: any) => ipcRenderer.invoke('submission:create', input) as Promise<any>,
+    list: () => ipcRenderer.invoke('submission:list') as Promise<any[]>,
+    get: (trackingNumber: string) => ipcRenderer.invoke('submission:get', trackingNumber) as Promise<any>,
+    updateStatus: (trackingNumber: string, newStatus: any, options?: any) =>
+      ipcRenderer.invoke('submission:updateStatus', trackingNumber, newStatus, options) as Promise<any>,
+    delete: (trackingNumber: string) => ipcRenderer.invoke('submission:delete', trackingNumber) as Promise<boolean>,
+    deadlineAlerts: () => ipcRenderer.invoke('submission:deadlineAlerts') as Promise<any[]>,
+  },
+  audit: {
+    record: (event: any) => ipcRenderer.invoke('audit:record', event) as Promise<{ success: boolean }>,
+    query: (options: any) => ipcRenderer.invoke('audit:query', options) as Promise<any[]>,
+    verify: () => ipcRenderer.invoke('audit:verify') as Promise<{ valid: boolean; brokenAt?: number; totalEvents: number }>,
+  },
+  wayleave: {
+    computeSummary: (project: any) => ipcRenderer.invoke('wayleave:computeSummary', project) as Promise<any>,
+    exportPaps: (project: any, outputPath: string) => ipcRenderer.invoke('wayleave:exportPaps', project, outputPath) as Promise<any>,
+    exportLandSchedule: (project: any, outputPath: string) => ipcRenderer.invoke('wayleave:exportLandSchedule', project, outputPath) as Promise<any>,
+    exportGeoJSON: (project: any, outputPath: string) => ipcRenderer.invoke('wayleave:exportGeoJSON', project, outputPath) as Promise<any>,
+    exportArcGIS: (project: any, outputDir: string) => ipcRenderer.invoke('wayleave:exportArcGIS', project, outputDir) as Promise<any>,
+    exportLineProfile: (project: any, outputPath: string) => ipcRenderer.invoke('wayleave:exportLineProfile', project, outputPath) as Promise<any>,
+    exportMultiDisciplineReport: (project: any, outputPath: string) => ipcRenderer.invoke('wayleave:exportMultiDisciplineReport', project, outputPath) as Promise<any>,
   },
   menu: {
     onFileNew: (cb: () => void) => ipcRenderer.on('menu:file:new', cb),

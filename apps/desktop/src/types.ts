@@ -210,5 +210,32 @@ export interface MetarduApi {
     geojson: (opts: any) => Promise<any>;
     shapefile: (opts: any) => Promise<any>;
   };
+  profile?: {
+    load: () => Promise<any>;
+    save: (profile: any) => Promise<any>;
+    validate: (profile: any) => Promise<{ valid: boolean; errors: string[] }>;
+  };
+  submission?: {
+    create: (input: any) => Promise<any>;
+    list: () => Promise<any[]>;
+    get: (trackingNumber: string) => Promise<any>;
+    updateStatus: (trackingNumber: string, newStatus: any, options?: any) => Promise<any>;
+    delete: (trackingNumber: string) => Promise<boolean>;
+    deadlineAlerts: () => Promise<any[]>;
+  };
+  audit?: {
+    record: (event: any) => Promise<{ success: boolean }>;
+    query: (options: any) => Promise<any[]>;
+    verify: () => Promise<{ valid: boolean; brokenAt?: number; totalEvents: number }>;
+  };
+  wayleave?: {
+    computeSummary: (project: any) => Promise<any>;
+    exportPaps: (project: any, outputPath: string) => Promise<any>;
+    exportLandSchedule: (project: any, outputPath: string) => Promise<any>;
+    exportGeoJSON: (project: any, outputPath: string) => Promise<any>;
+    exportArcGIS: (project: any, outputDir: string) => Promise<any>;
+    exportLineProfile: (project: any, outputPath: string) => Promise<any>;
+    exportMultiDisciplineReport: (project: any, outputPath: string) => Promise<any>;
+  };
 }
 

@@ -3147,7 +3147,134 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
     return generateLevelingBook(opts);
   });
 
-  log.info('IPC handlers registered (all forms + supplementary)');
+  // ─── Electronic Cadastre Forms SR1-SR10 (LN 132 of 2020) ────────────
+  ipcMain.handle('form:generateSR1', async (_evt, opts: any) => {
+    const { generateSR1 } = await import('./electronic-cadastre-forms.js');
+    return generateSR1(opts);
+  });
+  ipcMain.handle('form:generateSR2', async (_evt, opts: any) => {
+    const { generateSR2 } = await import('./electronic-cadastre-forms.js');
+    return generateSR2(opts);
+  });
+  ipcMain.handle('form:generateSR3', async (_evt, opts: any) => {
+    const { generateSR3 } = await import('./electronic-cadastre-forms.js');
+    return generateSR3(opts);
+  });
+  ipcMain.handle('form:generateSR4', async (_evt, opts: any) => {
+    const { generateSR4 } = await import('./electronic-cadastre-forms.js');
+    return generateSR4(opts);
+  });
+  ipcMain.handle('form:generateSR5', async (_evt, opts: any) => {
+    const { generateSR5 } = await import('./electronic-cadastre-forms.js');
+    return generateSR5(opts);
+  });
+  ipcMain.handle('form:generateSR6', async (_evt, opts: any) => {
+    const { generateSR6 } = await import('./electronic-cadastre-forms.js');
+    return generateSR6(opts);
+  });
+  ipcMain.handle('form:generateSR7', async (_evt, opts: any) => {
+    const { generateSR7 } = await import('./electronic-cadastre-forms.js');
+    return generateSR7(opts);
+  });
+  ipcMain.handle('form:generateSR8', async (_evt, opts: any) => {
+    const { generateSR8 } = await import('./electronic-cadastre-forms.js');
+    return generateSR8(opts);
+  });
+  ipcMain.handle('form:generateSR9', async (_evt, opts: any) => {
+    const { generateSR9 } = await import('./electronic-cadastre-forms.js');
+    return generateSR9(opts);
+  });
+  ipcMain.handle('form:generateSR10', async (_evt, opts: any) => {
+    const { generateSR10 } = await import('./electronic-cadastre-forms.js');
+    return generateSR10(opts);
+  });
+
+  // ─── Surveyor Profile (LN 132 of 2020, Reg 5 + 6) ────────────────────
+  ipcMain.handle('profile:load', async () => {
+    const { loadSurveyorProfile } = await import('./surveyor-profile.js');
+    return loadSurveyorProfile();
+  });
+  ipcMain.handle('profile:save', async (_evt, profile: any) => {
+    const { saveSurveyorProfile } = await import('./surveyor-profile.js');
+    return saveSurveyorProfile(profile);
+  });
+  ipcMain.handle('profile:validate', async (_evt, profile: any) => {
+    const { validateSurveyorProfile } = await import('./surveyor-profile.js');
+    return validateSurveyorProfile(profile);
+  });
+
+  // ─── Submission Tracking (LN 132 of 2020, Reg 9) ─────────────────────
+  ipcMain.handle('submission:create', async (_evt, input: any) => {
+    const { createSubmission } = await import('./surveyor-profile.js');
+    return createSubmission(input);
+  });
+  ipcMain.handle('submission:list', async () => {
+    const { listSubmissions } = await import('./surveyor-profile.js');
+    return listSubmissions();
+  });
+  ipcMain.handle('submission:get', async (_evt, trackingNumber: string) => {
+    const { getSubmission } = await import('./surveyor-profile.js');
+    return getSubmission(trackingNumber);
+  });
+  ipcMain.handle('submission:updateStatus', async (_evt, trackingNumber: string, newStatus: any, options?: any) => {
+    const { updateSubmissionStatus } = await import('./surveyor-profile.js');
+    return updateSubmissionStatus(trackingNumber, newStatus, options);
+  });
+  ipcMain.handle('submission:delete', async (_evt, trackingNumber: string) => {
+    const { deleteSubmission } = await import('./surveyor-profile.js');
+    return deleteSubmission(trackingNumber);
+  });
+  ipcMain.handle('submission:deadlineAlerts', async () => {
+    const { getDeadlineAlerts } = await import('./surveyor-profile.js');
+    return getDeadlineAlerts();
+  });
+
+  // ─── Audit Trail (LN 132 of 2020, Reg 5(4)(i)) ──────────────────────
+  ipcMain.handle('audit:record', async (_evt, event: any) => {
+    const { recordAuditEvent } = await import('./surveyor-profile.js');
+    recordAuditEvent(event);
+    return { success: true };
+  });
+  ipcMain.handle('audit:query', async (_evt, options: any) => {
+    const { queryAuditEvents } = await import('./surveyor-profile.js');
+    return queryAuditEvents(options);
+  });
+  ipcMain.handle('audit:verify', async () => {
+    const { verifyAuditTrailIntegrity } = await import('./surveyor-profile.js');
+    return verifyAuditTrailIntegrity();
+  });
+
+  // ─── Wayleave Survey (KETRACO Annex 6) ───────────────────────────────
+  ipcMain.handle('wayleave:computeSummary', async (_evt, project: any) => {
+    const { computeWayleaveSummary } = await import('./wayleave-survey.js');
+    return computeWayleaveSummary(project);
+  });
+  ipcMain.handle('wayleave:exportPaps', async (_evt, project: any, outputPath: string) => {
+    const { exportPapsDatabase } = await import('./wayleave-survey.js');
+    return exportPapsDatabase(project, outputPath);
+  });
+  ipcMain.handle('wayleave:exportLandSchedule', async (_evt, project: any, outputPath: string) => {
+    const { exportLandInformationSchedule } = await import('./wayleave-survey.js');
+    return exportLandInformationSchedule(project, outputPath);
+  });
+  ipcMain.handle('wayleave:exportGeoJSON', async (_evt, project: any, outputPath: string) => {
+    const { exportWayleaveTraceGeoJSON } = await import('./wayleave-survey.js');
+    return exportWayleaveTraceGeoJSON(project, outputPath);
+  });
+  ipcMain.handle('wayleave:exportArcGIS', async (_evt, project: any, outputDir: string) => {
+    const { exportArcGISLayerDefinition } = await import('./wayleave-survey.js');
+    return exportArcGISLayerDefinition(project, outputDir);
+  });
+  ipcMain.handle('wayleave:exportLineProfile', async (_evt, project: any, outputPath: string) => {
+    const { exportLineProfile } = await import('./wayleave-survey.js');
+    return exportLineProfile(project, outputPath);
+  });
+  ipcMain.handle('wayleave:exportMultiDisciplineReport', async (_evt, project: any, outputPath: string) => {
+    const { exportMultiDisciplineReport } = await import('./wayleave-survey.js');
+    return exportMultiDisciplineReport(project, outputPath);
+  });
+
+  log.info('IPC handlers registered (all forms + supplementary + electronic cadastre + wayleave)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
