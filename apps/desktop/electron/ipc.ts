@@ -2426,6 +2426,148 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (P1 math: COGO + recovery + free station + area + precision)');
+
+  // ─── P2 Math: Level Network Adjustment ───────────────────────────────
+  // LSA applied to height differences across 3+ benchmarks.
+  // Kenya Survey Regulations: allowable misclosure = 12√K mm (1st order),
+  // 24√K mm (2nd), 48√K mm (3rd).
+
+  ipcMain.handle('eng:levelNetwork', async (_evt, opts: {
+    observations: Array<{
+      fromId: string; toId: string;
+      heightDifference: number;  // metres (positive = rise)
+      distance: number;          // metres
+      weight?: number;           // optional (auto = 1/(d_km²))
+    }>;
+    controlPoints: Array<{
+      id: string; rl: number; isFixed: boolean;
+    }>;
+    order?: string;  // 'first' | 'second' | 'third' | 'fourth'
+  }) => {
+    const levelPath = require('path').resolve(__dirname, '../../packages/engine/src/survey/digitalLevel/levelNetworkAdjustment');
+    const { adjustLevelNetwork } = await import(levelPath);
+
+    const result = adjustLevelNetwork(
+      opts.observations.map((o) => ({
+        fromId: o.fromId, toId: o.toId,
+        heightDifference: o.heightDifference,
+        distance: o.distance,
+        weight: o.weight ?? 1 / Math.pow(o.distance / 1000, 2),
+      })) as any,
+      opts.controlPoints.map((c) => ({ id: c.id, rl: c.rl, isFixed: c.isFixed })) as any,
+      opts.order ?? 'third',
+    );
+
+    return {
+      adjustedLevels: result.adjustedLevels?.map((l: any) => ({
+        id: l.id, rl: l.rl, sigmaRL: l.sigmaRL,
+      })) ?? [],
+      residuals: result.residuals?.map((r: any) => ({
+        from: r.from, to: r.to,
+        residual: r.residual, standardized: r.standardized,
+      })) ?? [],
+      misclosure: result.misclosure,
+      allowableMisclosure: result.allowableMisclosure,
+      misclosurePerKm: result.misclosurePerKm,
+      totalDistance: result.totalDistance,
+      referenceVariance: result.referenceVariance,
+      degreesOfFreedom: result.degreesOfFreedom,
+      passed: result.passed,
+      order: result.order,
+    };
+  });
+
+  // ─── P2 Math: Prismoidal Volume ──────────────────────────────────────
+  // More accurate than end-area for curved surfaces.
+  // V = L/6 * (A1 + 4*Am + A2) where Am = area at midpoint
+
+  ipcMain.handle('eng:prismoidalVolume', async (_evt, opts: {
+    sections: Array<{
+      chainage: number;
+      areas: { cut: number; fill: number };  // m²
+    }>;
+    interval: number;  // metres between sections
+  }) => {
+    // Use the engine's calculateVolumes with prismoidal method
+    const volPath = require('path').resolve(__dirname, '../../packages/engine/src/engineering/volume');
+    const { calculateVolumes } = await import(volPath);
+
+    const cutAreas = opts.sections.map((s) => s.areas.cut);
+    const fillAreas = opts.sections.map((s) => s.areas.fill);
+
+    const cutResult = calculateVolumes({
+      areas: cutAreas, stationInterval: opts.interval, method: 'prismoidal',
+    } as any);
+    const fillResult = calculateVolumes({
+      areas: fillAreas, stationInterval: opts.interval, method: 'prismoidal',
+    } as any);
+
+    return {
+      cutVolume: cutResult.totalCutVolume ?? cutResult.netVolume ?? 0,
+      fillVolume: fillResult.totalFillVolume ?? fillResult.netVolume ?? 0,
+      netVolume: (cutResult.totalCutVolume ?? cutResult.netVolume ?? 0) - (fillResult.totalFillVolume ?? fillResult.netVolume ?? 0),
+      segmentVolumes: cutResult.volumesByStation ?? [],
+      method: 'prismoidal',
+      sectionCount: opts.sections.length,
+    };
+  });
+
+  // ─── P2 Math: Deformation Monitoring ─────────────────────────────────
+  // Time-series analysis for monitoring stations (dams, landslides, buildings).
+  // The engine has computeDisplacement, generateDeformationReport, congruenceTest.
+
+  ipcMain.handle('eng:deformation', async (_evt, opts: {
+    stations: Array<{
+      id: string; name: string;
+      initialEasting: number; initialNorthing: number; initialElevation: number;
+    }>;
+    epochs: Array<{
+      epochId: string; date: string;
+      readings: Array<{
+        stationId: string;
+        easting: number; northing: number; elevation: number;
+        stdDevE?: number; stdDevN?: number; stdDevZ?: number;
+      }>;
+    }>;
+    thresholds?: { horizontal: number; vertical: number };  // metres
+  }) => {
+    const defPath = require('path').resolve(__dirname, '../../packages/engine/src/engine/deformationTracker');
+    const { computeDisplacement, generateDeformationReport } = await import(defPath);
+
+    const monitoringStations = opts.stations.map((s) => ({
+      id: s.id, name: s.name,
+      initialPosition: { easting: s.initialEasting, northing: s.initialNorthing, elevation: s.initialElevation },
+      threshold: opts.thresholds ?? { horizontal: 0.010, vertical: 0.005 },  // 10mm H, 5mm V
+    })) as any;
+
+    const epochReadings = opts.epochs.map((e) => ({
+      epoch: e.epochId, date: e.date,
+      readings: e.readings.map((r) => ({
+        stationId: r.stationId,
+        position: { easting: r.easting, northing: r.northing, elevation: r.elevation },
+        stdDev: { e: r.stdDevE ?? 0.002, n: r.stdDevN ?? 0.002, z: r.stdDevZ ?? 0.003 },
+      })),
+    })) as any;
+
+    const report = generateDeformationReport(monitoringStations, epochReadings);
+
+    return {
+      stationCount: report.stations?.length ?? 0,
+      epochCount: opts.epochs.length,
+      alerts: report.alerts ?? [],
+      maxHorizontalDisplacement: report.maxHorizontalDisplacement ?? 0,
+      maxVerticalDisplacement: report.maxVerticalDisplacement ?? 0,
+      summary: report.summary ?? '',
+      stations: report.stations?.map((s: any) => ({
+        id: s.id, name: s.name,
+        latestDisplacement: s.latestDisplacement,
+        trend: s.trend,
+        status: s.status,
+      })) ?? [],
+    };
+  });
+
+  log.info('IPC handlers registered (P2 math: level network + prismoidal + deformation)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
