@@ -237,5 +237,14 @@ export interface MetarduApi {
     exportLineProfile: (project: any, outputPath: string) => Promise<any>;
     exportMultiDisciplineReport: (project: any, outputPath: string) => Promise<any>;
   };
+  cadastre?: {
+    getMapTypes: () => Promise<any>;
+    getTenureCategories: () => Promise<any>;
+    assessQuality: (parcel: any) => Promise<any>;
+    checkIntegration: (source: any, target: any) => Promise<any>;
+    harmonizeCoordinates: (easting: number, northing: number, source: string, target: string, zone?: string) => Promise<any>;
+    exportLADM: (parcels: any, outputPath?: string) => Promise<any>;
+    coverageStats: () => Promise<any>;
+  };
 }
 

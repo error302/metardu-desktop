@@ -226,6 +226,16 @@ const api = {
     exportLineProfile: (project: any, outputPath: string) => ipcRenderer.invoke('wayleave:exportLineProfile', project, outputPath) as Promise<any>,
     exportMultiDisciplineReport: (project: any, outputPath: string) => ipcRenderer.invoke('wayleave:exportMultiDisciplineReport', project, outputPath) as Promise<any>,
   },
+  cadastre: {
+    getMapTypes: () => ipcRenderer.invoke('cadastre:getMapTypes') as Promise<any>,
+    getTenureCategories: () => ipcRenderer.invoke('cadastre:getTenureCategories') as Promise<any>,
+    assessQuality: (parcel: any) => ipcRenderer.invoke('cadastre:assessQuality', parcel) as Promise<any>,
+    checkIntegration: (source: any, target: any) => ipcRenderer.invoke('cadastre:checkIntegration', source, target) as Promise<any>,
+    harmonizeCoordinates: (easting: number, northing: number, source: string, target: string, zone?: string) =>
+      ipcRenderer.invoke('cadastre:harmonizeCoordinates', easting, northing, source, target, zone) as Promise<any>,
+    exportLADM: (parcels: any, outputPath?: string) => ipcRenderer.invoke('cadastre:exportLADM', parcels, outputPath) as Promise<any>,
+    coverageStats: () => ipcRenderer.invoke('cadastre:coverageStats') as Promise<any>,
+  },
   menu: {
     onFileNew: (cb: () => void) => ipcRenderer.on('menu:file:new', cb),
     onFileOpened: (cb: (filePath: string) => void) => ipcRenderer.on('menu:file:opened', (_e, filePath: string) => cb(filePath)),

@@ -3274,7 +3274,37 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
     return exportMultiDisciplineReport(project, outputPath);
   });
 
-  log.info('IPC handlers registered (all forms + supplementary + electronic cadastre + wayleave)');
+  // ─── Cadastre Quality & Integration (Siriba et al. 2011 + LADM) ─────
+  ipcMain.handle('cadastre:getMapTypes', async () => {
+    const { CADASTRAL_MAP_TYPES } = await import('./cadastre-quality.js');
+    return CADASTRAL_MAP_TYPES;
+  });
+  ipcMain.handle('cadastre:getTenureCategories', async () => {
+    const { TENURE_CATEGORIES } = await import('./cadastre-quality.js');
+    return TENURE_CATEGORIES;
+  });
+  ipcMain.handle('cadastre:assessQuality', async (_evt, parcel: any) => {
+    const { assessCadastreQuality } = await import('./cadastre-quality.js');
+    return assessCadastreQuality(parcel);
+  });
+  ipcMain.handle('cadastre:checkIntegration', async (_evt, source: any, target: any) => {
+    const { checkIntegrationCompatibility } = await import('./cadastre-quality.js');
+    return checkIntegrationCompatibility(source, target);
+  });
+  ipcMain.handle('cadastre:harmonizeCoordinates', async (_evt, easting: number, northing: number, source: string, target: string, zone?: string) => {
+    const { harmonizeCoordinates } = await import('./cadastre-quality.js');
+    return harmonizeCoordinates(easting, northing, source as any, target as any, zone);
+  });
+  ipcMain.handle('cadastre:exportLADM', async (_evt, parcels: any, outputPath?: string) => {
+    const { exportLADM } = await import('./cadastre-quality.js');
+    return exportLADM(parcels, { outputPath });
+  });
+  ipcMain.handle('cadastre:coverageStats', async () => {
+    const { computeCoverageStatistics } = await import('./cadastre-quality.js');
+    return computeCoverageStatistics();
+  });
+
+  log.info('IPC handlers registered (all forms + supplementary + electronic cadastre + wayleave + cadastre quality)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
