@@ -1804,6 +1804,42 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (M7: earthworks + pavement + slope + staking)');
+
+  // ─── M8: Auto-Update IPC ─────────────────────────────────────────────
+  ipcMain.handle('update:check', async () => {
+    if (process.env.NODE_ENV === 'development' || process.env.VITE_DEV_SERVER_URL) {
+      return { available: false, reason: 'Running in development mode' };
+    }
+    try {
+      const { autoUpdater } = await import('electron-updater');
+      const result = await autoUpdater.checkForUpdates();
+      return { available: !!result?.updateInfo, info: result?.updateInfo };
+    } catch (err) {
+      return { available: false, reason: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle('update:download', async () => {
+    try {
+      const { autoUpdater } = await import('electron-updater');
+      await autoUpdater.downloadUpdate();
+      return { downloading: true };
+    } catch (err) {
+      return { downloading: false, error: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle('update:install', async () => {
+    try {
+      const { autoUpdater } = await import('electron-updater');
+      autoUpdater.quitAndInstall();
+      return { installing: true };
+    } catch (err) {
+      return { installing: false, error: (err as Error).message };
+    }
+  });
+
+  log.info('IPC handlers registered (M8: auto-update)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {

@@ -161,6 +161,43 @@ if (!app.requestSingleInstanceLock()) {
     // Initialize database connection (will be null until user opens a project)
     registerIpcHandlers(() => database, (db) => { database = db; });
 
+    // ─── M8: Auto-Update ──────────────────────────────────────────────
+    // Check for updates on launch. Silent if offline or no update available.
+    // Only runs in production (not dev).
+    if (!isDev) {
+      import('electron-updater').then(({ autoUpdater }) => {
+        autoUpdater.autoDownload = false;  // don't auto-download — ask the user
+        autoUpdater.autoInstallOnAppQuit = true;
+        autoUpdater.on('update-available', (info) => {
+          log.info('Update available:', info.version);
+          mainWindow?.webContents.send('update:available', info);
+        });
+        autoUpdater.on('update-not-available', () => {
+          log.info('App is up to date');
+        });
+        autoUpdater.on('error', (err) => {
+          log.warn('Auto-update error (likely offline):', err.message);
+        });
+        autoUpdater.on('download-progress', (progress) => {
+          mainWindow?.webContents.send('update:progress', {
+            percent: progress.percent,
+            transferred: progress.transferred,
+            total: progress.total,
+          });
+        });
+        autoUpdater.on('update-downloaded', () => {
+          log.info('Update downloaded — will install on quit');
+          mainWindow?.webContents.send('update:downloaded');
+        });
+        // Check for updates (silently fails if offline)
+        autoUpdater.checkForUpdates().catch((err) => {
+          log.debug('Update check skipped:', err.message);
+        });
+      }).catch(() => {
+        // electron-updater not available in dev — fine
+      });
+    }
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
