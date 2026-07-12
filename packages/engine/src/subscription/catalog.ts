@@ -12,7 +12,7 @@
  * applied (which acts as the license signature).
  */
 
-export type PlanId = 'free' | 'pro' | 'enterprise' | 'trial';
+export type PlanId = 'free' | 'pro' | 'team' | 'firm' | 'enterprise';
 
 export interface PlanLimits {
   maxProjects: number;
@@ -40,7 +40,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     nlimsExportEnabled: true,
     cryptoSealEnabled: true,
   },
-  enterprise: {
+  team: {
     maxProjects: Infinity,
     maxPointsPerProject: Infinity,
     watermarkFreeTier: false,
@@ -48,13 +48,21 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     nlimsExportEnabled: true,
     cryptoSealEnabled: true,
   },
-  trial: {
-    maxProjects: 3,
-    maxPointsPerProject: 500,
-    watermarkFreeTier: true,
+  firm: {
+    maxProjects: Infinity,
+    maxPointsPerProject: Infinity,
+    watermarkFreeTier: false,
     statutoryDocsEnabled: true,
-    nlimsExportEnabled: false,
-    cryptoSealEnabled: false,
+    nlimsExportEnabled: true,
+    cryptoSealEnabled: true,
+  },
+  enterprise: {
+    maxProjects: Infinity,
+    maxPointsPerProject: Infinity,
+    watermarkFreeTier: false,
+    statutoryDocsEnabled: true,
+    nlimsExportEnabled: true,
+    cryptoSealEnabled: true,
   },
 };
 

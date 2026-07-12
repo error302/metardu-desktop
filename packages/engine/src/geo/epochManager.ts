@@ -47,14 +47,17 @@
  */
 
 // ─── Lazy loader for epochManagerRigorous (avoids circular dependency) ──────
-import * as epochRigorousModule from './epochManagerRigorous.js';
+// In ESM/Vitest we cannot use require() for lazy loading. We use a cached
+// dynamic import instead. The rigorous module's types are not exported as
+// named types, so we use `any` for the function signature here.
+import * as epochRigorousModule from './epochManagerRigorous';
 type RigorousModule = typeof epochRigorousModule;
 let _rigorousCached: RigorousModule | null = null;
-function getRigorousPropagator(): (coord: import('./epochManagerRigorous.js').EpochCoordinateRigorous, targetEpoch: number) => import('./epochManagerRigorous.js').PropagatedCoordinateRigorous {
+function getRigorousPropagator(): (coord: any, targetEpoch: number) => any {
   if (!_rigorousCached) {
     _rigorousCached = epochRigorousModule as unknown as RigorousModule;
   }
-  return _rigorousCached.propagateToEpochRigorous as unknown as (coord: import('./epochManagerRigorous.js').EpochCoordinateRigorous, targetEpoch: number) => import('./epochManagerRigorous.js').PropagatedCoordinateRigorous;
+  return _rigorousCached.propagateToEpochRigorous as unknown as (coord: any, targetEpoch: number) => any;
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────

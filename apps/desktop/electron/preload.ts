@@ -33,6 +33,40 @@ const api = {
     listProjects: () =>
       ipcRenderer.invoke('db:listProjects') as Promise<ProjectRow[]>,
   },
+  traverse: {
+    compute: (input: TraverseComputeInput) =>
+      ipcRenderer.invoke('traverse:compute', input) as Promise<TraverseComputeResultPayload>,
+    list: (projectId?: string) =>
+      ipcRenderer.invoke('traverse:list', projectId) as Promise<unknown[]>,
+    get: (traverseId: string) =>
+      ipcRenderer.invoke('traverse:get', traverseId) as Promise<{ traverse: unknown; legs: unknown[]; stations: unknown[] }>,
+  },
+  parcel: {
+    create: (data: ParcelCreateInput) =>
+      ipcRenderer.invoke('parcel:create', data) as Promise<{ parcel_id: string }>,
+    list: (projectId?: string) =>
+      ipcRenderer.invoke('parcel:list', projectId) as Promise<unknown[]>,
+    getPoints: (parcelId: string) =>
+      ipcRenderer.invoke('parcel:getPoints', parcelId) as Promise<unknown[]>,
+  },
+  beacon: {
+    create: (data: BeaconCreateInput) =>
+      ipcRenderer.invoke('beacon:create', data) as Promise<{ beacon_id: string }>,
+    list: (projectId?: string) =>
+      ipcRenderer.invoke('beacon:list', projectId) as Promise<unknown[]>,
+    update: (beaconId: string, updates: Record<string, unknown>) =>
+      ipcRenderer.invoke('beacon:update', beaconId, updates) as Promise<{ changes: number }>,
+    delete: (beaconId: string) =>
+      ipcRenderer.invoke('beacon:delete', beaconId) as Promise<{ changes: number }>,
+  },
+  deedPlan: {
+    generate: (opts: DeedPlanGenerateInput) =>
+      ipcRenderer.invoke('deedPlan:generate', opts) as Promise<{ deed_plan_id: string; pdf_path: string; pdf_hash: string }>,
+    list: (projectId?: string) =>
+      ipcRenderer.invoke('deedPlan:list', projectId) as Promise<unknown[]>,
+    seal: (deedPlanId: string, sealPayload: SealPayload) =>
+      ipcRenderer.invoke('deedPlan:seal', deedPlanId, sealPayload) as Promise<{ certificate_id: string }>,
+  },
   menu: {
     onFileNew: (cb: () => void) => ipcRenderer.on('menu:file:new', cb),
     onFileOpened: (cb: (filePath: string) => void) => ipcRenderer.on('menu:file:opened', (_e, filePath: string) => cb(filePath)),
@@ -57,6 +91,101 @@ export interface ProjectRow {
   default_crs_epsg: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface TraverseComputeInput {
+  project_id: string;
+  name: string;
+  survey_type?: string;
+  adjustment_method?: 'bowditch' | 'transit' | 'none';
+  legs: Array<{
+    from_point_number: string;
+    to_point_number: string;
+    observed_distance: number;
+    observed_bearing: number;
+  }>;
+  start_point?: { point_number: string; easting: number; northing: number };
+  closing_point?: { point_number: string; easting: number; northing: number };
+}
+
+export interface TraverseComputeResultPayload {
+  traverse_id: string;
+  perimeter: number;
+  linear_misclosure: number;
+  angular_misclosure?: number;
+  precision_ratio: number;
+  precision_passes: boolean;
+  precision_minimum: number;
+  adjusted_legs: Array<{
+    from_point_number: string;
+    to_point_number: string;
+    observed_distance: number;
+    observed_bearing: number;
+    adjusted_distance?: number;
+    adjusted_bearing?: number;
+    latitude: number;
+    departure: number;
+  }>;
+  stations: Array<{
+    point_number: string;
+    easting: number;
+    northing: number;
+    correction_easting?: number;
+    correction_northing?: number;
+  }>;
+}
+
+export interface ParcelCreateInput {
+  parcel_number: string;
+  lr_number?: string;
+  registry?: string;
+  area_sqm?: number;
+  perimeter_m?: number;
+  survey_type?: string;
+  traverse_id?: string;
+  points?: Array<{ point_number: string; easting: number; northing: number }>;
+}
+
+export interface BeaconCreateInput {
+  beacon_number: string;
+  beacon_type?: string;
+  easting: number;
+  northing: number;
+  elevation?: number;
+  placed_date?: string;
+  placed_by?: string;
+  description?: string;
+}
+
+export interface DeedPlanGenerateInput {
+  parcel_id?: string;
+  traverse_id?: string;
+  points: Array<{ number: string; easting: number; northing: number; is_beacon?: boolean }>;
+  title_data: {
+    lrNumber: string;
+    area: string;
+    scale: number;
+    surveyorName: string;
+    surveyorLicense: string;
+    date: string;
+    county: string;
+    subCounty?: string;
+    registryMapSheet?: string;
+    deedPlanNumber?: string;
+    projection?: string;
+    datum?: string;
+  };
+  paper_size?: 'A1' | 'A2' | 'A3' | 'A4';
+  output_dir?: string;
+}
+
+export interface SealPayload {
+  surveyor_name: string;
+  surveyor_license: string;
+  firm_name?: string;
+  certificate_text: string;
+  public_key?: string;
+  signature?: string;
 }
 
 contextBridge.exposeInMainWorld('metardu', api);

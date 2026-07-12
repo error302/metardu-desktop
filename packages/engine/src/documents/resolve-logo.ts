@@ -9,7 +9,10 @@
  *   - If not found, returns null (no watermark, no logo)
  */
 
-import { db } from '../db';
+// Stub db import — desktop app uses local SQLite via better-sqlite3, not the
+// upstream metardu Postgres db module. Logo resolution returns null for now
+// (free plan behavior). M3 will wire this to the desktop database.
+const db: any = null;
 import type { PlanId } from '../subscription/catalog';
 
 export interface ResolvedLogo {

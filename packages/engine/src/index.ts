@@ -19,30 +19,40 @@
  *   - survey/         Beacon registry, mutation, parcel management
  */
 
-// Re-export the most commonly used modules for easy IPC handler access
-export * as traverse from './engine/traverse.js';
-export * as cogo from './engine/cogo.js';
-export * as area from './engine/area.js';
-export * as curves from './engine/curves.js';
-export * as leastSquares from './engine/leastSquares.js';
-export * as robustEstimation from './engine/robustEstimation.js';
-export * as networkAdjustment from './engine/networkAdjustment.js';
-export * as contours from './engine/contours.js';
-export * as subdivision from './engine/subdivision.js';
+// Direct exports for the most-used functions (so IPC handlers can import them by name)
+export {
+  bowditchAdjustment,
+  transitAdjustment,
+  forwardTraverse,
+  evaluateTraverseClosure,
+  TRAVERSE_PRECISION_STANDARDS,
+  angularClosureTolerance,
+  type SurveyTypeKey,
+  type TraverseInput,
+  type ForwardTraverseInput,
+  type ForwardTraverseResult,
+} from './engine/traverse';
 
-export * as cassiniSoldner from './geo/cassiniSoldner/index.js';
-export * as datumTransforms from './geo/datumTransforms/index.js';
+export {
+  radiation,
+  bearingIntersection,
+  tienstraResection,
+} from './engine/cogo';
 
-export * as tin from './topo/tin/index.js';
-export * as featureCodes from './topo/featureCodes/index.js';
+export { propagateToEpoch, geodeticToEcef, ecefToGeodetic } from './geo/epochManager';
 
-export * as roadDesign from './engineering/road/index.js';
-export * as earthworks from './engineering/earthworks/index.js';
-export * as leveling from './engineering/leveling/index.js';
-
-export * as importers from './importers/index.js';
-export * as exporters from './export/index.js';
-export * as documents from './documents/index.js';
+export { DEED_PLAN_TEMPLATE } from './documents/templates/deed-plan';
+export { FORM_NO4_TEMPLATE } from './documents/templates/form-no4';
+export type { DeedPlanTemplateData, DeedPlanPoint, DeedPlanBoundary } from './documents/templates/deed-plan';
+export type { FormNo4Data } from './documents/templates/form-no4';
+export {
+  registerTemplate,
+  getTemplate,
+  getAllTemplates,
+  hasTemplate,
+  type DocumentType,
+  type DocumentTemplate,
+} from './documents/templates/registry';
 
 // Package version
 export const ENGINE_VERSION = '0.1.0';
