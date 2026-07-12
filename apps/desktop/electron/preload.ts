@@ -261,6 +261,21 @@ const api = {
     onFileOpened: (cb: (filePath: string) => void) => ipcRenderer.on('menu:file:opened', (_e, filePath: string) => cb(filePath)),
     onImportCsv: (cb: (filePath: string) => void) => ipcRenderer.on('menu:file:importCsv', (_e, filePath: string) => cb(filePath)),
   },
+  map: {
+    getLayers: () => ipcRenderer.invoke('map:getLayers'),
+    getProjections: () => ipcRenderer.invoke('map:getProjections'),
+    getMapSheets: () => ipcRenderer.invoke('map:getMapSheets'),
+    getGridConfigs: () => ipcRenderer.invoke('map:getGridConfigs'),
+    getBeaconSymbology: () => ipcRenderer.invoke('map:getBeaconSymbology'),
+    getControlSymbology: () => ipcRenderer.invoke('map:getControlSymbology'),
+    getPapStatusColors: () => ipcRenderer.invoke('map:getPapStatusColors'),
+    measureDistance: (points: any) => ipcRenderer.invoke('map:measureDistance', points),
+    measureArea: (points: any) => ipcRenderer.invoke('map:measureArea', points),
+    measureBearing: (p1: any, p2: any) => ipcRenderer.invoke('map:measureBearing', p1, p2),
+    generateScaleBar: (scaleDenominator: number, paperWidthMM?: number) =>
+      ipcRenderer.invoke('map:generateScaleBar', scaleDenominator, paperWidthMM),
+    getLayersForSurveyType: (surveyType: string) => ipcRenderer.invoke('map:getLayersForSurveyType', surveyType),
+  },
 };
 
 export interface SurveyPoint {

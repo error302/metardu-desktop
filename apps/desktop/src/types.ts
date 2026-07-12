@@ -25,103 +25,6 @@ export interface ProjectRow {
   updated_at: string;
 }
 
-export interface TraverseLegInput {
-  from_point_number: string;
-  to_point_number: string;
-  observed_distance: number;
-  observed_bearing: number;
-}
-
-export interface TraverseComputeInput {
-  project_id: string;
-  name: string;
-  survey_type?: string;
-  adjustment_method?: 'bowditch' | 'transit' | 'none';
-  legs: TraverseLegInput[];
-  start_point?: { point_number: string; easting: number; northing: number };
-  closing_point?: { point_number: string; easting: number; northing: number };
-}
-
-export interface TraverseComputeResultPayload {
-  traverse_id: string;
-  perimeter: number;
-  linear_misclosure: number;
-  angular_misclosure?: number;
-  precision_ratio: number;
-  precision_passes: boolean;
-  precision_minimum: number;
-  adjusted_legs: Array<{
-    from_point_number: string;
-    to_point_number: string;
-    observed_distance: number;
-    observed_bearing: number;
-    adjusted_distance?: number;
-    adjusted_bearing?: number;
-    latitude: number;
-    departure: number;
-  }>;
-  stations: Array<{
-    point_number: string;
-    easting: number;
-    northing: number;
-    correction_easting?: number;
-    correction_northing?: number;
-  }>;
-}
-
-export interface ParcelCreateInput {
-  parcel_number: string;
-  lr_number?: string;
-  registry?: string;
-  area_sqm?: number;
-  perimeter_m?: number;
-  survey_type?: string;
-  traverse_id?: string;
-  points?: Array<{ point_number: string; easting: number; northing: number }>;
-}
-
-export interface BeaconCreateInput {
-  beacon_number: string;
-  beacon_type?: string;
-  easting: number;
-  northing: number;
-  elevation?: number;
-  placed_date?: string;
-  placed_by?: string;
-  description?: string;
-}
-
-export interface DeedPlanGenerateInput {
-  parcel_id?: string;
-  traverse_id?: string;
-  points: Array<{ number: string; easting: number; northing: number; is_beacon?: boolean }>;
-  title_data: {
-    lrNumber: string;
-    area: string;
-    scale: number;
-    surveyorName: string;
-    surveyorLicense: string;
-    date: string;
-    county: string;
-    subCounty?: string;
-    registryMapSheet?: string;
-    deedPlanNumber?: string;
-    projection?: string;
-    datum?: string;
-  };
-  paper_size?: 'A1' | 'A2' | 'A3' | 'A4';
-  output_dir?: string;
-}
-
-export interface SealPayload {
-  surveyor_name: string;
-  surveyor_license: string;
-  firm_name?: string;
-  certificate_text: string;
-  public_key?: string;
-  signature?: string;
-}
-
 /**
  * The bridge API exposed by the preload script via contextBridge.
  * The renderer accesses this as `window.metardu`.
@@ -145,123 +48,23 @@ export interface MetarduApi {
     getPoints: (projectId?: string) => Promise<SurveyPoint[]>;
     listProjects: () => Promise<ProjectRow[]>;
   };
-  traverse: {
-    compute: (input: TraverseComputeInput) => Promise<TraverseComputeResultPayload>;
-    list: (projectId?: string) => Promise<unknown[]>;
-    get: (traverseId: string) => Promise<{ traverse: unknown; legs: unknown[]; stations: unknown[] }>;
-  };
-  parcel: {
-    create: (data: ParcelCreateInput) => Promise<{ parcel_id: string }>;
-    list: (projectId?: string) => Promise<unknown[]>;
-    getPoints: (parcelId: string) => Promise<unknown[]>;
-  };
-  beacon: {
-    create: (data: BeaconCreateInput) => Promise<{ beacon_id: string }>;
-    list: (projectId?: string) => Promise<unknown[]>;
-    update: (beaconId: string, updates: Record<string, unknown>) => Promise<{ changes: number }>;
-    delete: (beaconId: string) => Promise<{ changes: number }>;
-  };
-  deedPlan: {
-    generate: (opts: DeedPlanGenerateInput) => Promise<{ deed_plan_id: string; pdf_path: string; pdf_hash: string }>;
-    list: (projectId?: string) => Promise<unknown[]>;
-    seal: (deedPlanId: string, sealPayload: SealPayload) => Promise<{ certificate_id: string }>;
-  };
   menu: {
     onFileNew: (cb: () => void) => void;
     onFileOpened: (cb: (filePath: string) => void) => void;
     onImportCsv: (cb: (filePath: string) => void) => void;
   };
-  // Optional namespaces — present when the corresponding preload module is loaded.
-  // Renderer code should feature-detect: `if (window.metardu.report) { ... }`.
-  report?: {
-    generate: (opts: any) => Promise<{
-      pdfPath: string;
-      pdfSizeBytes: number;
-      pageCount: number;
-      sealed: boolean;
-      signatureFingerprint?: string;
-      signedAt?: string;
-      warnings: string[];
-    }>;
-  };
-  form?: {
-    generateFormP: (opts: any) => Promise<any>;
-    generateTopoReport: (opts: any) => Promise<any>;
-    generateCrossSections: (opts: any) => Promise<any>;
-    generateRinexLog: (opts: any) => Promise<any>;
-    generateLevelingBook: (opts: any) => Promise<any>;
-  };
-  plan?: {
-    render: (opts: any) => Promise<any>;
-    autoGenerate: (opts: any) => Promise<any>;
-    renderTopo: (opts: any) => Promise<any>;
-    renderEngineering: (opts: any) => Promise<any>;
-    print: (opts: any) => Promise<any>;
-    listPrinters: () => Promise<any>;
-  };
-  qa?: {
-    gisReport: (opts: any) => Promise<any>;
-    gate: (opts: any) => Promise<any>;
-  };
-  export?: {
-    dxf: (opts: any) => Promise<any>;
-    dxfSoK: (opts: any) => Promise<any>;
-    landxml: (opts: any) => Promise<any>;
-    geojson: (opts: any) => Promise<any>;
-    shapefile: (opts: any) => Promise<any>;
-  };
-  profile?: {
-    load: () => Promise<any>;
-    save: (profile: any) => Promise<any>;
-    validate: (profile: any) => Promise<{ valid: boolean; errors: string[] }>;
-  };
-  submission?: {
-    create: (input: any) => Promise<any>;
-    list: () => Promise<any[]>;
-    get: (trackingNumber: string) => Promise<any>;
-    updateStatus: (trackingNumber: string, newStatus: any, options?: any) => Promise<any>;
-    delete: (trackingNumber: string) => Promise<boolean>;
-    deadlineAlerts: () => Promise<any[]>;
-  };
-  audit?: {
-    record: (event: any) => Promise<{ success: boolean }>;
-    query: (options: any) => Promise<any[]>;
-    verify: () => Promise<{ valid: boolean; brokenAt?: number; totalEvents: number }>;
-  };
-  wayleave?: {
-    computeSummary: (project: any) => Promise<any>;
-    exportPaps: (project: any, outputPath: string) => Promise<any>;
-    exportLandSchedule: (project: any, outputPath: string) => Promise<any>;
-    exportGeoJSON: (project: any, outputPath: string) => Promise<any>;
-    exportArcGIS: (project: any, outputDir: string) => Promise<any>;
-    exportLineProfile: (project: any, outputPath: string) => Promise<any>;
-    exportMultiDisciplineReport: (project: any, outputPath: string) => Promise<any>;
-  };
-  cadastre?: {
-    getMapTypes: () => Promise<any>;
-    getTenureCategories: () => Promise<any>;
-    assessQuality: (parcel: any) => Promise<any>;
-    checkIntegration: (source: any, target: any) => Promise<any>;
-    harmonizeCoordinates: (easting: number, northing: number, source: string, target: string, zone?: string) => Promise<any>;
-    exportLADM: (parcels: any, outputPath?: string) => Promise<any>;
-    coverageStats: () => Promise<any>;
-  };
-  eng?: {
-    getRoadAuthorities: () => Promise<any>;
-    getRoadClasses: () => Promise<any>;
-    getTolerances: () => Promise<any>;
-    compareAsBuilt: (design: any, asBuilt: any, defaultToleranceStructure?: string) => Promise<any>;
-    validateMachineControl: (alignment: any, format?: string, existingGround?: any) => Promise<any>;
-    getQAChecklist: (projectType: string) => Promise<any>;
-  };
-  topo?: {
-    getMapStandards: () => Promise<any>;
-    getControlClasses: () => Promise<any>;
-    assessAccuracy: (mapScale: string, checkPoints: any) => Promise<any>;
-    getFeatureCodes: () => Promise<any>;
-    lookupFeatureCode: (code: string) => Promise<any>;
-    getQAChecklist: (mapScale: string) => Promise<any>;
-    recommendScale: (projectType: string, approximateArea?: number) => Promise<any>;
+  map?: {
+    getLayers: () => Promise<any>;
+    getProjections: () => Promise<any>;
+    getMapSheets: () => Promise<any>;
+    getGridConfigs: () => Promise<any>;
+    getBeaconSymbology: () => Promise<any>;
+    getControlSymbology: () => Promise<any>;
+    getPapStatusColors: () => Promise<any>;
+    measureDistance: (points: any) => Promise<any>;
+    measureArea: (points: any) => Promise<any>;
+    measureBearing: (p1: any, p2: any) => Promise<any>;
+    generateScaleBar: (scaleDenominator: number, paperWidthMM?: number) => Promise<any>;
+    getLayersForSurveyType: (surveyType: string) => Promise<any>;
   };
 }
-
