@@ -1719,6 +1719,91 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (OV5+OV6+OV7+OV8+OV9: full P1+P2 overkill)');
+
+  // ─── M7: Earthworks + Pavement + Slope + Staking ─────────────────────
+  // Deepens the engineering vertical with full earthworks optimization,
+  // AASHTO pavement design, slope analysis, and staking tables.
+
+  ipcMain.handle('eng:pavementDesign', async (_evt, opts: {
+    traffic: {
+      aadtt: number;        // Annual Average Daily Truck Traffic
+      growthRate: number;   // % per year
+      designLife: number;   // years
+      truckFactor: number;  // ESALs per truck
+      directionalSplit: number;  // 0.5 = 50/50
+      laneDistribution: number;  // 1.0 for 2-lane, 0.5 for multi-lane
+    };
+    subgrade: {
+      cbr: number;          // California Bearing Ratio (%)
+      mrr: number;          // Resilient modulus (MPa)
+    };
+  }) => {
+    const { designPavement } = await import('@metardu/engine/packages/engine/src/engineering/pavementDesign.js');
+    return designPavement(opts.traffic as any, opts.subgrade as any);
+  });
+
+  ipcMain.handle('eng:pavementESA', async (_evt, traffic: {
+    aadtt: number; growthRate: number; designLife: number; truckFactor: number;
+    directionalSplit: number; laneDistribution: number;
+  }) => {
+    const { computeESA, classifyTraffic } = await import('@metardu/engine/packages/engine/src/engineering/pavementDesign.js');
+    const esa = computeESA(traffic as any);
+    return { ...esa, classification: classifyTraffic(esa.esaMillions) };
+  });
+
+  ipcMain.handle('eng:slopeAnalysis', async (_evt, opts: {
+    points: Array<{ x: number; y: number; z: number }>;
+    gridResolution?: number;
+  }) => {
+    const { analyzeSlopeFromPoints } = await import('@metardu/engine/packages/engine/src/engineering/slopeAnalysis.js');
+    return analyzeSlopeFromPoints(opts.points as any, opts.gridResolution ?? 5);
+  });
+
+  ipcMain.handle('eng:stakingTable', async (_evt, opts: {
+    curveData: {
+      radius: number;
+      deflectionAngle: number;
+      chainageIP: number;
+      bearingIP: number;
+    };
+    pegInterval?: number;
+  }) => {
+    const { generateStakingTable, computeCurveElements, generateChainageTable } =
+      await import('@metardu/engine/packages/engine/src/engineering/stakingTable.js');
+    const elements = computeCurveElements(opts.curveData as any);
+    const chainageTable = generateChainageTable(elements as any, opts.pegInterval ?? 20);
+    const stakingTable = generateStakingTable(chainageTable as any, opts.curveData as any);
+    return { elements, chainageTable, stakingTable };
+  });
+
+  ipcMain.handle('eng:roadReserve', async (_evt, opts: {
+    roadClass: string;
+    centerline: Array<{ easting: number; northing: number }>;
+    parcels?: Array<{ parcelNumber: string; points: Array<{ easting: number; northing: number }> }>;
+  }) => {
+    const { getRoadReserveWidth, checkRoadReserveCompliance } =
+      await import('@metardu/engine/packages/engine/src/engineering/roadReserve.js');
+    const reserveWidth = getRoadReserveWidth(opts.roadClass);
+    const compliance = opts.parcels
+      ? checkRoadReserveCompliance({
+          roadClass: opts.roadClass,
+          centerline: opts.centerline as any,
+          parcels: opts.parcels as any,
+        } as any)
+      : null;
+    return { reserveWidth, compliance };
+  });
+
+  ipcMain.handle('eng:asBuilt', async (_evt, opts: {
+    designPoints: Array<{ chainage: number; easting: number; northing: number; elevation: number }>;
+    asBuiltPoints: Array<{ chainage: number; easting: number; northing: number; elevation: number }>;
+    tolerance: number;  // metres
+  }) => {
+    const { computeAsBuiltComparison } = await import('@metardu/engine/packages/engine/src/engineering/asBuiltSurvey.js');
+    return computeAsBuiltComparison(opts.designPoints as any, opts.asBuiltPoints as any, opts.tolerance);
+  });
+
+  log.info('IPC handlers registered (M7: earthworks + pavement + slope + staking)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
