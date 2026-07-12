@@ -3304,7 +3304,63 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
     return computeCoverageStatistics();
   });
 
-  log.info('IPC handlers registered (all forms + supplementary + electronic cadastre + wayleave + cadastre quality)');
+  // ─── Engineering Standards (RDM 1.1 + KeNHA + ISO 4463) ──────────────
+  ipcMain.handle('eng:getRoadAuthorities', async () => {
+    const { ROAD_AUTHORITIES } = await import('./engineering-standards.js');
+    return ROAD_AUTHORITIES;
+  });
+  ipcMain.handle('eng:getRoadClasses', async () => {
+    const { ROAD_CLASSES } = await import('./engineering-standards.js');
+    return ROAD_CLASSES;
+  });
+  ipcMain.handle('eng:getTolerances', async () => {
+    const { SETTING_OUT_TOLERANCES } = await import('./engineering-standards.js');
+    return SETTING_OUT_TOLERANCES;
+  });
+  ipcMain.handle('eng:compareAsBuilt', async (_evt, design: any, asBuilt: any, defaultToleranceStructure?: string) => {
+    const { compareDesignToAsBuilt } = await import('./engineering-standards.js');
+    return compareDesignToAsBuilt(design, asBuilt, defaultToleranceStructure as any);
+  });
+  ipcMain.handle('eng:validateMachineControl', async (_evt, alignment: any, format?: string, existingGround?: any) => {
+    const { validateMachineControlData } = await import('./engineering-standards.js');
+    return validateMachineControlData(alignment, format as any, existingGround);
+  });
+  ipcMain.handle('eng:getQAChecklist', async (_evt, projectType: string) => {
+    const { getEngineeringQAChecklist } = await import('./engineering-standards.js');
+    return getEngineeringQAChecklist(projectType as any);
+  });
+
+  // ─── Topographical Standards (SoK + NMAS + ASPRS) ────────────────────
+  ipcMain.handle('topo:getMapStandards', async () => {
+    const { TOPO_MAP_STANDARDS } = await import('./topographical-standards.js');
+    return TOPO_MAP_STANDARDS;
+  });
+  ipcMain.handle('topo:getControlClasses', async () => {
+    const { CONTROL_SURVEY_CLASSES } = await import('./topographical-standards.js');
+    return CONTROL_SURVEY_CLASSES;
+  });
+  ipcMain.handle('topo:assessAccuracy', async (_evt, mapScale: string, checkPoints: any) => {
+    const { assessTopoAccuracy } = await import('./topographical-standards.js');
+    return assessTopoAccuracy(mapScale, checkPoints);
+  });
+  ipcMain.handle('topo:getFeatureCodes', async () => {
+    const { FEATURE_CODES } = await import('./topographical-standards.js');
+    return FEATURE_CODES;
+  });
+  ipcMain.handle('topo:lookupFeatureCode', async (_evt, code: string) => {
+    const { lookupFeatureCode } = await import('./topographical-standards.js');
+    return lookupFeatureCode(code);
+  });
+  ipcMain.handle('topo:getQAChecklist', async (_evt, mapScale: string) => {
+    const { getTopoQAChecklist } = await import('./topographical-standards.js');
+    return getTopoQAChecklist(mapScale);
+  });
+  ipcMain.handle('topo:recommendScale', async (_evt, projectType: string, approximateArea?: number) => {
+    const { recommendMapScale } = await import('./topographical-standards.js');
+    return recommendMapScale(projectType as any, approximateArea);
+  });
+
+  log.info('IPC handlers registered (all modules: forms, cadastre, engineering, topographical, wayleave)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {

@@ -246,5 +246,22 @@ export interface MetarduApi {
     exportLADM: (parcels: any, outputPath?: string) => Promise<any>;
     coverageStats: () => Promise<any>;
   };
+  eng?: {
+    getRoadAuthorities: () => Promise<any>;
+    getRoadClasses: () => Promise<any>;
+    getTolerances: () => Promise<any>;
+    compareAsBuilt: (design: any, asBuilt: any, defaultToleranceStructure?: string) => Promise<any>;
+    validateMachineControl: (alignment: any, format?: string, existingGround?: any) => Promise<any>;
+    getQAChecklist: (projectType: string) => Promise<any>;
+  };
+  topo?: {
+    getMapStandards: () => Promise<any>;
+    getControlClasses: () => Promise<any>;
+    assessAccuracy: (mapScale: string, checkPoints: any) => Promise<any>;
+    getFeatureCodes: () => Promise<any>;
+    lookupFeatureCode: (code: string) => Promise<any>;
+    getQAChecklist: (mapScale: string) => Promise<any>;
+    recommendScale: (projectType: string, approximateArea?: number) => Promise<any>;
+  };
 }
 

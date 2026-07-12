@@ -236,6 +236,26 @@ const api = {
     exportLADM: (parcels: any, outputPath?: string) => ipcRenderer.invoke('cadastre:exportLADM', parcels, outputPath) as Promise<any>,
     coverageStats: () => ipcRenderer.invoke('cadastre:coverageStats') as Promise<any>,
   },
+  eng: {
+    getRoadAuthorities: () => ipcRenderer.invoke('eng:getRoadAuthorities') as Promise<any>,
+    getRoadClasses: () => ipcRenderer.invoke('eng:getRoadClasses') as Promise<any>,
+    getTolerances: () => ipcRenderer.invoke('eng:getTolerances') as Promise<any>,
+    compareAsBuilt: (design: any, asBuilt: any, defaultToleranceStructure?: string) =>
+      ipcRenderer.invoke('eng:compareAsBuilt', design, asBuilt, defaultToleranceStructure) as Promise<any>,
+    validateMachineControl: (alignment: any, format?: string, existingGround?: any) =>
+      ipcRenderer.invoke('eng:validateMachineControl', alignment, format, existingGround) as Promise<any>,
+    getQAChecklist: (projectType: string) => ipcRenderer.invoke('eng:getQAChecklist', projectType) as Promise<any>,
+  },
+  topo: {
+    getMapStandards: () => ipcRenderer.invoke('topo:getMapStandards') as Promise<any>,
+    getControlClasses: () => ipcRenderer.invoke('topo:getControlClasses') as Promise<any>,
+    assessAccuracy: (mapScale: string, checkPoints: any) => ipcRenderer.invoke('topo:assessAccuracy', mapScale, checkPoints) as Promise<any>,
+    getFeatureCodes: () => ipcRenderer.invoke('topo:getFeatureCodes') as Promise<any>,
+    lookupFeatureCode: (code: string) => ipcRenderer.invoke('topo:lookupFeatureCode', code) as Promise<any>,
+    getQAChecklist: (mapScale: string) => ipcRenderer.invoke('topo:getQAChecklist', mapScale) as Promise<any>,
+    recommendScale: (projectType: string, approximateArea?: number) =>
+      ipcRenderer.invoke('topo:recommendScale', projectType, approximateArea) as Promise<any>,
+  },
   menu: {
     onFileNew: (cb: () => void) => ipcRenderer.on('menu:file:new', cb),
     onFileOpened: (cb: (filePath: string) => void) => ipcRenderer.on('menu:file:opened', (_e, filePath: string) => cb(filePath)),
