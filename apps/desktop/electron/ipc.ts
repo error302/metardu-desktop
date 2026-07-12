@@ -2608,6 +2608,220 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (professional plan renderer)');
+
+  // ─── Auto-Layout → Professional Render (one-click plan generation) ────
+  // Combines OV8 (smart auto-layout) with the professional renderer.
+  // Input: parcel points + traverse + surveyor info → output: SoK-compliant PDF.
+  // The auto-layout computes scale, rotation, paper size, dimension placement.
+  // The renderer draws everything as vector PDF.
+
+  ipcMain.handle('plan:autoGenerate', async (_evt, opts: {
+    parcelPoints: Array<{ number: string; easting: number; northing: number; elevation?: number; beaconType?: string }>;
+    boundaries?: Array<{ fromIndex: number; toIndex: number; bearing: number; distance: number }>;
+    parcelNumber: string;
+    lrNumber: string;
+    areaSqM: number;
+    perimeter: number;
+    county: string;
+    subCounty?: string;
+    locality: string;
+    surveyorName: string;
+    surveyorLicense: string;
+    firmName?: string;
+    surveyDate: string;
+    planType?: 'deed_plan' | 'topo_plan' | 'engineering_plan' | 'mutation_plan' | 'site_plan';
+    paperSize?: 'A0' | 'A1' | 'A2' | 'A3' | 'A4';
+    scale?: number;
+    gridType?: 'cassini' | 'utm';
+    gridInterval?: number;
+    gridConvergence?: number;
+    contours?: Array<{ elevation: number; isIndex: boolean; points: Array<[number, number]> }>;
+    buildings?: Array<{ points: Array<[number, number]>; label?: string }>;
+    roads?: Array<{ centerline: Array<[number, number]>; width?: number; label?: string }>;
+    waterFeatures?: Array<{ points: Array<[number, number]>; label?: string; type: string }>;
+    outputDir?: string;
+    fileName?: string;
+  }) => {
+    const path = await import('node:path');
+    const fs = await import('node:fs');
+
+    // Step 1: Auto-layout (compute scale, paper size, rotation)
+    const { generateAutoLayout } = await import('./deed-plan-layout.js');
+    const paperSize = opts.paperSize ?? 'A1';
+    const layout = generateAutoLayout({
+      parcelPoints: opts.parcelPoints,
+      parcelNumber: opts.parcelNumber,
+      lrNumber: opts.lrNumber,
+      areaSqM: opts.areaSqM,
+      perimeter: opts.perimeter,
+      paperSize,
+      surveyorName: opts.surveyorName,
+      surveyorLicense: opts.surveyorLicense,
+      county: opts.county,
+      surveyDate: opts.surveyDate,
+      scale: opts.scale,
+    } as any);
+
+    // Step 2: Render professional plan using the computed layout
+    const { renderProfessionalPlan } = await import('./professional-plan-renderer.js');
+
+    const outputDir = opts.outputDir ?? path.join(process.cwd(), 'plans');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const fileName = opts.fileName ?? `plan-${opts.lrNumber.replace(/[^a-zA-Z0-9]/g, '_')}-${Date.now()}.pdf`;
+    const outputPath = path.join(outputDir, fileName);
+
+    const result = await renderProfessionalPlan({
+      planType: opts.planType ?? 'deed_plan',
+      paperSize: layout.paperSize as any,
+      orientation: layout.orientation,
+      scale: layout.scale,
+      parcel: {
+        number: opts.parcelNumber,
+        lrNumber: opts.lrNumber,
+        areaSqM: opts.areaSqM,
+        perimeter: opts.perimeter,
+        points: opts.parcelPoints.map((p) => ({
+          number: p.number,
+          easting: p.easting,
+          northing: p.northing,
+          elevation: p.elevation,
+          beaconType: (p.beaconType as any) ?? 'concrete',
+        })),
+        boundaries: opts.boundaries,
+      },
+      titleBlock: {
+        lrNumber: opts.lrNumber,
+        county: opts.county,
+        subCounty: opts.subCounty,
+        locality: opts.locality,
+        surveyorName: opts.surveyorName,
+        surveyorLicense: opts.surveyorLicense,
+        firmName: opts.firmName,
+        surveyDate: opts.surveyDate,
+        areaText: `${(opts.areaSqM / 10000).toFixed(4)} ha`,
+        scale: layout.scale,
+        projection: opts.gridType === 'utm' ? 'UTM' : 'Cassini-Soldner',
+        datum: 'Arc 1960',
+      },
+      grid: {
+        type: (opts.gridType ?? 'cassini') as any,
+        interval: opts.gridInterval ?? layout.gridOverlay.interval,
+      },
+      gridConvergence: opts.gridConvergence,
+      contours: opts.contours,
+      buildings: opts.buildings,
+      roads: opts.roads,
+      waterFeatures: opts.waterFeatures,
+      outputPath,
+    } as any);
+
+    // Audit
+    const db = getDb();
+    if (db) {
+      const projectId = getSingleProjectId(db);
+      db.audit('plan.auto_generate', 'project', projectId, {
+        planType: opts.planType ?? 'deed_plan',
+        paperSize: layout.paperSize,
+        scale: layout.scale,
+        rotation: layout.rotation,
+        pdfPath: outputPath,
+        pdfSize: result.pdfSizeBytes,
+      });
+    }
+
+    return {
+      ...result,
+      layout: {
+        paperSize: layout.paperSize,
+        orientation: layout.orientation,
+        scale: layout.scale,
+        rotation: layout.rotation,
+        gridInterval: layout.gridOverlay.interval,
+      },
+    };
+  });
+
+  // ─── Print Dialog (direct printing to plotters) ──────────────────────
+  ipcMain.handle('plan:print', async (_evt, opts: {
+    pdfPath: string;
+    printerName?: string;  // specific printer (e.g. "HP DesignJet T1700")
+    paperSize?: string;    // e.g. "A1", "A0"
+    orientation?: 'portrait' | 'landscape';
+    copies?: number;
+  }) => {
+    const fs = await import('node:fs');
+    if (!fs.existsSync(opts.pdfPath)) {
+      throw new Error(`PDF not found: ${opts.pdfPath}`);
+    }
+
+    // On macOS/Linux: use lp command
+    // On Windows: use SumatraPDF or Acrobat CLI
+    const { exec } = await import('node:child_process');
+    const util = await import('node:util');
+    const execAsync = util.promisify(exec);
+
+    const platform = process.platform;
+    let cmd: string;
+
+    if (platform === 'win32') {
+      // Windows: use SumatraPDF (common in survey offices) or fallback to Acrobat
+      const sumatraPath = 'C:\\Program Files\\SumatraPDF\\SumatraPDF.exe';
+      const args = [
+        '-print-to', opts.printerName ?? 'default',
+        '-print-settings', `${opts.copies ?? 1}x`,
+        opts.pdfPath,
+      ];
+      cmd = `"${sumatraPath}" ${args.join(' ')}`;
+    } else {
+      // macOS/Linux: use lp
+      const args = ['-d', opts.printerName ?? 'default', '-n', String(opts.copies ?? 1)];
+      if (opts.paperSize) args.push('-o', `media=${opts.paperSize}`);
+      if (opts.orientation) args.push('-o', `orientation-requested=${opts.orientation === 'landscape' ? '4' : '3'}`);
+      args.push(opts.pdfPath);
+      cmd = `lp ${args.join(' ')}`;
+    }
+
+    try {
+      const { stdout, stderr } = await execAsync(cmd);
+      log.info(`Print command output: ${stdout}`);
+      return { printed: true, command: cmd, output: stdout };
+    } catch (err) {
+      log.warn('Print failed:', err);
+      return { printed: false, error: (err as Error).message, command: cmd };
+    }
+  });
+
+  // ─── List available printers ────────────────────────────────────────
+  ipcMain.handle('plan:listPrinters', async () => {
+    const { exec } = await import('node:child_process');
+    const util = await import('node:util');
+    const execAsync = util.promisify(exec);
+
+    try {
+      const platform = process.platform;
+      let cmd: string;
+      if (platform === 'win32') {
+        cmd = 'wmic printer get name';
+      } else {
+        cmd = 'lpstat -p';
+      }
+      const { stdout } = await execAsync(cmd);
+      const printers = stdout
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0 && !l.startsWith('printer') && l !== 'Name')
+        .map((l) => {
+          if (platform === 'win32') return l;
+          // lpstat format: "printer HP_DesignJet is idle."
+          return l.split(' ')[1] ?? l;
+        });
+      return { printers };
+    } catch {
+      return { printers: [] };
+    }
+  });
+
+  log.info('IPC handlers registered (auto-generate + print)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
