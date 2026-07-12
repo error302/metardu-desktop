@@ -399,7 +399,409 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
     return { certificate_id: certId };
   });
 
-  log.info('IPC handlers registered (M2: traverse + parcel + beacon + deedPlan)');
+  // ─── Crypto seal handlers (M3) ────────────────────────────────────────
+  // Real RSA-2048 cryptographic seal per Survey Reg 3(2).
+
+  ipcMain.handle('crypto:getKeypair', async () => {
+    const { loadOrCreateSurveyorKeypair } = await import('./crypto-seal.js');
+    const keypair = loadOrCreateSurveyorKeypair();
+    // Return ONLY the public key + fingerprint (never expose the private key to the renderer)
+    return {
+      publicKeyPem: keypair.publicKeyPem,
+      fingerprint: keypair.fingerprint,
+      createdAt: keypair.createdAt,
+    };
+  });
+
+  ipcMain.handle('crypto:seal', async (_evt, opts: {
+    documentHash: string;  // hex SHA-256
+    surveyorName: string;
+    surveyorLicense: string;
+    firmName?: string;
+    surveyDate: string;
+    parcelNumber: string;
+    lrNumber: string;
+    areaText: string;
+    precisionRatio: number;
+    traverseLegs: number;
+    adjustmentMethod: string;
+    deedPlanId: string;
+  }) => {
+    const db = getDb();
+    if (!db) throw new Error('No project is open.');
+    const { loadOrCreateSurveyorKeypair, sealDocument, generateCertificateText } = await import('./crypto-seal.js');
+    const keypair = loadOrCreateSurveyorKeypair();
+    const seal = sealDocument(opts.documentHash, keypair);
+    const certText = generateCertificateText({
+      surveyorName: opts.surveyorName,
+      surveyorLicense: opts.surveyorLicense,
+      firmName: opts.firmName,
+      surveyDate: opts.surveyDate,
+      parcelNumber: opts.parcelNumber,
+      lrNumber: opts.lrNumber,
+      areaText: opts.areaText,
+      precisionRatio: opts.precisionRatio,
+      traverseLegs: opts.traverseLegs,
+      adjustmentMethod: opts.adjustmentMethod,
+    });
+
+    // Save to database with real signature (not 'pending')
+    const certId = db.sealDeedPlan(opts.deedPlanId, {
+      surveyor_name: opts.surveyorName,
+      surveyor_license: opts.surveyorLicense,
+      firm_name: opts.firmName,
+      certificate_text: certText,
+      document_hash: opts.documentHash,
+      public_key: seal.publicKeyPem,
+      signature: seal.signature,
+    });
+
+    return {
+      certificate_id: certId,
+      signature: seal.signature,
+      public_key_pem: seal.publicKeyPem,
+      algorithm: seal.algorithm,
+      key_fingerprint: seal.keyFingerprint,
+      signed_at: seal.signedAt,
+      certificate_text: certText,
+    };
+  });
+
+  ipcMain.handle('crypto:verify', async (_evt, opts: {
+    documentHash: string;
+    signature: string;
+    publicKeyPem: string;
+  }) => {
+    const { verifySeal } = await import('./crypto-seal.js');
+    return verifySeal(opts.documentHash, opts.signature, opts.publicKeyPem);
+  });
+
+  // ─── NLIMS export handlers (M3) ───────────────────────────────────────
+  // Generates an NLIMS/ArdhiSasa submission JSON with schema validation.
+
+  ipcMain.handle('nlims:export', async (_evt, opts: {
+    projectId?: string;
+    submissionType: 'mutation' | 'subdivision' | 'amalgamation' | 'new_registration' | 'boundary_adjustment';
+    registry: string;
+    county: string;
+    subCounty: string;
+    surveyor: {
+      name: string;
+      licenseNumber: string;
+      firm?: string;
+      iskMembershipNumber?: string;
+    };
+    parentParcel?: {
+      parcelNumber: string;
+      titleDeedNumber: string;
+      registryMapSheet: string;
+      areaHectares: number;
+      coordinates: Array<{ easting: number; northing: number }>;
+    };
+    resultingParcels: Array<{
+      parcelNumber: string;
+      lrNumber: string;
+      areaHectares: number;
+      coordinates: Array<{ easting: number; northing: number }>;
+    }>;
+    beacons: Array<{
+      beaconNumber: string;
+      beaconType: string;
+      easting: number;
+      northing: number;
+      elevation?: number;
+    }>;
+    encumbrances?: Array<{
+      type: string;
+      description: string;
+      holder?: string;
+    }>;
+    outputDir?: string;
+  }) => {
+    const db = getDb();
+    if (!db) throw new Error('No project is open.');
+
+    const { exportToNLIMS, validateNLIMSExport } = await import('@metardu/engine');
+    const path = await import('node:path');
+    const fs = await import('node:fs');
+
+    // Build the export params — map our IPC shape to the engine's NLIMSExportParams
+    const params = {
+      submissionType: opts.submissionType,
+      registry: opts.registry,
+      county: opts.county,
+      subCounty: opts.subCounty,
+      surveyor: opts.surveyor,
+      parentParcel: opts.parentParcel ? {
+        parcelNumber: opts.parentParcel.parcelNumber,
+        titleDeedNumber: opts.parentParcel.titleDeedNumber,
+        registryMapSheet: opts.parentParcel.registryMapSheet,
+        areaHectares: opts.parentParcel.areaHectares,
+        vertices: opts.parentParcel.coordinates.map((c) => ({ easting: c.easting, northing: c.northing })),
+      } : undefined,
+      resultingParcels: opts.resultingParcels.map((p) => ({
+        parcelNumber: p.parcelNumber,
+        vertices: p.coordinates.map((c) => ({ easting: c.easting, northing: c.northing })),
+        landUse: 'residential',
+      })),
+      beacons: opts.beacons.map((b) => ({
+        beaconNumber: b.beaconNumber,
+        beaconType: b.beaconType as 'concrete' | 'iron_pin' | 'stone' | 'pipe' | 'reference_object',
+        coordinate: { easting: b.easting, northing: b.northing, elevation: b.elevation },
+      })),
+      encumbrances: (opts.encumbrances ?? []).map((e) => ({
+        type: e.type as 'CHARGE' | 'CAUTION' | 'RESTRICTION' | 'EASEMENT',
+        description: e.description,
+        holder: e.holder,
+      })),
+    };
+
+    // Validate first
+    const validation = validateNLIMSExport(params);
+    if (!validation.isValid && validation.errors.length > 0) {
+      throw new Error(`NLIMS validation failed: ${validation.errors.map((e: any) => e.message).join('; ')}`);
+    }
+
+    // Export
+    const result = await exportToNLIMS(params);
+    const payload = result.payload;
+
+    // Write to disk
+    const outputDir = opts.outputDir ?? path.join(process.cwd(), 'nlims-exports');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const fileName = `nlims-${payload.submissionId}-${Date.now()}.json`;
+    const filePath = path.join(outputDir, fileName);
+    fs.writeFileSync(filePath, JSON.stringify(payload, null, 2));
+
+    // Audit
+    const projectId = opts.projectId ?? getSingleProjectId(db);
+    db.audit('nlims.export', 'project', projectId, {
+      submissionId: payload.submissionId,
+      submissionType: opts.submissionType,
+      parcels: opts.resultingParcels.length,
+      filePath,
+    });
+
+    return {
+      submission_id: payload.submissionId,
+      file_path: filePath,
+      integrity_hash: payload.integrity.hash,
+      validation_warnings: validation.warnings,
+    };
+  });
+
+  // ─── Statutory workbook handler (M3) ──────────────────────────────────
+  // Generates the 9-sheet Excel workbook per Kenya Survey Regulations 1994.
+
+  ipcMain.handle('workbook:generate', async (_evt, opts: {
+    projectId?: string;
+    project: {
+      name: string;
+      lrNumber: string;
+      parcelNumber: string;
+      county: string;
+      division: string;
+      district: string;
+      locality: string;
+      surveyType: string;
+      surveyDate: string;
+      scaleDenominator: number;
+    };
+    surveyor: {
+      name: string;
+      iskNumber: string;
+      firmName: string;
+    };
+    submission: {
+      referenceNumber: string;
+      revision: number;
+      status: string;
+    };
+    fieldObservations: Array<{
+      stationFrom: string;
+      stationTo: string;
+      observedBearingDeg?: number;
+      observedDistanceM?: number;
+      reducedLevelM?: number;
+    }>;
+    outputDir?: string;
+  }) => {
+    const db = getDb();
+    if (!db) throw new Error('No project is open.');
+
+    // The statutory workbook generator is in the engine but imports from
+    // '../drawing/dxfLayers' which we haven't ported. For M3 we generate a
+    // simplified 9-sheet workbook directly here; M4 will wire the full engine version.
+    const ExcelJS = (await import('exceljs')).default;
+    const path = await import('node:path');
+    const fs = await import('node:fs');
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'METARDU Desktop';
+    wb.created = new Date();
+
+    // Sheet 1: Project Details
+    const s1 = wb.addWorksheet('1. Project Details');
+    s1.addRow(['METARDU DESKTOP — STATUTORY COMPUTATION WORKBOOK']);
+    s1.addRow(['Sheet 1 of 9 — Project Details']);
+    s1.addRow([]);
+    s1.addRow(['Project Name', opts.project.name]);
+    s1.addRow(['LR Number', opts.project.lrNumber]);
+    s1.addRow(['Parcel Number', opts.project.parcelNumber]);
+    s1.addRow(['County', opts.project.county]);
+    s1.addRow(['Division', opts.project.division]);
+    s1.addRow(['District', opts.project.district]);
+    s1.addRow(['Locality', opts.project.locality]);
+    s1.addRow(['Survey Type', opts.project.surveyType]);
+    s1.addRow(['Survey Date', opts.project.surveyDate]);
+    s1.addRow(['Scale', `1:${opts.project.scaleDenominator}`]);
+    s1.addRow([]);
+    s1.addRow(['Surveyor Name', opts.surveyor.name]);
+    s1.addRow(['ISK Number', opts.surveyor.iskNumber]);
+    s1.addRow(['Firm', opts.surveyor.firmName]);
+    s1.addRow([]);
+    s1.addRow(['Submission Reference', opts.submission.referenceNumber]);
+    s1.addRow(['Revision', opts.submission.revision]);
+    s1.addRow(['Status', opts.submission.status]);
+
+    // Sheet 2: Field Abstract
+    const s2 = wb.addWorksheet('2. Field Abstract');
+    s2.addRow(['Sheet 2 of 9 — Field Abstract']);
+    s2.addRow([]);
+    s2.addRow(['From', 'To', 'Bearing (°)', 'Distance (m)', 'RL (m)']);
+    for (const obs of opts.fieldObservations) {
+      s2.addRow([obs.stationFrom, obs.stationTo, obs.observedBearingDeg, obs.observedDistanceM, obs.reducedLevelM]);
+    }
+
+    // Sheet 3: Traverse Computation
+    const s3 = wb.addWorksheet('3. Traverse Computation');
+    s3.addRow(['Sheet 3 of 9 — Traverse Computation']);
+    s3.addRow([]);
+    s3.addRow(['Leg', 'From', 'To', 'Observed Bearing (°)', 'Observed Distance (m)', 'Latitude (m)', 'Departure (m)']);
+    opts.fieldObservations.forEach((obs, i) => {
+      const lat = obs.observedDistanceM ? obs.observedDistanceM * Math.cos((obs.observedBearingDeg ?? 0) * Math.PI / 180) : 0;
+      const dep = obs.observedDistanceM ? obs.observedDistanceM * Math.sin((obs.observedBearingDeg ?? 0) * Math.PI / 180) : 0;
+      s3.addRow([i + 1, obs.stationFrom, obs.stationTo, obs.observedBearingDeg, obs.observedDistanceM, lat, dep]);
+    });
+
+    // Sheet 4: Coordinates
+    const s4 = wb.addWorksheet('4. Coordinates');
+    s4.addRow(['Sheet 4 of 9 — Coordinates']);
+    s4.addRow([]);
+    s4.addRow(['Point Number', 'Easting (m)', 'Northing (m)', 'Elevation (m)']);
+
+    // Sheet 5: Levelling
+    const s5 = wb.addWorksheet('5. Levelling');
+    s5.addRow(['Sheet 5 of 9 — Levelling']);
+    s5.addRow([]);
+    s5.addRow(['Station', 'BS (m)', 'FS (m)', 'HI (m)', 'RL (m)']);
+
+    // Sheet 6: Area Computation
+    const s6 = wb.addWorksheet('6. Area Computation');
+    s6.addRow(['Sheet 6 of 9 — Area Computation']);
+    s6.addRow([]);
+    s6.addRow(['Method', 'Shoelace formula']);
+    s6.addRow(['Parcel', opts.project.parcelNumber]);
+
+    // Sheet 7: Bearings & Distances
+    const s7 = wb.addWorksheet('7. Bearings & Distances');
+    s7.addRow(['Sheet 7 of 9 — Bearings & Distances']);
+    s7.addRow([]);
+    s7.addRow(['From', 'To', 'Bearing (DMS)', 'Distance (m)']);
+
+    // Sheet 8: COGO
+    const s8 = wb.addWorksheet('8. COGO');
+    s8.addRow(['Sheet 8 of 9 — COGO Computations']);
+    s8.addRow([]);
+    s8.addRow(['Operation', 'Input', 'Result']);
+
+    // Sheet 9: QA Summary
+    const s9 = wb.addWorksheet('9. QA Summary');
+    s9.addRow(['Sheet 9 of 9 — QA Summary']);
+    s9.addRow([]);
+    s9.addRow(['Check', 'Result', 'Pass/Fail']);
+    s9.addRow(['Traverse closure', '—', 'PENDING']);
+    s9.addRow(['Area reconciliation', '—', 'PENDING']);
+    s9.addRow(['Beacon schedule', '—', 'PENDING']);
+    s9.addRow(['Surveyor certificate', '—', 'PENDING']);
+
+    // Write to disk
+    const outputDir = opts.outputDir ?? path.join(process.cwd(), 'workbooks');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const fileName = `workbook-${opts.project.lrNumber.replace(/[^a-zA-Z0-9]/g, '_')}-${Date.now()}.xlsx`;
+    const filePath = path.join(outputDir, fileName);
+    await wb.xlsx.writeFile(filePath);
+
+    // Audit
+    const projectId = opts.projectId ?? getSingleProjectId(db);
+    db.audit('workbook.generate', 'project', projectId, { filePath, sheets: 9 });
+
+    return { file_path: filePath, sheets: 9 };
+  });
+
+  // ─── Mutation plan handler (M3) ───────────────────────────────────────
+  // Generates a mutation form PDF for subdivision/amalgamation per Survey Act Cap 299.
+
+  ipcMain.handle('mutation:generate', async (_evt, opts: {
+    projectId?: string;
+    parentLRNumber: string;
+    parentParcelNumber: string;
+    parentAreaHa: number;
+    resultingParcels: Array<{
+      parcelNumber: string;
+      areaHa: number;
+      owner?: string;
+    }>;
+    county: string;
+    division: string;
+    district: string;
+    locality: string;
+    registryMapSheet: string;
+    mutationType: 'subdivision' | 'amalgamation' | 'boundary_adjustment' | 'resurvey';
+    reasonForMutation: string;
+    affectedBeacons: Array<{
+      beaconId: string;
+      action: 'new' | 'disturbed' | 'adopted' | 'cancelled';
+      easting: number;
+      northing: number;
+    }>;
+    surveyorName: string;
+    iskNumber: string;
+    firmName: string;
+    surveyDate: string;
+    referenceNumber: string;
+    outputDir?: string;
+  }) => {
+    const db = getDb();
+    if (!db) throw new Error('No project is open.');
+
+    const { generateMutationForm } = await import('@metardu/engine');
+    const path = await import('node:path');
+    const fs = await import('node:fs');
+    const crypto = await import('node:crypto');
+
+    const pdfBuffer = generateMutationForm(opts);
+
+    const outputDir = opts.outputDir ?? path.join(process.cwd(), 'mutations');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const fileName = `mutation-${opts.parentParcelNumber.replace(/[^a-zA-Z0-9]/g, '_')}-${Date.now()}.pdf`;
+    const filePath = path.join(outputDir, fileName);
+    fs.writeFileSync(filePath, Buffer.from(pdfBuffer));
+
+    const hash = crypto.createHash('sha256').update(Buffer.from(pdfBuffer)).digest('hex');
+
+    const projectId = opts.projectId ?? getSingleProjectId(db);
+    db.audit('mutation.generate', 'project', projectId, {
+      filePath,
+      mutationType: opts.mutationType,
+      resultingParcels: opts.resultingParcels.length,
+      hash,
+    });
+
+    return { file_path: filePath, pdf_hash: hash };
+  });
+
+  log.info('IPC handlers registered (M3: crypto + nlims + workbook + mutation)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {

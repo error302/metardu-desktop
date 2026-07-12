@@ -67,6 +67,26 @@ const api = {
     seal: (deedPlanId: string, sealPayload: SealPayload) =>
       ipcRenderer.invoke('deedPlan:seal', deedPlanId, sealPayload) as Promise<{ certificate_id: string }>,
   },
+  crypto: {
+    getKeypair: () =>
+      ipcRenderer.invoke('crypto:getKeypair') as Promise<{ publicKeyPem: string; fingerprint: string; createdAt: string }>,
+    seal: (opts: CryptoSealInput) =>
+      ipcRenderer.invoke('crypto:seal', opts) as Promise<CryptoSealResult>,
+    verify: (opts: { documentHash: string; signature: string; publicKeyPem: string }) =>
+      ipcRenderer.invoke('crypto:verify', opts) as Promise<{ valid: boolean; algorithm: string; keyFingerprint: string; verifiedAt: string }>,
+  },
+  nlims: {
+    export: (opts: NlimsExportInput) =>
+      ipcRenderer.invoke('nlims:export', opts) as Promise<{ submission_id: string; file_path: string; integrity_hash: string; validation_warnings: unknown[] }>,
+  },
+  workbook: {
+    generate: (opts: WorkbookGenerateInput) =>
+      ipcRenderer.invoke('workbook:generate', opts) as Promise<{ file_path: string; sheets: number }>,
+  },
+  mutation: {
+    generate: (opts: MutationGenerateInput) =>
+      ipcRenderer.invoke('mutation:generate', opts) as Promise<{ file_path: string; pdf_hash: string }>,
+  },
   menu: {
     onFileNew: (cb: () => void) => ipcRenderer.on('menu:file:new', cb),
     onFileOpened: (cb: (filePath: string) => void) => ipcRenderer.on('menu:file:opened', (_e, filePath: string) => cb(filePath)),
@@ -186,6 +206,136 @@ export interface SealPayload {
   certificate_text: string;
   public_key?: string;
   signature?: string;
+}
+
+export interface CryptoSealInput {
+  documentHash: string;
+  surveyorName: string;
+  surveyorLicense: string;
+  firmName?: string;
+  surveyDate: string;
+  parcelNumber: string;
+  lrNumber: string;
+  areaText: string;
+  precisionRatio: number;
+  traverseLegs: number;
+  adjustmentMethod: string;
+  deedPlanId: string;
+}
+
+export interface CryptoSealResult {
+  certificate_id: string;
+  signature: string;
+  public_key_pem: string;
+  algorithm: string;
+  key_fingerprint: string;
+  signed_at: string;
+  certificate_text: string;
+}
+
+export interface NlimsExportInput {
+  projectId?: string;
+  submissionType: 'mutation' | 'subdivision' | 'amalgamation' | 'new_registration' | 'boundary_adjustment';
+  registry: string;
+  county: string;
+  subCounty: string;
+  surveyor: {
+    name: string;
+    licenseNumber: string;
+    firm?: string;
+    iskMembershipNumber?: string;
+  };
+  parentParcel?: {
+    parcelNumber: string;
+    titleDeedNumber: string;
+    registryMapSheet: string;
+    areaHectares: number;
+    coordinates: Array<{ easting: number; northing: number }>;
+  };
+  resultingParcels: Array<{
+    parcelNumber: string;
+    lrNumber: string;
+    areaHectares: number;
+    coordinates: Array<{ easting: number; northing: number }>;
+  }>;
+  beacons: Array<{
+    beaconNumber: string;
+    beaconType: string;
+    easting: number;
+    northing: number;
+    elevation?: number;
+  }>;
+  encumbrances?: Array<{
+    type: string;
+    description: string;
+    holder?: string;
+  }>;
+  outputDir?: string;
+}
+
+export interface WorkbookGenerateInput {
+  projectId?: string;
+  project: {
+    name: string;
+    lrNumber: string;
+    parcelNumber: string;
+    county: string;
+    division: string;
+    district: string;
+    locality: string;
+    surveyType: string;
+    surveyDate: string;
+    scaleDenominator: number;
+  };
+  surveyor: {
+    name: string;
+    iskNumber: string;
+    firmName: string;
+  };
+  submission: {
+    referenceNumber: string;
+    revision: number;
+    status: string;
+  };
+  fieldObservations: Array<{
+    stationFrom: string;
+    stationTo: string;
+    observedBearingDeg?: number;
+    observedDistanceM?: number;
+    reducedLevelM?: number;
+  }>;
+  outputDir?: string;
+}
+
+export interface MutationGenerateInput {
+  projectId?: string;
+  parentLRNumber: string;
+  parentParcelNumber: string;
+  parentAreaHa: number;
+  resultingParcels: Array<{
+    parcelNumber: string;
+    areaHa: number;
+    owner?: string;
+  }>;
+  county: string;
+  division: string;
+  district: string;
+  locality: string;
+  registryMapSheet: string;
+  mutationType: 'subdivision' | 'amalgamation' | 'boundary_adjustment' | 'resurvey';
+  reasonForMutation: string;
+  affectedBeacons: Array<{
+    beaconId: string;
+    action: 'new' | 'disturbed' | 'adopted' | 'cancelled';
+    easting: number;
+    northing: number;
+  }>;
+  surveyorName: string;
+  iskNumber: string;
+  firmName: string;
+  surveyDate: string;
+  referenceNumber: string;
+  outputDir?: string;
 }
 
 contextBridge.exposeInMainWorld('metardu', api);

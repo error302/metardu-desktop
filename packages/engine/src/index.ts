@@ -54,6 +54,26 @@ export {
   type DocumentTemplate,
 } from './documents/templates/registry';
 
+// NLIMS export (M3)
+export {
+  exportToNLIMS,
+  validateNLIMSExport,
+  calculateAreaSqM,
+  calculatePerimeterM,
+  sqMToHectares,
+  calculateAreaHectares,
+  computeIntegrityHash,
+  type NLIMSSubmissionPayload,
+  type NLIMSExportParams,
+  type NLIMSValidationResult,
+  type ParcelInput,
+  type BeaconInput,
+} from './export/nlimsExporter';
+
+// Mutation form (M3)
+export { generateMutationForm } from './submission/generators/mutationForm';
+export type { MutationFormInput } from './submission/generators/mutationForm';
+
 // Package version
 export const ENGINE_VERSION = '0.1.0';
 export const ENGINE_PROVENANCE = 'Reused verbatim from error302/metardu @ v1.0.1';
