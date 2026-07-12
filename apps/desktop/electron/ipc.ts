@@ -1551,6 +1551,174 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (OV3: point cloud engine)');
+
+  // ─── OV5: 3D Parcel Visualization ────────────────────────────────────
+  ipcMain.handle('parcel3d:extrude', async (_evt, opts: {
+    footprint: Array<[number, number]>;
+    height: number;
+  }) => {
+    const { extrudeParcel } = await import('./parcel-3d.js');
+    return extrudeParcel(opts.footprint, opts.height);
+  });
+
+  ipcMain.handle('parcel3d:crossSection', async (_evt, opts: {
+    line: { start: [number, number]; end: [number, number] };
+    parcels: Array<{ parcelNumber: string; points: Array<{ easting: number; northing: number; elevation?: number }> }>;
+  }) => {
+    const { computeCrossSection } = await import('./parcel-3d.js');
+    return computeCrossSection(opts.line, opts.parcels);
+  });
+
+  ipcMain.handle('parcel3d:volume', async (_evt, opts: {
+    footprint: Array<[number, number]>;
+    height: number;
+  }) => {
+    const { compute3DVolume } = await import('./parcel-3d.js');
+    return { volume: compute3DVolume(opts.footprint, opts.height) };
+  });
+
+  // ─── OV7: Title Chain Tracking + ArdhiSasa ───────────────────────────
+  let titleChain: import('./title-chain.js').TitleChainTracker | null = null;
+
+  ipcMain.handle('titlechain:get', async (_evt, parcelNumber: string) => {
+    const { TitleChainTracker } = await import('./title-chain.js');
+    if (!titleChain) titleChain = new TitleChainTracker();
+    return titleChain.getTitleChain(parcelNumber);
+  });
+
+  ipcMain.handle('titlechain:search', async (_evt, query: string) => {
+    const { TitleChainTracker } = await import('./title-chain.js');
+    if (!titleChain) titleChain = new TitleChainTracker();
+    return titleChain.searchLocalCache(query);
+  });
+
+  ipcMain.handle('titlechain:configureArdhiSasa', async (_evt, config: { apiUrl: string; apiKey?: string; timeout?: number }) => {
+    const { TitleChainTracker } = await import('./title-chain.js');
+    if (!titleChain) titleChain = new TitleChainTracker();
+    titleChain.configureArdhiSasa(config);
+    return { configured: true };
+  });
+
+  ipcMain.handle('titlechain:addEntry', async (_evt, parcelNumber: string, entry: any) => {
+    const { TitleChainTracker } = await import('./title-chain.js');
+    if (!titleChain) titleChain = new TitleChainTracker();
+    titleChain.addToCache(parcelNumber, entry);
+    return { added: true };
+  });
+
+  // ─── OV8: Smart Deed Plan Auto-Layout (NO AI) ────────────────────────
+  ipcMain.handle('deedplan:autoLayout', async (_evt, opts: {
+    parcelPoints: Array<{ number: string; easting: number; northing: number; elevation?: number }>;
+    parcelNumber: string;
+    lrNumber: string;
+    areaSqM: number;
+    perimeter: number;
+    paperSize: 'A1' | 'A2' | 'A3' | 'A4';
+    surveyorName: string;
+    surveyorLicense: string;
+    county: string;
+    surveyDate: string;
+    scale?: number;
+  }) => {
+    const { generateAutoLayout } = await import('./deed-plan-layout.js');
+    return generateAutoLayout(opts);
+  });
+
+  // ─── OV9: GNSS RTK + NTRIP ───────────────────────────────────────────
+  let ntripClient: import('./gnss-rtk.js').NTRIPClient | null = null;
+  let nmeaParser: import('./gnss-rtk.js').NMEAParser | null = null;
+
+  ipcMain.handle('ntrip:connect', async (_evt, config: {
+    host: string; port: number; mountpoint: string;
+    username?: string; password?: string; format?: string;
+  }) => {
+    const { NTRIPClient } = await import('./gnss-rtk.js');
+    if (ntripClient) await ntripClient.disconnect();
+    ntripClient = new NTRIPClient();
+    ntripClient.on('connected', (info) => mainWindow?.webContents.send('ntrip:connected', info));
+    ntripClient.on('disconnected', () => mainWindow?.webContents.send('ntrip:disconnected'));
+    ntripClient.on('correction', (data) => mainWindow?.webContents.send('ntrip:correction', data.length));
+    ntripClient.on('error', (err) => mainWindow?.webContents.send('ntrip:error', err.message));
+    await ntripClient.connect({
+      host: config.host,
+      port: config.port,
+      mountpoint: config.mountpoint,
+      username: config.username,
+      password: config.password,
+      format: (config.format as 'RTCM3' | 'RTCM2' | 'raw') ?? 'RTCM3',
+    });
+    return { connected: true, mountpoint: config.mountpoint };
+  });
+
+  ipcMain.handle('ntrip:disconnect', async () => {
+    if (ntripClient) { await ntripClient.disconnect(); ntripClient = null; }
+    return { disconnected: true };
+  });
+
+  ipcMain.handle('ntrip:sourceTable', async (_evt, host: string, port?: number) => {
+    const { NTRIPClient } = await import('./gnss-rtk.js');
+    return NTRIPClient.fetchSourceTable(host, port ?? 2101);
+  });
+
+  ipcMain.handle('ntrip:startRINEX', async (_evt, filePath?: string) => {
+    if (!ntripClient) throw new Error('NTRIP not connected');
+    return { path: ntripClient.startRINEXRecording(filePath) };
+  });
+
+  ipcMain.handle('ntrip:stopRINEX', async () => {
+    if (ntripClient) ntripClient.stopRINEXRecording();
+    return { stopped: true };
+  });
+
+  ipcMain.handle('gnss:parseNMEA', async (_evt, sentence: string) => {
+    const { NMEAParser } = await import('./gnss-rtk.js');
+    if (!nmeaParser) {
+      nmeaParser = new NMEAParser();
+      nmeaParser.on('position', (pos) => mainWindow?.webContents.send('gnss:position', pos));
+      nmeaParser.on('satellite', (sat) => mainWindow?.webContents.send('gnss:satellite', sat));
+      nmeaParser.on('satellites_in_view', (info) => mainWindow?.webContents.send('gnss:satellites_in_view', info));
+      nmeaParser.on('precision', (prec) => mainWindow?.webContents.send('gnss:precision', prec));
+    }
+    nmeaParser.parse(sentence);
+    return { parsed: true };
+  });
+
+  // ─── OV6: Multi-Window Workspace ─────────────────────────────────────
+  let windowManager: import('./window-manager.js').WindowManager | null = null;
+
+  ipcMain.handle('window:open', async (_evt, type: string) => {
+    const { WindowManager } = await import('./window-manager.js');
+    if (!windowManager) {
+      windowManager = new WindowManager(
+        process.env.NODE_ENV === 'development' || !!process.env.VITE_DEV_SERVER_URL,
+        process.env.VITE_DEV_SERVER_URL,
+      );
+    }
+    windowManager.createWindow(type as any);
+    return { opened: true };
+  });
+
+  ipcMain.handle('window:close', async (_evt, type: string) => {
+    if (windowManager) windowManager.closeWindow(type as any);
+    return { closed: true };
+  });
+
+  ipcMain.handle('window:preset', async (_evt, preset: 'field' | 'office' | 'review') => {
+    if (windowManager) windowManager.applyPreset(preset);
+    return { applied: preset };
+  });
+
+  ipcMain.handle('window:list', async () => {
+    if (!windowManager) return [];
+    return windowManager.getOpenWindows();
+  });
+
+  ipcMain.handle('window:broadcast', async (_evt, channel: string, data: unknown) => {
+    if (windowManager) windowManager.broadcast(channel, data);
+    return { broadcast: true };
+  });
+
+  log.info('IPC handlers registered (OV5+OV6+OV7+OV8+OV9: full P1+P2 overkill)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
