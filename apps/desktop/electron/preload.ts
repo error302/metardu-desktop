@@ -276,6 +276,52 @@ const api = {
       ipcRenderer.invoke('map:generateScaleBar', scaleDenominator, paperWidthMM),
     getLayersForSurveyType: (surveyType: string) => ipcRenderer.invoke('map:getLayersForSurveyType', surveyType),
   },
+  drone: {
+    import: (filePath: string, type: string, options: any) => ipcRenderer.invoke('drone:import', filePath, type, options),
+    importODM: (projectDir: string, manifest: any) => ipcRenderer.invoke('drone:importODM', projectDir, manifest),
+    importPix4D: (report: any) => ipcRenderer.invoke('drone:importPix4D', report),
+    list: () => ipcRenderer.invoke('drone:list'),
+    get: (id: string) => ipcRenderer.invoke('drone:get', id),
+    delete: (id: string) => ipcRenderer.invoke('drone:delete', id),
+    assessQuality: (id: string) => ipcRenderer.invoke('drone:assessQuality', id),
+    generateContours: (dsmId: string, options: any) => ipcRenderer.invoke('drone:generateContours', dsmId, options),
+    extractFeatures: (orthophotoId: string, options: any) => ipcRenderer.invoke('drone:extractFeatures', orthophotoId, options),
+    computeVolume: (beforeSurface: any, afterSurface: any, cellSize?: number) =>
+      ipcRenderer.invoke('drone:computeVolume', beforeSurface, afterSurface, cellSize),
+    computeStockpile: (dsmPoints: any, boundary: any, options: any) =>
+      ipcRenderer.invoke('drone:computeStockpile', dsmPoints, boundary, options),
+    generateVolumeReport: (projectName: string, surveyDate: string, surveyor: string, droneDatasetId: string, results: any, options?: any) =>
+      ipcRenderer.invoke('drone:generateVolumeReport', projectName, surveyDate, surveyor, droneDatasetId, results, options),
+    generateMassHaul: (chainageVolumes: any, freehaulDistance?: number) =>
+      ipcRenderer.invoke('drone:generateMassHaul', chainageVolumes, freehaulDistance),
+    getMaterialDensities: () => ipcRenderer.invoke('drone:getMaterialDensities'),
+  },
+  gcp: {
+    create: (input: any) => ipcRenderer.invoke('gcp:create', input),
+    list: () => ipcRenderer.invoke('gcp:list'),
+    get: (id: string) => ipcRenderer.invoke('gcp:get', id),
+    update: (id: string, updates: any) => ipcRenderer.invoke('gcp:update', id, updates),
+    delete: (id: string) => ipcRenderer.invoke('gcp:delete', id),
+    convertPoints: (surveyPoints: any, options: any) => ipcRenderer.invoke('gcp:convertPoints', surveyPoints, options),
+    assessDistribution: (gcps: any) => ipcRenderer.invoke('gcp:assessDistribution', gcps),
+    export: (gcpIds: any, outputPath: string, format: string, options: any) =>
+      ipcRenderer.invoke('gcp:export', gcpIds, outputPath, format, options),
+    verifyResiduals: (residuals: any, gsdM: number) => ipcRenderer.invoke('gcp:verifyResiduals', residuals, gsdM),
+    recommendTargetSize: (gsdM: number) => ipcRenderer.invoke('gcp:recommendTargetSize', gsdM),
+  },
+  pipeline: {
+    create: (input: any) => ipcRenderer.invoke('pipeline:create', input),
+    list: () => ipcRenderer.invoke('pipeline:list'),
+    get: (id: string) => ipcRenderer.invoke('pipeline:get', id),
+    updateStage: (pipelineId: string, stage: string, status: string, options?: any) =>
+      ipcRenderer.invoke('pipeline:updateStage', pipelineId, stage, status, options),
+    progress: (id: string) => ipcRenderer.invoke('pipeline:progress', id),
+    validate: (id: string) => ipcRenderer.invoke('pipeline:validate', id),
+    estimateCost: (areaHa: number, application: string, processingSoftware?: string) =>
+      ipcRenderer.invoke('pipeline:estimateCost', areaHa, application, processingSoftware),
+    getStageExecutor: (stage: string) => ipcRenderer.invoke('pipeline:getStageExecutor', stage),
+    delete: (id: string) => ipcRenderer.invoke('pipeline:delete', id),
+  },
 };
 
 export interface SurveyPoint {

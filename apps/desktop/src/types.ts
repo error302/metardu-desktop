@@ -67,4 +67,43 @@ export interface MetarduApi {
     generateScaleBar: (scaleDenominator: number, paperWidthMM?: number) => Promise<any>;
     getLayersForSurveyType: (surveyType: string) => Promise<any>;
   };
+  drone?: {
+    import: (filePath: string, type: string, options: any) => Promise<any>;
+    importODM: (projectDir: string, manifest: any) => Promise<any>;
+    importPix4D: (report: any) => Promise<any>;
+    list: () => Promise<any>;
+    get: (id: string) => Promise<any>;
+    delete: (id: string) => Promise<boolean>;
+    assessQuality: (id: string) => Promise<any>;
+    generateContours: (dsmId: string, options: any) => Promise<any>;
+    extractFeatures: (orthophotoId: string, options: any) => Promise<any>;
+    computeVolume: (beforeSurface: any, afterSurface: any, cellSize?: number) => Promise<any>;
+    computeStockpile: (dsmPoints: any, boundary: any, options: any) => Promise<any>;
+    generateVolumeReport: (projectName: string, surveyDate: string, surveyor: string, droneDatasetId: string, results: any, options?: any) => Promise<any>;
+    generateMassHaul: (chainageVolumes: any, freehaulDistance?: number) => Promise<any>;
+    getMaterialDensities: () => Promise<any>;
+  };
+  gcp?: {
+    create: (input: any) => Promise<any>;
+    list: () => Promise<any>;
+    get: (id: string) => Promise<any>;
+    update: (id: string, updates: any) => Promise<any>;
+    delete: (id: string) => Promise<boolean>;
+    convertPoints: (surveyPoints: any, options: any) => Promise<any>;
+    assessDistribution: (gcps: any) => Promise<any>;
+    export: (gcpIds: any, outputPath: string, format: string, options: any) => Promise<any>;
+    verifyResiduals: (residuals: any, gsdM: number) => Promise<any>;
+    recommendTargetSize: (gsdM: number) => Promise<any>;
+  };
+  pipeline?: {
+    create: (input: any) => Promise<any>;
+    list: () => Promise<any>;
+    get: (id: string) => Promise<any>;
+    updateStage: (pipelineId: string, stage: string, status: string, options?: any) => Promise<any>;
+    progress: (id: string) => Promise<any>;
+    validate: (id: string) => Promise<any>;
+    estimateCost: (areaHa: number, application: string, processingSoftware?: string) => Promise<any>;
+    getStageExecutor: (stage: string) => Promise<any>;
+    delete: (id: string) => Promise<boolean>;
+  };
 }
