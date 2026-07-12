@@ -140,6 +140,35 @@ const api = {
       warnings: string[];
     }>,
   },
+  form: {
+    generateFormP: (opts: any) => ipcRenderer.invoke('form:generateFormP', opts) as Promise<{
+      pdfPath: string;
+      pdfSizeBytes: number;
+      pageCount: number;
+      sealed: boolean;
+      signatureFingerprint?: string;
+      signedAt?: string;
+      warnings: string[];
+    }>,
+    generateTopoReport: (opts: any) => ipcRenderer.invoke('form:generateTopoReport', opts) as Promise<{
+      pdfPath: string;
+      pdfSizeBytes: number;
+      pageCount: number;
+      sealed: boolean;
+      signatureFingerprint?: string;
+      signedAt?: string;
+      warnings: string[];
+    }>,
+    generateCrossSections: (opts: any) => ipcRenderer.invoke('form:generateCrossSections', opts) as Promise<{
+      pdfPath: string;
+      pdfSizeBytes: number;
+      pageCount: number;
+      sealed: boolean;
+      signatureFingerprint?: string;
+      signedAt?: string;
+      warnings: string[];
+    }>,
+  },
   menu: {
     onFileNew: (cb: () => void) => ipcRenderer.on('menu:file:new', cb),
     onFileOpened: (cb: (filePath: string) => void) => ipcRenderer.on('menu:file:opened', (_e, filePath: string) => cb(filePath)),

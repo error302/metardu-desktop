@@ -3112,7 +3112,28 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
     return generateSurveyReport(opts as any);
   });
 
-  log.info('IPC handlers registered (QA gate + topo/engineering render + SoK DXF + Survey Report)');
+  // ─── Form P — Mutation Form (Reg 38) ────────────────────────────────
+  // Subdivision / amalgamation / boundary adjustment of registered land.
+  ipcMain.handle('form:generateFormP', async (_evt, opts: any) => {
+    const { generateFormP } = await import('./statutory-forms.js');
+    return generateFormP(opts);
+  });
+
+  // ─── Surveyor's Report (Topographical) ──────────────────────────────
+  // Narrative report for topographical surveys per SoK Practice Notes 2020.
+  ipcMain.handle('form:generateTopoReport', async (_evt, opts: any) => {
+    const { generateTopoSurveyorsReport } = await import('./statutory-forms.js');
+    return generateTopoSurveyorsReport(opts);
+  });
+
+  // ─── Cross-Section Sheets (Engineering) ─────────────────────────────
+  // Tabular cross-sections at each chainage along an alignment, per RDM 1.1.
+  ipcMain.handle('form:generateCrossSections', async (_evt, opts: any) => {
+    const { generateCrossSectionSheets } = await import('./statutory-forms.js');
+    return generateCrossSectionSheets(opts);
+  });
+
+  log.info('IPC handlers registered (QA + topo/eng render + SoK DXF + Survey Report + Form P + Topo Report + Cross-Sections)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {

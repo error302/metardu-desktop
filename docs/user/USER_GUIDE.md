@@ -151,6 +151,60 @@ openssl dgst -sha256 -verify surveyor_public.pem -signature sig.bin survey-repor
   10. NLIMS — required fields present for ArdhiSasa submission
 - Overall result: PASS (submit) / CONDITIONAL (submit with notes) / FAIL (cannot submit)
 
+## Statutory Forms
+
+In addition to the consolidated Survey Report, METARDU Desktop generates
+three specialized statutory forms for specific survey types. All are sealed
+with RSA-2048.
+
+### Form P — Mutation Form (Reg 38)
+
+Used for subdivision, amalgamation, or boundary adjustment of registered
+land. Submitted to the Director of Surveys for approval.
+
+- Submission → Generate Form P
+- Pages: Cover + Application details, New Parcels Schedule (with reconciliation),
+  Beacons Affected (extinguished + new), Director of Surveys approval block,
+  Surveyor's Certificate (RSA-2048 sealed).
+- Per Survey Act Cap 299, Survey Regulations 1994 Reg 38.
+- Includes area reconciliation: parent area = sum of children + balance.
+- Director of Surveys approval block: Date Received, Examined By, Approval
+  Status (☐ APPROVED / ☐ APPROVED WITH CONDITIONS / ☐ REJECTED), Date of
+  Decision, Reference Number, Conditions, Signature.
+
+### Surveyor's Report (Topographical)
+
+Narrative report describing the survey methodology, equipment, control
+network, accuracy achieved, and deliverables for a topographical survey.
+
+- Submission → Generate Topo Report
+- Pages: Cover + Project Description, Survey Methodology + Equipment + Field
+  Crew, Control Network + Detail Points + Accuracy, Deliverables + Surveyor's
+  Certificate (RSA-2048 sealed).
+- Per Survey of Kenya Practice Notes 2020.
+- Includes: control establishment narrative, detail survey methodology,
+  equipment table (instrument, serial number, calibration date), field crew
+  table, control stations table with accuracy achieved, detail points
+  breakdown by category, horizontal/vertical RMSE, contour interval, DEM
+  resolution, deliverables list.
+
+### Cross-Section Sheets (Engineering)
+
+Tabular cross-sections at each chainage along an alignment, showing
+existing ground, design level, cut/fill depths, areas, and cumulative
+volumes. Used for earthworks verification and payment certification.
+
+- Submission → Generate Cross-Section Sheets
+- Pages: Cover + Earthworks Summary, Cross-Section Tables (4 sections per
+  page), Surveyor's Certificate (RSA-2048 sealed).
+- Per Road Design Manual RDM 1.1 (2025), Section 6.
+- Each cross-section shows: chainage, cut/fill depth at centerline, cut area,
+  fill area, table of offsets (±15m, ±10m, ±5m, 0) with existing level,
+  design level, cut/fill depth, and status (CUT/FILL).
+- Earthworks summary: total cut volume, total fill volume, net volume
+  (borrow/spoil), average cut depth, average fill height, haul distance.
+- Color-coded: CUT (red), FILL (blue), BORROW/SPOIL (navy).
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
@@ -166,6 +220,9 @@ openssl dgst -sha256 -verify surveyor_public.pem -signature sig.bin survey-repor
 | Ctrl+E | Export |
 | Ctrl+Shift+E | Export NLIMS |
 | Ctrl+R | Generate Survey Report |
+| Ctrl+Shift+M | Generate Form P (Mutation) |
+| Ctrl+Shift+T | Generate Topo Surveyor's Report |
+| Ctrl+Shift+X | Generate Cross-Section Sheets |
 | Ctrl+Shift+G | Run QA Gate |
 | F1 | Help |
 | F11 | Fullscreen |
