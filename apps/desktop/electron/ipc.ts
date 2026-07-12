@@ -2568,6 +2568,46 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (P2 math: level network + prismoidal + deformation)');
+
+  // ─── Professional Plan Renderer (SoK-Compliant Output) ───────────────
+  // Produces the highest quality survey plans per SoK Drafting Manual 2020.
+
+  ipcMain.handle('plan:render', async (_evt, opts: {
+    planType: 'deed_plan' | 'topo_plan' | 'engineering_plan' | 'mutation_plan' | 'site_plan';
+    paperSize: 'A0' | 'A1' | 'A2' | 'A3' | 'A4';
+    orientation: 'portrait' | 'landscape';
+    scale: number;
+    parcel: {
+      number: string; lrNumber: string; areaSqM: number; perimeter: number;
+      points: Array<{
+        number: string; easting: number; northing: number; elevation?: number;
+        beaconType?: 'concrete' | 'iron_pin' | 'stone' | 'reference_object';
+      }>;
+      boundaries?: Array<{
+        fromIndex: number; toIndex: number; bearing: number; distance: number;
+        type?: string;
+      }>;
+    };
+    titleBlock: {
+      planNumber?: string; lrNumber: string; deedPlanNumber?: string;
+      registryMapSheet?: string; county: string; subCounty?: string; locality: string;
+      surveyorName: string; surveyorLicense: string; firmName?: string;
+      surveyDate: string; areaText: string; scale: number;
+      projection?: string; datum?: string; directorOfSurveysRef?: string;
+    };
+    grid?: { type: 'cassini' | 'utm'; interval: number; originEasting?: number; originNorthing?: number; };
+    gridConvergence?: number;
+    contours?: Array<{ elevation: number; isIndex: boolean; points: Array<[number, number]>; }>;
+    buildings?: Array<{ points: Array<[number, number]>; label?: string; }>;
+    roads?: Array<{ centerline: Array<[number, number]>; width?: number; label?: string; }>;
+    waterFeatures?: Array<{ points: Array<[number, number]>; label?: string; type: string; }>;
+    outputPath: string;
+  }) => {
+    const { renderProfessionalPlan } = await import('./professional-plan-renderer.js');
+    return renderProfessionalPlan(opts as any);
+  });
+
+  log.info('IPC handlers registered (professional plan renderer)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {

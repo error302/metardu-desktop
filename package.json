@@ -35,6 +35,7 @@
   },
   "dependencies": {
     "@serialport/parser-readline": "^12.0.0",
+    "pdfkit": "^0.19.1",
     "serialport": "^12.0.0"
   }
 }
