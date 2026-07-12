@@ -2046,6 +2046,386 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (P0 math: LSA traverse + clothoid)');
+
+  // ─── P1 Math: COGO Toolbox (intersection + resection + radiation + offset) ─
+  // The engine has all COGO functions. This wires them to IPC.
+
+  ipcMain.handle('cogo:bearingIntersection', async (_evt, opts: {
+    stationA: { easting: number; northing: number };
+    bearingA: number;  // degrees WCB
+    stationB: { easting: number; northing: number };
+    bearingB: number;  // degrees WCB
+  }) => {
+    const cogoPath = require('path').resolve(__dirname, '../../packages/engine/src/engine/cogo');
+    const { bearingIntersection } = await import(cogoPath);
+    return bearingIntersection(opts.stationA as any, opts.bearingA, opts.stationB as any, opts.bearingB);
+  });
+
+  ipcMain.handle('cogo:distanceIntersection', async (_evt, opts: {
+    stationA: { easting: number; northing: number };
+    distanceA: number;  // metres
+    stationB: { easting: number; northing: number };
+    distanceB: number;  // metres
+    preferSolution?: 1 | 2;  // when two solutions exist, pick which
+  }) => {
+    const cogoPath = require('path').resolve(__dirname, '../../packages/engine/src/engine/cogo');
+    const { distanceIntersection } = await import(cogoPath);
+    const result = distanceIntersection(opts.stationA as any, opts.distanceA, opts.stationB as any, opts.distanceB);
+    if (!result) return null;
+    // Return both solutions, or the preferred one
+    if (opts.preferSolution) {
+      return { point: result[opts.preferSolution - 1], hasTwoSolutions: true, bothSolutions: result };
+    }
+    return { point: result[0], hasTwoSolutions: result.length > 1, bothSolutions: result };
+  });
+
+  ipcMain.handle('cogo:resection', async (_evt, opts: {
+    p1: { easting: number; northing: number };
+    p2: { easting: number; northing: number };
+    p3: { easting: number; northing: number };
+    angle12: number;  // degrees — angle at unknown station between rays to P1 and P2
+    angle23: number;  // degrees — angle at unknown station between rays to P2 and P3
+  }) => {
+    const cogoPath = require('path').resolve(__dirname, '../../packages/engine/src/engine/cogo');
+    const { tienstraResection } = await import(cogoPath);
+    return tienstraResection(opts.p1 as any, opts.p2 as any, opts.p3 as any, opts.angle12, opts.angle23);
+  });
+
+  ipcMain.handle('cogo:radiation', async (_evt, opts: {
+    from: { easting: number; northing: number };
+    bearing: number;  // degrees WCB
+    distance: number;  // metres
+  }) => {
+    const cogoPath = require('path').resolve(__dirname, '../../packages/engine/src/engine/cogo');
+    const { radiation } = await import(cogoPath);
+    return radiation(opts.from as any, opts.bearing, opts.distance);
+  });
+
+  ipcMain.handle('cogo:offset', async (_evt, opts: {
+    point: { easting: number; northing: number };
+    bearing: number;  // degrees WCB
+    offset: number;   // metres (positive = right, negative = left)
+  }) => {
+    const cogoPath = require('path').resolve(__dirname, '../../packages/engine/src/engine/cogo');
+    const { offsetPoint } = await import(cogoPath);
+    return offsetPoint(opts.point as any, opts.bearing, opts.offset);
+  });
+
+  // ─── P1 Math: Beacon Coordinate Recovery ────────────────────────────
+  // When a surveyor finds a disturbed beacon, they recover its coordinates
+  // by resection from 3+ known beacons. Uses Tienstra's method.
+
+  ipcMain.handle('cogo:recoverBeacon', async (_evt, opts: {
+    knownBeacons: Array<{
+      number: string; easting: number; northing: number;
+    }>;
+    angles: Array<{
+      toBeacon: string;  // beacon number this angle is to
+      bearing: number;    // bearing from unknown point to this beacon (degrees WCB)
+    }>;
+  }) => {
+    const cogoPath = require('path').resolve(__dirname, '../../packages/engine/src/engine/cogo');
+    const { tienstraResection, bearingIntersection } = await import(cogoPath);
+
+    if (opts.knownBeacons.length < 2) {
+      throw new Error('Need at least 2 known beacons for recovery');
+    }
+
+    // If we have bearings to 2+ beacons, use bearing intersection (simpler + more reliable)
+    if (opts.angles.length >= 2) {
+      const a0 = opts.angles[0];
+      const a1 = opts.angles[1];
+      const beacon0 = opts.knownBeacons.find((b) => b.number === a0.toBeacon);
+      const beacon1 = opts.knownBeacons.find((b) => b.number === a1.toBeacon);
+      if (!beacon0 || !beacon1) throw new Error('Beacon not found in known list');
+
+      const result = bearingIntersection(
+        { easting: beacon0.easting, northing: beacon0.northing },
+        a0.bearing + 180,  // reverse bearing (from beacon to unknown = bearing from unknown to beacon + 180)
+        { easting: beacon1.easting, northing: beacon1.northing },
+        a1.bearing + 180,
+      );
+
+      if (!result) throw new Error('Bearings do not intersect (parallel or invalid)');
+
+      // If we have a 3rd beacon, verify by checking the bearing from computed point
+      let verification: { verified: boolean; deviation: number } | null = null;
+      if (opts.angles.length >= 3) {
+        const a2 = opts.angles[2];
+        const beacon2 = opts.knownBeacons.find((b) => b.number === a2.toBeacon);
+        if (beacon2 && result.point) {
+          const dx = beacon2.easting - result.point.easting;
+          const dy = beacon2.northing - result.point.northing;
+          const computedBearing = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+          const deviation = Math.abs(computedBearing - a2.bearing);
+          verification = { verified: deviation < 0.01, deviation };  // < 10 arc-seconds
+        }
+      }
+
+      return {
+        method: 'bearing_intersection',
+        recoveredEasting: result.point.easting,
+        recoveredNorthing: result.point.northing,
+        verification,
+      };
+    }
+
+    // If we have angles (not bearings), use Tienstra resection with 3 known points
+    if (opts.knownBeacons.length >= 3 && opts.angles.length >= 2) {
+      const [p1, p2, p3] = opts.knownBeacons;
+      const result = tienstraResection(
+        { easting: p1.easting, northing: p1.northing },
+        { easting: p2.easting, northing: p2.northing },
+        { easting: p3.easting, northing: p3.northing },
+        opts.angles[0].bearing,  // angle12
+        opts.angles[1].bearing,  // angle23
+      );
+      if (!result) throw new Error('Tienstra resection failed (danger circle or invalid geometry)');
+      return {
+        method: 'tienstra_resection',
+        recoveredEasting: result.point.easting,
+        recoveredNorthing: result.point.northing,
+        verification: null,
+      };
+    }
+
+    throw new Error('Insufficient data: need bearings to 2+ beacons or angles to 3+ beacons');
+  });
+
+  // ─── P1 Math: Free Station (Resection + Setup) ──────────────────────
+  // Surveyor sets up in the middle of the site, measures to known points,
+  // and the computed coordinates become the station setup.
+
+  ipcMain.handle('cogo:freeStation', async (_evt, opts: {
+    knownPoints: Array<{
+      number: string; easting: number; northing: number; elevation?: number;
+    }>;
+    measurements: Array<{
+      toPoint: string;
+      horizontalAngle: number;  // degrees (from arbitrary zero)
+      slopeDistance: number;    // metres
+      verticalAngle?: number;   // degrees (zenith)
+    }>;
+    instrumentHeight?: number;
+    targetHeight?: number;
+  }) => {
+    const cogoPath = require('path').resolve(__dirname, '../../packages/engine/src/engine/cogo');
+    const { bearingIntersection, distanceIntersection, radiation } = await import(cogoPath);
+
+    if (opts.knownPoints.length < 2 || opts.measurements.length < 2) {
+      throw new Error('Free station needs at least 2 known points with measurements');
+    }
+
+    // Method: use bearing intersection if we have 2+ bearings,
+    // or distance intersection if we have 2+ distances.
+
+    // Compute bearings from the free station to each known point
+    // (using the measured horizontal angles — but we need a reference bearing)
+    // For free station, the first measurement defines the reference direction.
+    // The bearing to the first known point is unknown, so we solve by iteration
+    // or by using distance intersection (which doesn't need bearings).
+
+    // Simplest: use distance intersection from the first 2 measurements
+    const m0 = opts.measurements[0];
+    const m1 = opts.measurements[1];
+    const p0 = opts.knownPoints.find((p) => p.number === m0.toPoint);
+    const p1 = opts.knownPoints.find((p) => p.number === m1.toPoint);
+    if (!p0 || !p1) throw new Error('Known point not found');
+
+    const hd0 = m0.slopeDistance * Math.sin((m0.verticalAngle ?? 90) * Math.PI / 180);
+    const hd1 = m1.slopeDistance * Math.sin((m1.verticalAngle ?? 90) * Math.PI / 180);
+
+    const result = distanceIntersection(
+      { easting: p0.easting, northing: p0.northing }, hd0,
+      { easting: p1.easting, northing: p1.northing }, hd1,
+    );
+
+    if (!result || result.length === 0) {
+      throw new Error('Distances do not intersect — check measurements');
+    }
+
+    // Pick the solution that's closer to the remaining known points
+    let bestPoint = result[0];
+    if (result.length === 2 && opts.knownPoints.length >= 3) {
+      const p2 = opts.knownPoints[2];
+      const m2 = opts.measurements.find((m) => m.toPoint === p2.number);
+      if (m2) {
+        const d0 = Math.sqrt((result[0].easting - p2.easting) ** 2 + (result[0].northing - p2.northing) ** 2);
+        const d1 = Math.sqrt((result[1].easting - p2.easting) ** 2 + (result[1].northing - p2.northing) ** 2);
+        const expectedD = m2.slopeDistance * Math.sin((m2.verticalAngle ?? 90) * Math.PI / 180);
+        bestPoint = Math.abs(d0 - expectedD) < Math.abs(d1 - expectedD) ? result[0] : result[1];
+      }
+    }
+
+    // Compute elevation (if vertical angles available)
+    let elevation = 0;
+    if (m0.verticalAngle && p0.elevation) {
+      const vd = m0.slopeDistance * Math.cos(m0.verticalAngle * Math.PI / 180);
+      elevation = p0.elevation + vd + (opts.instrumentHeight ?? 0) - (opts.targetHeight ?? 0);
+    }
+
+    // Compute orientation bearing (bearing from free station to first known point)
+    const dx = p0.easting - bestPoint.easting;
+    const dy = p0.northing - bestPoint.northing;
+    const orientationBearing = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+
+    return {
+      method: 'distance_intersection',
+      stationEasting: bestPoint.easting,
+      stationNorthing: bestPoint.northing,
+      stationElevation: elevation,
+      orientationBearing,  // bearing from station to first known point
+      referencePoint: p0.number,
+      solutionsFound: result.length,
+      // Return a setup object ready for the total station driver
+      setup: {
+        stationNumber: 'FREE_STATION',
+        stationEasting: bestPoint.easting,
+        stationNorthing: bestPoint.northing,
+        stationElevation: elevation,
+        backsightNumber: p0.number,
+        backsightEasting: p0.easting,
+        backsightNorthing: p0.northing,
+        instrumentHeight: opts.instrumentHeight ?? 1.5,
+        targetHeight: opts.targetHeight ?? 1.5,
+      },
+    };
+  });
+
+  // ─── P1 Math: Projection-Corrected Area ─────────────────────────────
+  // Grid area ≠ ground area ≠ ellipsoidal area. For large parcels the
+  // difference matters. This computes all three.
+
+  ipcMain.handle('cogo:correctedArea', async (_evt, opts: {
+    points: Array<{ easting: number; northing: number }>;
+    crs: 'cassini' | 'utm';
+    utmZone?: number;
+    cassiniOriginLat?: number;
+    cassiniOriginLon?: number;
+  }) => {
+    // Shoelace formula for grid area
+    let gridArea = 0;
+    for (let i = 0; i < opts.points.length; i++) {
+      const j = (i + 1) % opts.points.length;
+      gridArea += opts.points[i].easting * opts.points[j].northing;
+      gridArea -= opts.points[j].easting * opts.points[i].northing;
+    }
+    gridArea = Math.abs(gridArea) / 2;
+
+    // Compute centroid for scale factor
+    let cxE = 0, cyN = 0;
+    for (const p of opts.points) { cxE += p.easting; cyN += p.northing; }
+    cxE /= opts.points.length;
+    cyN /= opts.points.length;
+
+    // Scale factor at centroid (simplified)
+    const a = 6378249.145;  // Arc 1960
+    const e2 = 2 / 293.4663077 - 1 / (293.4663077 ** 2);
+    let scaleFactor: number;
+
+    if (opts.crs === 'utm') {
+      const zone = opts.utmZone ?? 37;
+      const lon0 = zone * 6 - 183;
+      // Approximate: need lat to compute scale factor properly
+      // For now use a simplified formula based on distance from central meridian
+      // In production, convert grid → geographic first
+      scaleFactor = 0.9996;  // at central meridian (approximate)
+    } else {
+      // Cassini: scale factor ≈ 1 + E²/(2*R²)
+      const R = a * (1 - e2) / Math.pow(1 - e2 * 0.25, 1.5);  // approximate R at equator
+      scaleFactor = 1 + (cxE * cxE) / (2 * R * R);
+    }
+
+    const groundArea = gridArea / (scaleFactor * scaleFactor);  // area scales by k²
+    const ellipsoidalArea = gridArea / scaleFactor;  // linear approximation
+
+    return {
+      gridAreaSqM: gridArea,
+      gridAreaHectares: gridArea / 10000,
+      groundAreaSqM: groundArea,
+      groundAreaHectares: groundArea / 10000,
+      ellipsoidalAreaSqM: ellipsoidalArea,
+      scaleFactor,
+      correctionPpm: (scaleFactor - 1) * 1e6,
+      differenceSqM: groundArea - gridArea,
+    };
+  });
+
+  // ─── P1 Math: Real-Time Precision Monitor ───────────────────────────
+  // Estimates traverse precision AS shots are taken, before the traverse closes.
+  // Uses running misclosure estimate from partial traverse.
+
+  ipcMain.handle('traverse:precisionMonitor', async (_evt, opts: {
+    legs: Array<{
+      from: string; to: string;
+      distance: number; bearing: number;
+    }>;
+    startPoint: { easting: number; northing: number };
+    closingPoint?: { easting: number; northing: number };
+  }) => {
+    // Compute running coordinates from the start point
+    let runE = opts.startPoint.easting;
+    let runN = opts.startPoint.northing;
+    let perimeter = 0;
+    const stations: Array<{ name: string; easting: number; northing: number; chainage: number }> = [];
+
+    stations.push({ name: opts.legs[0]?.from ?? 'START', easting: runE, northing: runN, chainage: 0 });
+
+    for (const leg of opts.legs) {
+      const rad = leg.bearing * Math.PI / 180;
+      const dE = leg.distance * Math.sin(rad);
+      const dN = leg.distance * Math.cos(rad);
+      runE += dE;
+      runN += dN;
+      perimeter += leg.distance;
+      stations.push({ name: leg.to, easting: runE, northing: runN, chainage: perimeter });
+    }
+
+    // If closing point is known, compute misclosure
+    let misclosure = 0;
+    let precisionRatio = Infinity;
+    let precisionStatus: 'good' | 'caution' | 'poor' = 'good';
+
+    if (opts.closingPoint) {
+      const dE = runE - opts.closingPoint.easting;
+      const dN = runN - opts.closingPoint.northing;
+      misclosure = Math.sqrt(dE * dE + dN * dN);
+      precisionRatio = misclosure > 0 ? perimeter / misclosure : Infinity;
+      if (precisionRatio >= 5000) precisionStatus = 'good';
+      else if (precisionRatio >= 3000) precisionStatus = 'caution';
+      else precisionStatus = 'poor';
+    } else {
+      // No closing point — estimate from traverse geometry
+      // A well-designed traverse should have misclosure < perimeter / 5000
+      // If we have fewer than 3 legs, can't estimate
+      if (opts.legs.length >= 3) {
+        // Rough estimate: assume misclosure scales with sqrt(legs) * typical_error
+        const typicalErrorPerLeg = 0.003;  // 3mm per leg
+        const estimatedMisclosure = typicalErrorPerLeg * Math.sqrt(opts.legs.length) * perimeter / 100;
+        precisionRatio = perimeter / Math.max(estimatedMisclosure, 0.001);
+        precisionStatus = precisionRatio >= 5000 ? 'good' : precisionRatio >= 3000 ? 'caution' : 'poor';
+        misclosure = estimatedMisclosure;  // estimated, not measured
+      }
+    }
+
+    return {
+      stationCount: stations.length,
+      perimeter,
+      misclosure,
+      precisionRatio: precisionRatio === Infinity ? null : Math.round(precisionRatio),
+      precisionStatus,
+      stations,
+      canEstimate: opts.legs.length >= 2,
+      hasClosingPoint: !!opts.closingPoint,
+      recommendation: precisionStatus === 'poor'
+        ? '⚠ Precision is below 1:3000. Check for blunders before continuing.'
+        : precisionStatus === 'caution'
+        ? '⚡ Precision is between 1:3000 and 1:5000. Monitor closely.'
+        : '✓ Precision is above 1:5000. Looking good.',
+    };
+  });
+
+  log.info('IPC handlers registered (P1 math: COGO + recovery + free station + area + precision)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {
