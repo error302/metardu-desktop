@@ -83,6 +83,8 @@ export { generateContours } from './topo/contourGenerator';
 export type { ContourLine, ContourGeneratorOptions } from './topo/contourGenerator';
 export { runIDW, runIDWSync, gridToFlat } from './topo/idwEngine';
 export type { IDWSample, IDWGrid, IDWOptions } from './topo/idwEngine';
+export { getFeatureCode, getCodesByCategory, getAllGroups, mapPointsToLayers, joinFeatureLines, KENYA_TOPO_CODES, ACI_COLORS, aciToHex, DXF_LINE_TYPE_PATTERNS } from './topo/featureCodes';
+export type { FeatureCodeDef, FeatureCodeGroup, FeatureCategory, DXFLineType, PointSymbol, LayerMappingResult } from './topo/featureCodes';
 
 // Importers (M4) — RINEX, LAS/LAZ, CSV, GSI, JobXML, RW5, South
 export { parseRinexHeader } from './importers/parsers/rinex';

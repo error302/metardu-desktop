@@ -95,7 +95,17 @@ const api = {
     importRinex: (filePath: string) =>
       ipcRenderer.invoke('topo:importRinex', filePath) as Promise<{ file_path: string; header: unknown; file_size: number }>,
     importLas: (filePath: string) =>
-      ipcRenderer.invoke('topo:importLas', filePath) as Promise<never>,  // throws in M4, full impl in M5
+      ipcRenderer.invoke('topo:importLas', filePath) as Promise<{ file_path: string; file_size: number; point_count: number; points: unknown[]; metadata: unknown }>,
+    getFeatureCodes: (opts?: { category?: string }) =>
+      ipcRenderer.invoke('topo:getFeatureCodes', opts) as Promise<unknown[]>,
+    lookupFeatureCode: (code: string) =>
+      ipcRenderer.invoke('topo:lookupFeatureCode', code) as Promise<unknown | null>,
+    mapPointsToLayers: (points: Array<{ number: string; easting: number; northing: number; elevation?: number; code?: string }>) =>
+      ipcRenderer.invoke('topo:mapPointsToLayers', points) as Promise<unknown[]>,
+  },
+  qa: {
+    gisReport: (opts: { points: Array<{ number: string; easting: number; northing: number; elevation?: number; code?: string }>; sourceFormat: string; projectName?: string; expectedCrs?: string }) =>
+      ipcRenderer.invoke('qa:gisReport', opts) as Promise<GisQaReportResult>,
   },
   export: {
     dxf: (opts: ExportDxfInput) =>
@@ -459,6 +469,23 @@ export interface ExportShapefileInput {
   }>;
   outputDir?: string;
   fileName?: string;
+}
+
+// ─── GIS QA Report types (M5) ──────────────────────────────────────────
+
+export interface GisQaCheck {
+  name: string;
+  status: 'PASS' | 'CONDITIONAL' | 'FAIL';
+  details: string;
+  warnings?: string[];
+}
+
+export interface GisQaReportResult {
+  overall: 'PASS' | 'CONDITIONAL' | 'FAIL';
+  point_count: number;
+  source_format: string;
+  checks: GisQaCheck[];
+  generated_at: string;
 }
 
 contextBridge.exposeInMainWorld('metardu', api);
