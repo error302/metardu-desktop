@@ -427,3 +427,71 @@ html, body, #root {
 .status-phase .status-value {
   color: #D97706;
 }
+
+/* ===== Total Station Panel (OV-UI1) ===== */
+.ts-panel { padding: 16px; background: white; border-bottom: 1px solid #dfe3ea; }
+.ts-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.ts-header h3 { margin: 0; font-size: 14px; font-weight: 700; color: #0B2545; text-transform: uppercase; letter-spacing: 1.5px; }
+.ts-status { font-size: 12px; font-family: 'JetBrains Mono', monospace; font-weight: 500; }
+.ts-status.connected { color: #46875c; }
+.ts-status.disconnected { color: #92453e; }
+.ts-connect-section { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ts-connect-section select, .ts-connect-section input { padding: 6px 8px; border: 1px solid #dfe3ea; border-radius: 4px; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+.ts-connected-section { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ts-station-info { font-size: 11px; color: #5b6470; font-family: 'JetBrains Mono', monospace; }
+.ts-measure-btn { font-size: 14px; padding: 10px 20px; font-weight: 700; }
+.ts-last-shot { margin-top: 12px; padding: 10px; background: #f8f9fb; border-radius: 6px; border-left: 3px solid #D97706; }
+.ts-last-shot h4 { margin: 0 0 6px; font-size: 11px; color: #5b6470; text-transform: uppercase; }
+.ts-last-shot table { width: 100%; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+.ts-last-shot td:first-child { color: #5b6470; width: 80px; }
+.ts-last-shot td:last-child { color: #0B2545; font-weight: 600; text-align: right; }
+.ts-shot-count { margin-top: 8px; font-size: 12px; color: #0B2545; font-weight: 600; }
+.ts-raw-log { margin-top: 12px; max-height: 120px; overflow-y: auto; background: #1a1a2e; border-radius: 4px; padding: 8px; }
+.ts-raw-log h4 { margin: 0 0 4px; font-size: 10px; color: #888; text-transform: uppercase; }
+.ts-raw-line { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #0f0; }
+.ts-setup-form { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 12px; padding: 12px; background: #f8f9fb; border-radius: 6px; }
+.ts-setup-form h4 { grid-column: 1 / -1; margin: 0 0 6px; font-size: 12px; }
+.ts-setup-form input { padding: 4px 8px; border: 1px solid #dfe3ea; border-radius: 4px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+.ts-setup-form button { grid-column: 1 / -1; }
+
+/* ===== 3D Parcel Viewer (OV-UI2) ===== */
+.parcel-3d-viewer { width: 100%; height: 100%; position: relative; background: #1a1a2e; }
+.viewer-controls { position: absolute; top: 12px; left: 12px; z-index: 10; display: flex; gap: 16px; background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 6px; }
+.viewer-controls label { color: #ccc; font-size: 12px; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.viewer-controls input[type="range"] { width: 80px; }
+.viewer-canvas { width: 100%; height: 100%; }
+.viewer-hint { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); color: #666; font-size: 11px; }
+
+/* ===== GNSS Panel (OV-UI3) ===== */
+.gnss-panel { padding: 16px; background: white; border-bottom: 1px solid #dfe3ea; }
+.gnss-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.gnss-header h3 { margin: 0; font-size: 14px; font-weight: 700; color: #0B2545; text-transform: uppercase; letter-spacing: 1.5px; }
+.gnss-fix-indicator { font-size: 13px; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+.gnss-ntrip-section { margin-bottom: 12px; }
+.gnss-ntrip-connected { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 11px; }
+.gnss-ntrip-status.connected { color: #46875c; font-family: 'JetBrains Mono', monospace; }
+.gnss-corrections { color: #5b6470; font-family: 'JetBrains Mono', monospace; }
+.gnss-ntrip-form { display: grid; grid-template-columns: 1fr 60px 1fr; gap: 6px; margin-top: 8px; padding: 10px; background: #f8f9fb; border-radius: 6px; }
+.gnss-ntrip-form input { padding: 4px 8px; border: 1px solid #dfe3ea; border-radius: 4px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+.gnss-ntrip-form button { grid-column: 1 / -1; }
+.gnss-position { margin-top: 12px; padding: 10px; background: #f8f9fb; border-radius: 6px; border-left: 3px solid #D97706; }
+.gnss-position table { width: 100%; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+.gnss-position td:first-child { color: #5b6470; width: 100px; }
+.gnss-position td:last-child { color: #0B2545; font-weight: 600; text-align: right; }
+.gnss-precision { margin-top: 8px; }
+.gnss-precision h4 { margin: 0 0 4px; font-size: 10px; color: #5b6470; text-transform: uppercase; }
+.gnss-precision table { width: 100%; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+.gnss-precision td:first-child { color: #5b6470; }
+.gnss-precision td:last-child { color: #0B2545; font-weight: 600; text-align: right; }
+.gnss-skyplot-section { margin-top: 12px; }
+.gnss-skyplot-section label { font-size: 11px; color: #5b6470; cursor: pointer; }
+.gnss-skyplot { display: block; margin: 8px auto; border-radius: 50%; }
+.gnss-sat-list { margin-top: 12px; }
+.gnss-sat-list h4 { margin: 0 0 6px; font-size: 10px; color: #5b6470; text-transform: uppercase; }
+.gnss-sat-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.gnss-sat-item { display: flex; flex-direction: column; align-items: center; padding: 4px; background: #f8f9fb; border-radius: 4px; }
+.gnss-sat-prn { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; }
+.gnss-sat-snr { font-size: 9px; color: #5b6470; }
+
+/* ===== Small buttons ===== */
+.btn-sm { padding: 4px 10px; font-size: 11px; }
