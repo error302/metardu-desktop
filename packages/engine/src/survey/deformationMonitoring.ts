@@ -26,7 +26,7 @@
  *
  * USAGE
  * -----
- *   import { compareEpochs, analyzeTimeSeries } from '@/lib/survey/deformationMonitoring'
+ *   import { compareEpochs, analyzeTimeSeries } from '../survey/deformationMonitoring'
  *
  *   const report = compareEpochs({
  *     baseline: { epoch: 2024.0, monuments: [...] },
@@ -44,8 +44,8 @@ import {
   propagateToEpoch,
   type EpochCoordinate,
   type ReferenceFrame,
-} from '@/lib/geo/epochManager'
-import { propagateToEpochRigorous } from '@/lib/geo/epochManagerRigorous'
+} from '../geo/epochManager'
+import { propagateToEpochRigorous } from '../geo/epochManagerRigorous'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

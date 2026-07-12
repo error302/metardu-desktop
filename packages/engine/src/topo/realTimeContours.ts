@@ -19,9 +19,9 @@
  * so that vegetation/building points don't distort the contour surface.
  */
 
-import { generateContours, type SpotHeight, type ContourLine } from '@/lib/engine/contours'
-import { classifyPointCloud, extractGroundPoints } from '@/lib/topo/pointCloudClassification'
-import { generateTINWithBreaklines, type BreaklineSegment } from '@/lib/compute/tinWithBreaklines'
+import { generateContours, type SpotHeight, type ContourLine } from '../engine/contours'
+import { classifyPointCloud, extractGroundPoints } from '../topo/pointCloudClassification'
+import { generateTINWithBreaklines, type BreaklineSegment } from '../compute/tinWithBreaklines'
 
 export interface RealTimeContourState {
   /** Total points received so far */

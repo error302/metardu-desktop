@@ -1,4 +1,4 @@
-import type { Solution, SolutionV1, SolutionKV, SolutionWorkStep, SolutionCheck } from '@/lib/solution/schema'
+import type { Solution, SolutionV1, SolutionKV, SolutionWorkStep, SolutionCheck } from '../../solution/schema'
 
 /**
  * METARDU Engine Solution Builder

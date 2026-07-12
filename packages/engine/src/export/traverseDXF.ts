@@ -26,7 +26,7 @@
  */
 
 import Drawing from 'dxf-writer'
-import { DXF_LAYERS, formatBearingDMS, initialiseSokDXFLayers } from '@/lib/drawing/dxfLayers'
+import { DXF_LAYERS, formatBearingDMS, initialiseSokDXFLayers } from '../drawing/dxfLayers'
 
 // ─── Public Types ────────────────────────────────────────────────────────────
 

@@ -46,6 +46,17 @@
  *   from regional GPS studies
  */
 
+// ─── Lazy loader for epochManagerRigorous (avoids circular dependency) ──────
+import * as epochRigorousModule from './epochManagerRigorous.js';
+type RigorousModule = typeof epochRigorousModule;
+let _rigorousCached: RigorousModule | null = null;
+function getRigorousPropagator(): (coord: import('./epochManagerRigorous.js').EpochCoordinateRigorous, targetEpoch: number) => import('./epochManagerRigorous.js').PropagatedCoordinateRigorous {
+  if (!_rigorousCached) {
+    _rigorousCached = epochRigorousModule as unknown as RigorousModule;
+  }
+  return _rigorousCached.propagateToEpochRigorous as unknown as (coord: import('./epochManagerRigorous.js').EpochCoordinateRigorous, targetEpoch: number) => import('./epochManagerRigorous.js').PropagatedCoordinateRigorous;
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export type ReferenceFrame = 'ITRF2014' | 'ITRF2008' | 'ITRF2020' | 'WGS84_G1762' | 'WGS84_G1674' | 'WGS84_G1150' | 'UNKNOWN'
@@ -362,10 +373,9 @@ export function compareCoordinates(
   coord2: EpochCoordinate,
   toleranceM: number = 0.05,
 ): CoordinateComparison {
-  // Lazy-import the rigorous propagator to avoid a circular dependency at
-  // module load time.
+  // Lazy-import via cached ESM dynamic import (Vitest doesn't support CommonJS require)
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { propagateToEpochRigorous } = require('./epochManagerRigorous')
+  const propagateToEpochRigorous = getRigorousPropagator()
 
   // Propagate both to the later epoch (or coord2's epoch)
   const commonEpoch = Math.max(coord1.epoch, coord2.epoch)

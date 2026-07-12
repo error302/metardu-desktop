@@ -9,8 +9,8 @@
  *   Bahrain CSD §E.3.6 (detail survey)
  */
 
-import type { SurveyingCountry } from '@/lib/country/standards'
-import { getCountryStandard } from '@/lib/country/standards'
+import type { SurveyingCountry } from '../country/standards'
+import { getCountryStandard } from '../country/standards'
 
 // ─── ASPRS PLANIMETRIC ACCURACY TABLE ─────────────────────────────────────────
 // Table 4-3: RMSE thresholds (feet) at each scale, 3 ASPRS classes.

@@ -23,7 +23,7 @@
  *   Zone 37S: central meridian = 39°E
  */
 
-import { shoelaceArea } from '@/lib/engine/area'
+import { shoelaceArea } from '../engine/area'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 

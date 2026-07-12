@@ -9,8 +9,8 @@
  *   - If not found, returns null (no watermark, no logo)
  */
 
-import { db } from '@/lib/db';
-import type { PlanId } from '@/lib/subscription/catalog';
+import { db } from '../db';
+import type { PlanId } from '../subscription/catalog';
 
 export interface ResolvedLogo {
   /** The logo image data as a Buffer */

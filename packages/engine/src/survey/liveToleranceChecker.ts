@@ -32,7 +32,7 @@
  *
  * USAGE
  * -----
- *   import { checkTolerance } from '@/lib/survey/liveToleranceChecker'
+ *   import { checkTolerance } from '../survey/liveToleranceChecker'
  *
  *   const result = checkTolerance({
  *     surveyType: 'cadastral',
@@ -48,15 +48,15 @@
  *   }
  */
 
-import { computeTraverse, type RawObservation, type TraverseComputationResult } from '@/lib/computations/traverseEngine'
+import { computeTraverse, type RawObservation, type TraverseComputationResult } from '../computations/traverseEngine'
 import {
   checkTraverseConformance,
   checkLevelingConformance,
   RDM_TRAVERSE_ACCURACY,
   RDM_LEVELING_ACCURACY,
   type RDMConformanceResult,
-} from '@/lib/standards/rdm11'
-import { globalChiSquareTest } from '@/lib/survey/lsaStatisticalTesting'
+} from '../standards/rdm11'
+import { globalChiSquareTest } from '../survey/lsaStatisticalTesting'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

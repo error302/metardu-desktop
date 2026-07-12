@@ -1,6 +1,6 @@
 import { registerParser } from '../registry';
 import { ParseResult, ParsedPoint } from '@/types/importer';
-import { bearingDistanceToDelta } from '@/lib/geodesy/coordinates';
+import { bearingDistanceToDelta } from '../../geodesy/coordinates';
 
 registerParser({
   format: 'csv',

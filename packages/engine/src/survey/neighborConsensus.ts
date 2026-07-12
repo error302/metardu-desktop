@@ -16,7 +16,7 @@
  * - Required for high-value urban boundary surveys
  */
 
-import { sealRecord } from '@/lib/security/cryptoSealing'
+import { sealRecord } from '../security/cryptoSealing'
 
 export interface NeighborConsensusRecord {
   id: string

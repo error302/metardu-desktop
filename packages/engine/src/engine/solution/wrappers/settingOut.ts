@@ -1,7 +1,7 @@
-import { dmsToDecimal } from '@/lib/engine/angles'
-import { distanceBearing, polarPoint } from '@/lib/engine/distance'
-import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '@/lib/engine/solution/solutionBuilder'
-import { formatBearingWcbDms, formatCoordMeters, formatDeltaMeters, formatDistanceMeters, fullNumber } from '@/lib/solution/format'
+import { dmsToDecimal } from '../../../engine/angles'
+import { distanceBearing, polarPoint } from '../../../engine/distance'
+import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '../../../engine/solution/solutionBuilder'
+import { formatBearingWcbDms, formatCoordMeters, formatDeltaMeters, formatDistanceMeters, fullNumber } from '../../../solution/format'
 
 export function pegFromStationSolved(input: {
   stationE: number

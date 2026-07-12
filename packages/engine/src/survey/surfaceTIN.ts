@@ -20,7 +20,7 @@
  *
  * USAGE
  * -----
- *   import { buildTIN, computeCutFill } from '@/lib/survey/surfaceTIN'
+ *   import { buildTIN, computeCutFill } from '../survey/surfaceTIN'
  *
  *   const groundTIN = buildTIN(surveyPoints)
  *   const designTIN = buildTIN(designPoints)

@@ -17,7 +17,7 @@
  * - cross-section: Cross Section Drawing (A3 landscape, with grid, levels, chainage)
  */
 
-import type { PlanId } from '@/lib/subscription/catalog';
+import type { PlanId } from '../../subscription/catalog';
 import type { ResolvedLogo } from '../resolve-logo';
 
 // ─── Document Type Enum ──────────────────────────────────────────

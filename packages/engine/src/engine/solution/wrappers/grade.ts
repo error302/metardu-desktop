@@ -1,6 +1,6 @@
-import { gradeFromElevations } from '@/lib/engine/grade'
-import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '@/lib/engine/solution/solutionBuilder'
-import { fullNumber } from '@/lib/solution/format'
+import { gradeFromElevations } from '../../../engine/grade'
+import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '../../../engine/solution/solutionBuilder'
+import { fullNumber } from '../../../solution/format'
 
 export function gradeSolved(input: { elev1: number; elev2: number; horizontalDistance: number }): Solved<ReturnType<typeof gradeFromElevations>> & { solution: Solution } {
   const r = gradeFromElevations(input)

@@ -33,7 +33,7 @@ import type {
   IFCControlPoint,
   IFCEquipmentRecord,
 } from '@/types/ifc';
-import { shoelaceArea } from '@/lib/engine/area';
+import { shoelaceArea } from '../engine/area';
 
 // ─── STEP String helpers ──────────────────────────────────────────────────
 

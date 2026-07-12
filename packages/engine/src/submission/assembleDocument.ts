@@ -1,5 +1,5 @@
-import { uploadFile, getSignedUrl } from '@/lib/storage';
-import { db } from '@/lib/db';
+import { uploadFile, getSignedUrl } from '../storage';
+import { db } from '../db';
 import { loadPreAdjustedFromDB, type PreAdjustedCoordinate, type PreAdjustedClosure } from '../generators/deedPlanGeometry';
 
 // ── Helper: Fetch surveyor profile data from the project owner ────────────

@@ -29,13 +29,13 @@
  *
  * USAGE
  * -----
- *   import { buildBreaklineTIN, type Breakline } from '@/lib/topo/breaklineTIN'
+ *   import { buildBreaklineTIN, type Breakline } from '../topo/breaklineTIN'
  *
  *   const tin = buildBreaklineTIN(points, breaklines)
  *   // tin.triangles respects all breakline edges
  */
 
-import { buildTIN, type TIN, type SurfacePoint, type Triangle } from '@/lib/survey/surfaceTIN'
+import { buildTIN, type TIN, type SurfacePoint, type Triangle } from '../survey/surfaceTIN'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

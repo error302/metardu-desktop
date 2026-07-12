@@ -19,7 +19,7 @@
  *   - Topcon 3D-MC: supports DXF + LandXML
  */
 
-import type { SpotHeight, TINSurface } from '@/lib/engine/contours'
+import type { SpotHeight, TINSurface } from '../engine/contours'
 
 export interface AlignmentPoint {
   chainage: number

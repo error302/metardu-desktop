@@ -15,7 +15,7 @@
 import { bowditchAdjustment, transitAdjustment, evaluateTraverseClosure, TRAVERSE_PRECISION_STANDARDS } from '../traverse';
 import { coordinateArea } from '../area';
 import { bearingToString, angularMisclosure, decimalToDMS } from '../angles';
-import { DATUM_REGISTRY } from '@/lib/geodesy/datums';
+import { DATUM_REGISTRY } from '../../geodesy/datums';
 import { computeBoundaryLegs } from '../../compute/deedPlan';
 
 describe('Known-Answer Tests (KATs) — Basak/Ghilani & Wolf', () => {

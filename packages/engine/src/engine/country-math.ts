@@ -5,11 +5,11 @@
  * returns the appropriate standard for validation, formatting, or correction.
  *
  * Usage:
- *   import { getTraverseValidation, formatAreaByCountry } from '@/lib/engine/country-math'
+ *   import { getTraverseValidation, formatAreaByCountry } from '../engine/country-math'
  *   const result = getTraverseValidation('kenya', linearError, totalDist, 'urban')
  */
 
-import type { SurveyingCountry, SurveyEnvironment } from '@/lib/country/standards'
+import type { SurveyingCountry, SurveyEnvironment } from '../country/standards'
 import {
   getCountryStandard,
   getTraverseOrderForEnvironment,
@@ -18,7 +18,7 @@ import {
   getBeaconRule,
   getFieldNoteRule,
   getSurveyorReportRequirement,
-} from '@/lib/country/standards'
+} from '../country/standards'
 import { getTopoConfigForCountry } from './topographic'
 
 // ─── TRAVERSE VALIDATION ──────────────────────────────────────────────────────

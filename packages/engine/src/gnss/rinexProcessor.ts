@@ -6,7 +6,7 @@
  * processing. Returns adjusted coordinates with full covariance matrices.
  *
  * Usage:
- *   import { processRinexFile } from '@/lib/gnss/rinexProcessor'
+ *   import { processRinexFile } from '../gnss/rinexProcessor'
  *
  *   const result = await processRinexFile({
  *     rinexObsFile: file,           // File object from <input type="file">
@@ -16,7 +16,7 @@
  *   // result = { latitude, longitude, height, ecef, covariance, rms, ... }
  */
 
-import { callPythonCompute } from '@/lib/compute/pythonService'
+import { callPythonCompute } from '../compute/pythonService'
 
 export interface RINEXProcessParams {
   /** RINEX observation file (from <input type="file">) */

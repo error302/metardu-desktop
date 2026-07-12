@@ -2,12 +2,12 @@
  * Tool Export Helpers — shared CSV + print functions for simple calculators
  *
  * Usage:
- *   import { downloadResultCSV, printResult } from '@/lib/export/toolExport'
+ *   import { downloadResultCSV, printResult } from '../export/toolExport'
  *   downloadResultCSV('distance-result', [['Point 1', '5000,3000'], ['Point 2', '5234,3156']])
  *   printResult('Distance Calculation', 'Inverse from coordinates', resultRows)
  */
 
-import { buildPrintDocument, openPrint } from '@/lib/print/buildPrintDocument'
+import { buildPrintDocument, openPrint } from '../print/buildPrintDocument'
 
 /**
  * Download a 2D array as CSV.

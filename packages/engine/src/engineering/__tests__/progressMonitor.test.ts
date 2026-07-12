@@ -6,7 +6,7 @@ import {
   progressToCSV,
   generateInspectionReport,
   generateDemoCheckpoints,
-} from '@/lib/engineering/progressMonitor';
+} from '../../engineering/progressMonitor';
 
 // ─── Test data ─────────────────────────────────────────────────────────────
 

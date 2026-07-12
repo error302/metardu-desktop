@@ -6,7 +6,7 @@ import {
   pileGridToCSV,
   parsePileGridCSV,
   generatePileGridDXF,
-} from '@/lib/engineering/pileGrid';
+} from '../../engineering/pileGrid';
 
 // ─── Test fixtures ──────────────────────────────────────────────────────────
 

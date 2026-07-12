@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/api-client/server'
-import type { SurveyorProfileSubmission } from '@/lib/api-client/community'
+import { createClient } from '../api-client/server'
+import type { SurveyorProfileSubmission } from '../api-client/community'
 
 export async function getActiveSurveyorProfile(): Promise<SurveyorProfileSubmission> {
   const dbClient = await createClient()

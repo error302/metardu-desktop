@@ -36,7 +36,7 @@
  *   - RDM 1.1 (2025) — Kenya Survey Regulations
  */
 
-import type { Point2D } from '@/lib/engine/types'
+import type { Point2D } from '../engine/types'
 
 export interface CrossCheckResult {
   /** Name of the cross-check */

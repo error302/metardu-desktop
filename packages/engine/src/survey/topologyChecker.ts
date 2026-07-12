@@ -21,7 +21,7 @@ import {
   lineStringToTurf,
   toTurfCoord,
   type SurveyPoint,
-} from '@/lib/map/turfHelpers'
+} from '../map/turfHelpers'
 
 // ---------------------------------------------------------------------------
 // Types

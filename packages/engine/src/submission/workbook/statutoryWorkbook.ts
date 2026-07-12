@@ -5,7 +5,7 @@
  */
 
 import ExcelJS from 'exceljs'
-import { formatBearingDMS, formatDistanceM } from '@/lib/drawing/dxfLayers'
+import { formatBearingDMS, formatDistanceM } from '../../drawing/dxfLayers'
 
 type SurveyTypeKey = 'cadastral' | 'engineering' | 'topographic' | 'leveling' | 'control' | 'mining' | 'hydrographic' | 'drone' | 'gnss'
 

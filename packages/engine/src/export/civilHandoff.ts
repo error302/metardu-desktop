@@ -4,7 +4,7 @@
  * No extra computation — formats data from the existing project.
  */
 
-import { utmToGeographic } from '@/lib/geodesy/coordinates'
+import { utmToGeographic } from '../geodesy/coordinates'
 
 export interface CivilPoint {
   name: string

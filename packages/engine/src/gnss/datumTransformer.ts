@@ -181,5 +181,5 @@ export {
   listTransformations,
   registerLocalTransformation,
   validateTransformation,
-} from '@/lib/geo/datumTransformationRegistry'
-export type { TransformedCoordinate, ProvenanceRecord, TransformationSet } from '@/lib/geo/datumTransformationRegistry'
+} from '../geo/datumTransformationRegistry'
+export type { TransformedCoordinate, ProvenanceRecord, TransformationSet } from '../geo/datumTransformationRegistry'

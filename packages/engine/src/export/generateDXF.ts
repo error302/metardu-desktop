@@ -11,7 +11,7 @@
  */
 
 import Drawing from 'dxf-writer'
-import { initialiseSokDXFLayers, DXF_LAYERS } from '@/lib/drawing/dxfLayers'
+import { initialiseSokDXFLayers, DXF_LAYERS } from '../drawing/dxfLayers'
 import type { SurveyPoint } from '@/types/surveyPoint'
 
 // Re-export for backwards compatibility with callers that import

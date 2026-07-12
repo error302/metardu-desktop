@@ -8,7 +8,7 @@ import {
   searchFeatureCodes,
   KENYA_TOPO_CODES,
   type SurveyPointWithCode,
-} from '@/lib/topo/featureCodes';
+} from '../../topo/featureCodes';
 
 // ─── getFeatureCode ─────────────────────────────────────────────────────────
 

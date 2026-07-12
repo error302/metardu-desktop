@@ -5,6 +5,7 @@
  * and source table parsing.
  */
 
+import { describe, it, expect, vi } from 'vitest'
 import {
   NTRIPClient,
   KENYA_NTRIP_PRESETS,
@@ -13,7 +14,10 @@ import {
   isNTRIPAvailable,
   type NTRIPConnectionConfig,
   type NTRIPStatus,
-} from '@/lib/gnss/ntrip-client'
+} from '../../gnss/ntrip-client'
+
+// Compatibility shim — metardu tests use jest.fn() instead of vi.fn()
+const jest = { fn: vi.fn };
 
 // ─── Mock WebSocket ────────────────────────────────────────────────────────
 

@@ -1,8 +1,8 @@
-import { geographicToUTM, utmToGeographic } from '@/lib/geodesy/coordinates'
-import { decimalToDMS, dmsToDecimal } from '@/lib/engine/angles'
-import type { DMS } from '@/lib/engine/types'
-import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '@/lib/engine/solution/solutionBuilder'
-import { fullNumber } from '@/lib/solution/format'
+import { geographicToUTM, utmToGeographic } from '../../../geodesy/coordinates'
+import { decimalToDMS, dmsToDecimal } from '../../../engine/angles'
+import type { DMS } from '../../../engine/types'
+import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '../../../engine/solution/solutionBuilder'
+import { fullNumber } from '../../../solution/format'
 
 export function utmToGeographicSolved(input: {
   easting: number

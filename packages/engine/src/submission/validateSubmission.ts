@@ -5,7 +5,7 @@ import type {
   QAWarning
 } from './types'
 
-import { TRAVERSE_PRECISION_STANDARDS, angularClosureTolerance } from '@/lib/engine/traverse'
+import { TRAVERSE_PRECISION_STANDARDS, angularClosureTolerance } from '../engine/traverse'
 
 const LEVELLING_TOLERANCE: Record<string, number> = {
   first_order: 3,

@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf'
 import type { SubmissionPackage } from '../types'
-import { PlanGeometry, computePlanGeometry } from '@/lib/engine/planGeometry'
-import { formatPlanDate, formatBearingDMS, formatDistanceM } from '@/lib/drawing/dxfLayers'
+import { PlanGeometry, computePlanGeometry } from '../../engine/planGeometry'
+import { formatPlanDate, formatBearingDMS, formatDistanceM } from '../../drawing/dxfLayers'
 
 function stationsToAdjusted(pkg: SubmissionPackage) {
   return pkg.traverse.points.map((p) => ({

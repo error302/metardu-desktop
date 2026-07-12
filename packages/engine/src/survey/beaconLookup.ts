@@ -31,7 +31,7 @@
  *
  * Usage
  * -----
- *   import { findNearestBeacons } from '@/lib/survey/beaconLookup'
+ *   import { findNearestBeacons } from '../survey/beaconLookup'
  *
  *   const results = await findNearestBeacons({
  *     latitude: -1.2921,
@@ -46,7 +46,7 @@
  *   }
  */
 
-import { BENCHMARK_DATABASE, type Benchmark } from '@/lib/online/benchmarks'
+import { BENCHMARK_DATABASE, type Benchmark } from '../online/benchmarks'
 
 // ─── Types ──────────────────────────────────────────────────────────────
 

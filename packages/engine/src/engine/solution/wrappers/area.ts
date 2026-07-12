@@ -1,7 +1,7 @@
-import { coordinateArea, simpsonsArea, trapezoidalArea } from '@/lib/engine/area'
-import type { Point2D } from '@/lib/engine/types'
-import { createSolutionV1, solveWithSteps, type Solution, type Solved } from '@/lib/engine/solution/solutionBuilder'
-import { formatAreaAcres, formatAreaHa, formatAreaSqm, formatDistanceMeters, fullNumber } from '@/lib/solution/format'
+import { coordinateArea, simpsonsArea, trapezoidalArea } from '../../../engine/area'
+import type { Point2D } from '../../../engine/types'
+import { createSolutionV1, solveWithSteps, type Solution, type Solved } from '../../../engine/solution/solutionBuilder'
+import { formatAreaAcres, formatAreaHa, formatAreaSqm, formatDistanceMeters, fullNumber } from '../../../solution/format'
 
 export function coordinateAreaSolution(points: Point2D[]): Solved<ReturnType<typeof coordinateArea>> & { solution: Solution } {
   const r = coordinateArea(points)

@@ -9,8 +9,8 @@
  *   Bahrain CSD (field round tolerances)
  */
 
-import type { SurveyingCountry } from '@/lib/country/standards'
-import { getCountryStandard } from '@/lib/country/standards'
+import type { SurveyingCountry } from '../country/standards'
+import { getCountryStandard } from '../country/standards'
 import { twoPegTest } from './twoPegTest'
 
 // ─── LEVELING CLOSURE ORDERS (USACE Table 4-2) ────────────────────────────────

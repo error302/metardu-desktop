@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/api-client/server'
-import { db } from '@/lib/db'
+import { createClient } from '../api-client/server'
+import { db } from '../db'
 export async function generateSubmissionRef(
   projectId: string,
   iskNumber: string

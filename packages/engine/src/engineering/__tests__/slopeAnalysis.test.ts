@@ -4,7 +4,7 @@ import {
   computeAreaBetweenPoints,
   slopeAnalysisToCSV,
   type DTMPoint,
-} from '@/lib/engineering/slopeAnalysis';
+} from '../../engineering/slopeAnalysis';
 
 // ─── Test data ─────────────────────────────────────────────────────────────
 

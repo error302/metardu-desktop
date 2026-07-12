@@ -1,6 +1,6 @@
-import { twoPegTest } from '@/lib/engine/twoPegTest'
-import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '@/lib/engine/solution/solutionBuilder'
-import { fullNumber } from '@/lib/solution/format'
+import { twoPegTest } from '../../../engine/twoPegTest'
+import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '../../../engine/solution/solutionBuilder'
+import { fullNumber } from '../../../solution/format'
 
 export function twoPegTestSolved(input: {
   A1: number

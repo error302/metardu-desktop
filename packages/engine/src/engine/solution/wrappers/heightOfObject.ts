@@ -1,8 +1,8 @@
-import { dmsToDecimal } from '@/lib/engine/angles'
-import type { DMS } from '@/lib/engine/types'
-import { heightOfObject } from '@/lib/engine/heightOfObject'
-import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '@/lib/engine/solution/solutionBuilder'
-import { fullNumber } from '@/lib/solution/format'
+import { dmsToDecimal } from '../../../engine/angles'
+import type { DMS } from '../../../engine/types'
+import { heightOfObject } from '../../../engine/heightOfObject'
+import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '../../../engine/solution/solutionBuilder'
+import { fullNumber } from '../../../solution/format'
 
 export function heightOfObjectSolved(input: {
   horizontalDistance: number

@@ -23,7 +23,7 @@ import type {
   SettingOutResult,
   DesignPoint,
   InstrumentStation,
-} from '@/lib/computations/settingOutEngine'
+} from '../../computations/settingOutEngine'
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 

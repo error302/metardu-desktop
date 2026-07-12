@@ -31,7 +31,7 @@
  *   - ASPRS Guidelines for Digital Topographic Surveys (2023)
  */
 
-import { KENYA_TOPO_CODES, getFeatureCode, type FeatureCodeDef, type FeatureCategory } from '@/lib/topo/featureCodes'
+import { KENYA_TOPO_CODES, getFeatureCode, type FeatureCodeDef, type FeatureCategory } from '../topo/featureCodes'
 
 export interface AutoClassifyResult {
   /** The original code string from the instrument */

@@ -1,6 +1,6 @@
-import { computeChainageTable, reverseChainageLinear, type ChainageRow } from '@/lib/engine/chainage'
-import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '@/lib/engine/solution/solutionBuilder'
-import { fullNumber } from '@/lib/solution/format'
+import { computeChainageTable, reverseChainageLinear, type ChainageRow } from '../../../engine/chainage'
+import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '../../../engine/solution/solutionBuilder'
+import { fullNumber } from '../../../solution/format'
 
 export type AlignmentPoint = { name: string; easting: number; northing: number }
 

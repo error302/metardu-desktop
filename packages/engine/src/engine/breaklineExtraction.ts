@@ -34,7 +34,7 @@ import {
   type Breakline,
   type Triangle,
   type TINSurface,
-} from '@/lib/engine/contours'
+} from '../engine/contours'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

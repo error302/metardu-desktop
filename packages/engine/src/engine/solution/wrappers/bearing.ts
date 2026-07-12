@@ -1,7 +1,7 @@
-import { distanceBearing } from '@/lib/engine/distance'
-import { backBearing, parseDMSString, normalizeBearing } from '@/lib/engine/angles'
-import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '@/lib/engine/solution/solutionBuilder'
-import { formatBearingWcbDms, formatDistanceMeters, fullNumber } from '@/lib/solution/format'
+import { distanceBearing } from '../../../engine/distance'
+import { backBearing, parseDMSString, normalizeBearing } from '../../../engine/angles'
+import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '../../../engine/solution/solutionBuilder'
+import { formatBearingWcbDms, formatDistanceMeters, fullNumber } from '../../../solution/format'
 
 export function bearingSolvedFromCoords(input: { e1: number; n1: number; e2: number; n2: number }): Solved<ReturnType<typeof distanceBearing>> & { solution: Solution } {
   const r = distanceBearing({ easting: input.e1, northing: input.n1 }, { easting: input.e2, northing: input.n2 })

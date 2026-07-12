@@ -5,7 +5,7 @@
  * src/lib/geo/cassini/ (split into constants / types / helmert / exact / datum /
  * projection / verify / sheets / subsheets / index).
  *
- * Existing imports like `import { cassiniFeetToUTM } from '@/lib/geo/cassini'`
+ * Existing imports like `import { cassiniFeetToUTM } from '../geo/cassini'`
  * keep working unchanged — that's the whole point.
  *
  * Refactor history:

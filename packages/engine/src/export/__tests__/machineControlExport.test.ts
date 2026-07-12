@@ -7,7 +7,7 @@ import {
   exportMachineControl,
   MACHINE_FORMATS,
   type MachineControlPoint,
-} from '@/lib/export/machineControlExport';
+} from '../../export/machineControlExport';
 
 // ─── Test data ─────────────────────────────────────────────────────────────
 

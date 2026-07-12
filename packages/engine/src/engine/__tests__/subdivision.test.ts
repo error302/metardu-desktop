@@ -2,8 +2,8 @@
  * Tests for the METARDU Subdivision Engine
  */
 
-import { subdivide } from '@/lib/engine/subdivision'
-import type { Point2D } from '@/lib/engine/types'
+import { subdivide } from '../../engine/subdivision'
+import type { Point2D } from '../../engine/types'
 import type { SubdivisionParams } from '@/types/subdivision'
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────

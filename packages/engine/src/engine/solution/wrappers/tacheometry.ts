@@ -1,8 +1,8 @@
-import { dmsToDecimal } from '@/lib/engine/angles'
-import type { DMS } from '@/lib/engine/types'
-import { tacheometryReduction } from '@/lib/engine/tacheometry'
-import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '@/lib/engine/solution/solutionBuilder'
-import { fullNumber } from '@/lib/solution/format'
+import { dmsToDecimal } from '../../../engine/angles'
+import type { DMS } from '../../../engine/types'
+import { tacheometryReduction } from '../../../engine/tacheometry'
+import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '../../../engine/solution/solutionBuilder'
+import { fullNumber } from '../../../solution/format'
 
 export function tacheometrySolved(input: {
   instrumentHeight: number

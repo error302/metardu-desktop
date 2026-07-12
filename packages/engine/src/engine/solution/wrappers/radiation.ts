@@ -1,7 +1,7 @@
-import { radiation } from '@/lib/engine/cogo'
-import type { Point2D } from '@/lib/engine/types'
-import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '@/lib/engine/solution/solutionBuilder'
-import { formatBearingWcbDms, formatCoordMeters, formatDistanceMeters, fullNumber } from '@/lib/solution/format'
+import { radiation } from '../../../engine/cogo'
+import type { Point2D } from '../../../engine/types'
+import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '../../../engine/solution/solutionBuilder'
+import { formatBearingWcbDms, formatCoordMeters, formatDistanceMeters, fullNumber } from '../../../solution/format'
 
 export function radiationSolved(input: { station: Point2D; bearingDeg: number; distance: number }): Solved<ReturnType<typeof radiation> & { deltaE: number; deltaN: number }> & { solution: Solution } {
   const r = radiation(input.station, input.bearingDeg, input.distance)

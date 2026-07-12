@@ -18,8 +18,8 @@
  *   - Regulation 92: Co-ordinates to be shown on plan
  */
 
-import type { ToleranceCheckResult } from '@/lib/survey/liveToleranceChecker'
-import type { AdjustmentResult } from '@/lib/survey/networkAdjustment'
+import type { ToleranceCheckResult } from '../survey/liveToleranceChecker'
+import type { AdjustmentResult } from '../survey/networkAdjustment'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

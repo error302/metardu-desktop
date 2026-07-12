@@ -33,9 +33,9 @@
 import { distanceBearing, polarPoint } from '../distance';
 import { coordinateArea } from '../area';
 import { bearingToString, parseDMSString, backBearing } from '../angles';
-import { bearingDistanceToDelta } from '@/lib/geodesy/coordinates';
+import { bearingDistanceToDelta } from '../../geodesy/coordinates';
 import { forwardTraverse, bowditchAdjustment, evaluateTraverseClosure } from '../traverse';
-import { DATUM_REGISTRY, getDatumByCountry } from '@/lib/geodesy/datums';
+import { DATUM_REGISTRY, getDatumByCountry } from '../../geodesy/datums';
 import { Point2D } from '../types';
 
 // ─── F/R 583/58 Station Coordinates (Arc 1960, UTM Zone 37S) ─────────────────

@@ -3,7 +3,7 @@ import {
   initialiseSokDXFLayers,
   addStandardTitleBlock,
   DXF_LAYERS,
-} from '@/lib/drawing/dxfLayers'
+} from '../drawing/dxfLayers'
 import type { AdjustedStation, Observation } from './networkAdjustment'
 
 export function generateNetworkDXF(params: {

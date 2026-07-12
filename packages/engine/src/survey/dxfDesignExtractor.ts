@@ -14,7 +14,7 @@
  *
  * USAGE
  * -----
- *   import { extractDesignPointsFromDXF } from '@/lib/survey/dxfDesignExtractor'
+ *   import { extractDesignPointsFromDXF } from '../survey/dxfDesignExtractor'
  *
  *   const points = extractDesignPointsFromDXF(dxfString, {
  *     layerFilter: ['STAKEOUT', 'SETTING-OUT'],
@@ -23,7 +23,7 @@
  *   })
  */
 
-import type { DesignPoint } from '@/lib/computations/settingOutEngine'
+import type { DesignPoint } from '../computations/settingOutEngine'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

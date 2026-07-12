@@ -1,6 +1,6 @@
-import { utmToGeographic } from '@/lib/geodesy/coordinates'
+import { utmToGeographic } from '../geodesy/coordinates'
 import type { SurveyPoint } from '@/types/surveyPoint'
-import { generateProjectMetadata } from '@/lib/geo/isoMetadata'
+import { generateProjectMetadata } from '../geo/isoMetadata'
 
 // Re-export for backwards compatibility with callers that import
 // `{ SurveyPoint }` from this module. New code should import the type

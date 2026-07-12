@@ -1,5 +1,5 @@
-import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '@/lib/engine/solution/solutionBuilder'
-import { formatBearingWcbDms, formatDeltaMeters, formatDistanceMeters, formatPrecisionRatio, fullNumber } from '@/lib/solution/format'
+import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '../../../engine/solution/solutionBuilder'
+import { formatBearingWcbDms, formatDeltaMeters, formatDistanceMeters, formatPrecisionRatio, fullNumber } from '../../../solution/format'
 
 export type TraverseAdjustmentSolvedResult = {
   legs: Array<{

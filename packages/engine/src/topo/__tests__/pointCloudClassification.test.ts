@@ -3,7 +3,7 @@
  * Run: npx jest src/lib/topo/__tests__/pointCloudClassification.test.ts
  */
 
-import { describe, it, expect } from '@jest/globals'
+import { describe, it, expect } from 'vitest'
 import {
   classifyPointCloud,
   extractGroundPoints,

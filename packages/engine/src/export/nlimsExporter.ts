@@ -18,7 +18,7 @@
  * ArdhiSasa portal submission specification (2024).
  */
 
-import type { SurveyPoint } from '@/lib/map/turfHelpers'
+import type { SurveyPoint } from '../map/turfHelpers'
 
 // ---------------------------------------------------------------------------
 // Types — NLIMS Submission Schema

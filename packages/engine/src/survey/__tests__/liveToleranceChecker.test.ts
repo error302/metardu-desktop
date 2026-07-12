@@ -17,7 +17,7 @@ import {
   type ToleranceCheckInput,
   type SurveyType,
 } from '../liveToleranceChecker'
-import type { RawObservation } from '@/lib/computations/traverseEngine'
+import type { RawObservation } from '../../computations/traverseEngine'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

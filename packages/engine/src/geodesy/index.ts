@@ -35,8 +35,8 @@
  * Backwards compatibility
  * -----------------------
  * src/lib/engine/index.ts re-exports everything from this module, so
- * existing `import { computeCombinedScaleFactor } from '@/lib/engine'`
- * calls continue to work. New code should import from '@/lib/geodesy'
+ * existing `import { computeCombinedScaleFactor } from '../engine'`
+ * calls continue to work. New code should import from '../geodesy'
  * directly to make the geodesy dependency explicit.
  */
 

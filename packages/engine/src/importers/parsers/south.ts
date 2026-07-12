@@ -1,6 +1,6 @@
 import { registerParser } from '../registry';
 import { ParseResult, ParsedPoint } from '@/types/importer';
-import { parseSouthData } from '@/lib/import/totalStation/parseSouth';
+import { parseSouthData } from '../../import/totalStation/parseSouth';
 
 /**
  * South total station .dat/.dc format registration.

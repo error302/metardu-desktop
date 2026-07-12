@@ -14,7 +14,7 @@
  */
 
 import Drawing from 'dxf-writer'
-import { initialiseSokDXFLayers, DXF_LAYERS } from '@/lib/drawing/dxfLayers'
+import { initialiseSokDXFLayers, DXF_LAYERS } from '../drawing/dxfLayers'
 import type { SubdivisionResult } from '@/types/subdivision'
 
 /**

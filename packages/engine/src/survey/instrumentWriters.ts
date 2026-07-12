@@ -28,7 +28,7 @@
  *   // Then: new Blob([gsiContent], { type: 'text/plain' })
  */
 
-import type { SettingOutResult, SettingOutRow } from '@/lib/computations/settingOutEngine'
+import type { SettingOutResult, SettingOutRow } from '../computations/settingOutEngine'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

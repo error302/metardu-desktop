@@ -8,9 +8,9 @@ import {
   type VolumeMethod,
   type VolumeResult,
   type VolumeSection,
-} from '@/lib/engine/volume'
-import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '@/lib/engine/solution/solutionBuilder'
-import { fullNumber } from '@/lib/solution/format'
+} from '../../../engine/volume'
+import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '../../../engine/solution/solutionBuilder'
+import { fullNumber } from '../../../solution/format'
 
 function formatVolumeCubicMeters(v: number): string {
   return `${v.toFixed(3)} m³`

@@ -11,8 +11,8 @@
  *            NOAA Manual NOS NGS 5 (geodetic EDM reductions)
  */
 
-import type { SurveyingCountry } from '@/lib/country/standards'
-import { getCountryStandard } from '@/lib/country/standards'
+import type { SurveyingCountry } from '../country/standards'
+import { getCountryStandard } from '../country/standards'
 
 // ─── STAGE 1: SLOPE → HORIZONTAL ─────────────────────────────────────────────
 

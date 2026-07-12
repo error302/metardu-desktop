@@ -1,7 +1,7 @@
-import type { LevelingInput } from '@/lib/engine/leveling'
-import type { LevelingResult } from '@/lib/engine/types'
-import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '@/lib/engine/solution/solutionBuilder'
-import { formatDistanceMeters, fullNumber } from '@/lib/solution/format'
+import type { LevelingInput } from '../../../engine/leveling'
+import type { LevelingResult } from '../../../engine/types'
+import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '../../../engine/solution/solutionBuilder'
+import { formatDistanceMeters, fullNumber } from '../../../solution/format'
 
 export function levelingSolved(input: LevelingInput, result: LevelingResult): Solved<LevelingResult> & { solution: Solution } {
   const sumBS = result.readings.reduce((s, r) => s + (r.bs ?? 0), 0)

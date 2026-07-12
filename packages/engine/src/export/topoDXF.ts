@@ -10,8 +10,8 @@
  */
 
 import Drawing from 'dxf-writer'
-import { KENYA_TOPO_CODES, FeatureCodeDef } from '@/lib/topo/featureCodes'
-import { initialiseSokDXFLayers, DXF_LAYERS } from '@/lib/drawing/dxfLayers'
+import { KENYA_TOPO_CODES, FeatureCodeDef } from '../topo/featureCodes'
+import { initialiseSokDXFLayers, DXF_LAYERS } from '../drawing/dxfLayers'
 
 export interface TopoPoint {
   easting: number

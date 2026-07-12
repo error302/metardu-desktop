@@ -7,6 +7,7 @@ import {
   rodriguesRotation,
   convertReferenceFrame,
   transformITRFFrame,
+  transformITRFFrameInverse,
   ITRF2014_FROM_ITRF2008,
   alignCoordinate,
 } from '../epochManagerRigorous'
@@ -176,7 +177,7 @@ describe('transformITRFFrame', () => {
     const X2014 = transformITRFFrame(X2008, ITRF2014_FROM_ITRF2008, 2015.0)
 
     // Use the inverse
-    const { transformITRFFrameInverse } = require('../epochManagerRigorous')
+    // transformITRFFrameInverse is imported at the top of this file
     const X2008_back = transformITRFFrameInverse(X2014, ITRF2014_FROM_ITRF2008, 2015.0)
 
     expect(X2008_back[0]).toBeCloseTo(X2008[0], 4)

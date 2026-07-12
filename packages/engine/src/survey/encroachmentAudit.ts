@@ -17,7 +17,7 @@
  * - Survey Act Cap 299 — Regulation 94: Color compliance
  */
 
-import type { TopologyIssue } from '@/lib/survey/topologyChecker'
+import type { TopologyIssue } from '../survey/topologyChecker'
 
 export interface EncroachmentRecord {
   id: string

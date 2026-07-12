@@ -16,7 +16,7 @@
  *
  * USAGE
  * -----
- *   import { compareAsBuiltToDesign } from '@/lib/survey/asBuiltComparison'
+ *   import { compareAsBuiltToDesign } from '../survey/asBuiltComparison'
  *
  *   const report = compareAsBuiltToDesign({
  *     designPoints: [...],
@@ -30,7 +30,7 @@
  *   }
  */
 
-import type { DesignPoint } from '@/lib/computations/settingOutEngine'
+import type { DesignPoint } from '../computations/settingOutEngine'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

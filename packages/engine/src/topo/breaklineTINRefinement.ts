@@ -51,7 +51,7 @@
  *   Science, 22(4).
  */
 
-import { buildTIN, type TIN, type SurfacePoint, type Triangle } from '@/lib/survey/surfaceTIN'
+import { buildTIN, type TIN, type SurfacePoint, type Triangle } from '../survey/surfaceTIN'
 import type { Breakline, BreaklineTINResult } from './breaklineTIN'
 
 // ─── Types ──────────────────────────────────────────────────────────────────

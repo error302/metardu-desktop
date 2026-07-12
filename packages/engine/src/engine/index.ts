@@ -2,9 +2,9 @@
 //
 // Geodesy core (utmZones, coordinates, datums, scaleFactor, gnss,
 // geodesicArea) has been moved to src/lib/geodesy/ for structural
-// isolation. Re-exported here so existing `import { X } from '@/lib/engine'`
-// calls continue to work. New code should import from '@/lib/geodesy'.
-export * from '@/lib/geodesy'
+// isolation. Re-exported here so existing `import { X } from '../engine'`
+// calls continue to work. New code should import from '../geodesy'.
+export * from '../geodesy'
 
 export * from './types';
 export * from './angles';

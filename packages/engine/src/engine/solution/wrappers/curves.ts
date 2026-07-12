@@ -1,6 +1,6 @@
-import { compoundCurveElements, curveStakeout, reverseCurveApprox } from '@/lib/engine/curves'
-import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '@/lib/engine/solution/solutionBuilder'
-import { formatDistanceMeters, fullNumber } from '@/lib/solution/format'
+import { compoundCurveElements, curveStakeout, reverseCurveApprox } from '../../../engine/curves'
+import { createSolutionV1, solveWithSteps, type Solved, type Solution } from '../../../engine/solution/solutionBuilder'
+import { formatDistanceMeters, fullNumber } from '../../../solution/format'
 
 export function simpleCurveSolved(input: {
   radius: number

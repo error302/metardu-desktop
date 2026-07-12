@@ -6,7 +6,7 @@ import {
   formatPlanDate,
   formatBearingDMS,
   formatDistanceM
-} from '@/lib/drawing/dxfLayers'
+} from '../../drawing/dxfLayers'
 
 export { formatPlanDate, formatBearingDMS, formatDistanceM }
 

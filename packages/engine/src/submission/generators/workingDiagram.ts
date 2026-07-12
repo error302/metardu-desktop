@@ -1,6 +1,6 @@
 import Drawing from 'dxf-writer'
 import type { SubmissionPackage } from '../types'
-import { initialiseSokDXFLayers, DXF_LAYERS, formatPlanDate } from '@/lib/drawing/dxfLayers'
+import { initialiseSokDXFLayers, DXF_LAYERS, formatPlanDate } from '../../drawing/dxfLayers'
 
 // ─── Bearing Computation ──────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs'
-import type { TraverseResult, ParcelData, ReportPoint } from '@/lib/reports/surveyReport/types'
-import type { BoundaryPoint } from '@/lib/reports/surveyPlan/types'
+import type { TraverseResult, ParcelData, ReportPoint } from '../../reports/surveyReport/types'
+import type { BoundaryPoint } from '../../reports/surveyPlan/types'
 
 interface SubmissionWorkbookData {
   submission_number: string

@@ -2,7 +2,7 @@
  * Cassini ↔ UTM — Module Index
  *
  * Re-exports everything from the cassini/ subdirectory so consumers can do:
- *   import { cassiniFeetToUTM, KENYA_TOPO_SHEETS } from '@/lib/geo/cassini'
+ *   import { cassiniFeetToUTM, KENYA_TOPO_SHEETS } from '../../geo/cassini'
  */
 
 export {

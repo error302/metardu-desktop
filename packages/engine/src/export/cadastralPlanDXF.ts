@@ -26,7 +26,7 @@
  */
 
 import Drawing, { type Point2D } from 'dxf-writer'
-import { initialiseSokDXFLayers, formatBearingDMS, formatDistanceM, formatPlanDate } from '@/lib/drawing/dxfLayers'
+import { initialiseSokDXFLayers, formatBearingDMS, formatDistanceM, formatPlanDate } from '../drawing/dxfLayers'
 import {
   generateSheetLayout,
   addDrawingEntities,
@@ -35,8 +35,8 @@ import {
   pointEntity,
   type DXFEntity,
   type SheetLayoutOptions,
-} from '@/lib/export/dxfSheetLayout'
-import type { SurveyPlanData } from '@/lib/reports/surveyPlan/types'
+} from '../export/dxfSheetLayout'
+import type { SurveyPlanData } from '../reports/surveyPlan/types'
 import {
   boundingBox,
   bearingFromDelta,
@@ -47,7 +47,7 @@ import {
   centroid,
   formatBearingDegMinSec,
   offsetPointPerpendicular,
-} from '@/lib/reports/surveyPlan/geometry'
+} from '../reports/surveyPlan/geometry'
 
 // ---------------------------------------------------------------------------
 // Types

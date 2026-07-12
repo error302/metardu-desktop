@@ -8,7 +8,7 @@
  *
  * USAGE
  * -----
- *   import { generateSpotHeightSchedule } from '@/lib/topo/spotHeightSchedule'
+ *   import { generateSpotHeightSchedule } from '../topo/spotHeightSchedule'
  *
  *   const buffer = await generateSpotHeightSchedule(points, {
  *     projectName: 'Nairobi Topo Survey',

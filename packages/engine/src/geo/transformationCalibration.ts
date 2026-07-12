@@ -53,9 +53,9 @@
  * - Ghilani, C.D. (2017). Adjustment Computations, 6th ed. Wiley, §24.
  */
 
-import { computeHelmertTransformationRigorous } from '@/lib/geo/helmertRigorous'
-import type { ControlPointPair, HelmertParameters } from '@/lib/geo/helmertTransform'
-import { registerLocalTransformation } from '@/lib/geo/datumTransformationRegistry'
+import { computeHelmertTransformationRigorous } from '../geo/helmertRigorous'
+import type { ControlPointPair, HelmertParameters } from '../geo/helmertTransform'
+import { registerLocalTransformation } from '../geo/datumTransformationRegistry'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

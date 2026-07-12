@@ -17,7 +17,7 @@ import {
 } from '../pdf-engine';
 import type { DocumentTemplate, TemplateGenerateOptions } from './registry';
 import type { ResolvedLogo } from '../resolve-logo';
-import type { PlanId } from '@/lib/subscription/catalog';
+import type { PlanId } from '../../subscription/catalog';
 
 export interface FormC22Data {
   lrNumber: string;
