@@ -1488,6 +1488,69 @@ export function registerIpcHandlers(getDb: DbGetter, setDb: DbSetter) {
   });
 
   log.info('IPC handlers registered (OV2+OV4: total station streaming + blunder detection)');
+
+  // ─── OV3: Massive Point Cloud Engine (Overkill Vision) ───────────────
+  // 10M+ points via out-of-core octree. Web crashes at 500k.
+
+  let pcOctree: import('./point-cloud-engine.js').PointCloudOctree | null = null;
+
+  ipcMain.handle('pc:loadPoints', async (_evt, opts: {
+    points: Array<{ x: number; y: number; z: number; r?: number; g?: number; b?: number; classification?: number }>;
+    cachePath?: string;
+  }) => {
+    const { PointCloudOctree } = await import('./point-cloud-engine.js');
+    if (pcOctree) pcOctree.removeAllListeners();
+    pcOctree = new PointCloudOctree();
+    pcOctree.buildFromPoints(opts.points as any, opts.cachePath);
+    const stats = pcOctree.getStats();
+    return {
+      totalPoints: stats?.totalPoints ?? 0,
+      bounds: stats?.bounds,
+      octreeDepth: stats?.octreeDepth ?? 0,
+      nodeCount: stats?.nodeCount ?? 0,
+      pointDensityPerSqM: stats?.pointDensityPerSqM ?? 0,
+      classificationBreakdown: stats?.classificationBreakdown ?? {},
+    };
+  });
+
+  ipcMain.handle('pc:getLOD', async (_evt, opts: {
+    viewBounds: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
+    maxPoints?: number;
+  }) => {
+    if (!pcOctree) throw new Error('No point cloud loaded');
+    const points = pcOctree.getLODPoints(opts.viewBounds as any, opts.maxPoints ?? 100000);
+    return { pointCount: points.length, points };
+  });
+
+  ipcMain.handle('pc:query', async (_evt, opts: {
+    bounds: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
+    maxPoints?: number;
+  }) => {
+    if (!pcOctree) throw new Error('No point cloud loaded');
+    const points = pcOctree.queryBoundingBox(opts.bounds as any, opts.maxPoints ?? 500000);
+    return { pointCount: points.length, points };
+  });
+
+  ipcMain.handle('pc:classify', async () => {
+    if (!pcOctree) throw new Error('No point cloud loaded');
+    return pcOctree.classifyPoints();
+  });
+
+  ipcMain.handle('pc:volumeDiff', async (_evt, opts: {
+    cloudA: Array<{ x: number; y: number; z: number }>;
+    cloudB: Array<{ x: number; y: number; z: number }>;
+    cellSize?: number;
+  }) => {
+    const { PointCloudOctree } = await import('./point-cloud-engine.js');
+    return PointCloudOctree.computeVolumeDifference(opts.cloudA as any, opts.cloudB as any, opts.cellSize ?? 1.0);
+  });
+
+  ipcMain.handle('pc:stats', async () => {
+    if (!pcOctree) return null;
+    return pcOctree.getStats();
+  });
+
+  log.info('IPC handlers registered (OV3: point cloud engine)');
 }
 
 function getSingleProjectId(db: MetarduDatabase): string {

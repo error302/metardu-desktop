@@ -102,20 +102,23 @@ struggles with LAS files > 100MB.
 - Export title chain as PDF for legal proceedings
 - Alert when a new survey encroaches on an existing parcel
 
-### 7. AI-Assisted Deed Plan Auto-Layout (OV8)
+### 7. Smart Deed Plan Auto-Layout (OV8) — NO AI
 **Web limitation:** Manual layout. Surveyor draws each element by hand.
 
-**Desktop overkill:**
-- Auto-layout engine: given a parcel + traverse, generate a complete deed plan
-  with optimal placement of title block, beacon schedule, area table, north
-  arrow, scale bar, grid overlay
-- Constraint solver: ensures no overlaps, proper margins, SoK compliance
-- Template learning: learns from the surveyor's previous plans
-- Auto-rotation: orient the plan for maximum readability
-- Auto-scale: pick the scale that fits the parcel on A1/A2/A3
-- Auto-dimensioning: bearings and distances placed automatically
+**Desktop overkill (pure algorithmic, no AI/ML):**
+- Constraint-solver-based auto-layout: given a parcel + traverse, generate
+  a complete deed plan with optimal placement of title block, beacon
+  schedule, area table, north arrow, scale bar, grid overlay
+- Deterministic constraint solver: ensures no overlaps, proper margins,
+  SoK compliance — no guessing, no model weights, just geometry
+- Auto-rotation: orient the plan for maximum readability (longest dimension horizontal)
+- Auto-scale: pick the scale that fits the parcel on A1/A2/A3/A4
+- Auto-dimensioning: bearings and distances placed via geometric analysis
+  of parcel edges — each dimension placed perpendicular to its edge,
+  offset to avoid overlapping the parcel boundary
 - One-click generation: from traverse to sealed PDF in under 60 seconds
 - Style presets per county (Nairobi, Kiambu, Mombasa have different styles)
+- This is pure computational geometry + constraint satisfaction, not AI
 
 ### 8. Real-Time GNSS RTK Rover Connection (OV9)
 **Web limitation:** Web Bluetooth is Chrome-only, disconnects frequently.
@@ -131,48 +134,28 @@ struggles with LAS files > 100MB.
 - Post-processed kinematic (PPK) fallback when RTK is unavailable
 - RINEX recording for post-processing
 
-### 9. Voice-Controlled Field Data Entry (OV10)
-**Web limitation:** Web Speech API is unreliable, Chrome-only.
-
-**Desktop overkill:**
-- Native speech recognition (Whisper.cpp model, runs locally, offline)
-- Hands-free operation: "Point 1, code BM, description benchmark on rock"
-- Voice-activated shot logging: "Store point" → total station measurement
-- Voice search: "Find parcel LR 12345"
-- Audio feedback: "Traverse closes at 1 to 5000, precision pass"
-- Custom voice commands per surveyor
-- Works in noisy environments (field-calibrated noise filtering)
-- Multi-language: English, Swahili, Sheng
-
-### 10. Predictive Error Detection
-**Web limitation:** Reactive — only checks after the surveyor submits.
-
-**Desktop overkill:**
-- Real-time anomaly detection as measurements stream in
-- ML model trained on thousands of Kenyan surveys
-- Predicts likely errors before they happen:
-  - "This bearing is 5° off from the expected — possible sight obstruction?"
-  - "Distance is 0.5m shorter than design — stake moved?"
-  - "Elevation jumps 2m between consecutive shots — level rod error?"
-- Confidence scoring on every measurement
-- Visual heat map of suspect areas on the map
-- Auto-suggest re-measurement of flagged points
-- Historical comparison: "This point was 0.02m different last year"
+### 9. Real-Time GNSS RTK Rover Connection (OV9)
 
 ## Implementation Priority
 
 | Priority | Feature | Why First |
 |----------|---------|-----------|
-| P0 | OV2: Real-time total station streaming | This is THE killer feature. No web app can match it. |
-| P0 | OV4: Auto-blunder detection | Surveyors' #1 pain point. Saves hours of re-surveying. |
-| P0 | OV3: Massive point cloud engine | Unlocks drone/LiDAR workflows web can't touch. |
+| P0 | OV2: Real-time total station streaming | This is THE killer feature. No web app can match it. ✅ |
+| P0 | OV4: Auto-blunder detection | Surveyors' #1 pain point. Saves hours of re-surveying. ✅ |
+| P0 | OV3: Massive point cloud engine | Unlocks drone/LiDAR workflows web can't touch. NEXT |
 | P1 | OV6: Multi-window workspace | Productivity multiplier. Surveyors work on 2 monitors. |
 | P1 | OV5: 3D parcel visualization | Visual differentiation. Looks impressive in demos. |
-| P1 | OV8: AI-assisted deed plan | Saves 30 min per survey. Huge ROI. |
+| P1 | OV8: Smart deed plan auto-layout (no AI) | Saves 30 min per survey. Pure constraint solver. |
 | P2 | OV9: Real-time GNSS RTK | Important but NTRIP client already exists in engine. |
 | P2 | OV7: Title chain tracking | Valuable for legal work. Needs data collection first. |
-| P3 | OV10: Voice control | Nice-to-have. Field crews may prefer keyboard. |
-| P3 | Predictive error detection | Needs training data. M8+ scope. |
+
+**KILLED:** ~~OV10: Voice control~~ — this is a mobile/web feature, not desktop.
+Surveyors at a desk use keyboard and mouse. Voice control adds complexity
+with zero value for the desktop use case.
+
+**KILLED:** ~~Predictive error detection (ML)~~ — the blunder detection (OV4)
+already covers the statistical approach. ML would need training data we
+don't have and adds opacity where transparency matters (legal surveys).
 
 ## North Star
 
