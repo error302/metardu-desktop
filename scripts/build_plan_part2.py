@@ -43,7 +43,7 @@ def build_chapter_1():
     story.append(Spacer(1, 6))
     story.append(callout(
         "Headline Metrics",
-        "Binary size 150 MB to 10 MB. Drone capabilities 0 to 5 (flight planning, live drone link, in-app photogrammetry, real raster I/O, ML feature extraction). Math standards 5 to 6 (adds ISO 19157). Production readiness gates 0 to 3 (midpoint Reality Check, pre-launch Reality Check, closed beta sign-off). Total budget estimate 15,000 to 20,000 USD over nine months."
+        "Binary size 150 MB to 10 MB. Drone capabilities 0 to 5 (flight planning, live drone link, in-app photogrammetry, real raster I/O, ML feature extraction). Math standards 5 to 6 (adds ISO 19157). Production readiness gates 0 to 3 (midpoint Reality Check, pre-launch Reality Check, closed beta sign-off). Total budget: $0 to $109 USD per year (zero-cost path using SignPath Foundation, GitHub Releases, volunteer beta, and community bug bounty; optional $99 Apple Developer ID when revenue allows)."
     ))
     story.append(Spacer(1, 14))
 

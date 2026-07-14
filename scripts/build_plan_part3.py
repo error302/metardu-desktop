@@ -173,62 +173,82 @@ def build_chapter_8():
 
 
 def build_chapter_9():
-    """Chapter 9: Production Readiness & Release Plan"""
+    """Chapter 9: Production Readiness & Release Plan (Zero-Budget Edition)"""
     story = []
     story.extend(add_major_section("Chapter 9: Production Readiness &amp; Release Plan"))
 
     story.append(Paragraph(
-        "Production readiness is not a single gate at the end of Phase 3 but a continuous discipline applied from Phase 1 onward. The Desktop App Engineer agent's critical rule is that the updater is the most critical code you own, and signing and notarization infrastructure must be stood up before feature one, not after. This is because a desktop app distributed to field crews on poor networks, where a broken auto-updater strands every user, is a worse experience than no auto-updater at all. The release plan covers six workstreams: code-signing, auto-update, closed beta, bug bounty, tutorial videos, and the public v2.0 release.",
+        "Production readiness on a zero-budget is not only possible, it is the path that most successful open-source desktop applications have taken. VS Code, Obsidian (in its early days), Blender, and countless Electron and Tauri apps shipped for years using free code-signing alternatives, community bug bounties, and volunteer beta testers. The principle is to trade money for time and community: every paid infrastructure component has a free equivalent that costs more in setup effort but produces an equally production-ready result. The Desktop App Engineer agent's critical rule still applies: the auto-updater is the most critical code you own, and it must be tested before launch. What changes is how we achieve trusted distribution, not whether we achieve it.",
         BODY
     ))
 
-    story.append(add_subsection("9.1 Code-Signing Infrastructure"))
+    story.append(add_subsection("9.1 Code-Signing on Zero Budget"))
     story.append(Paragraph(
-        "Code-signing certificates are purchased in Phase 1 Month 3 and configured for all three platforms. For Windows, an Extended Validation (EV) certificate is purchased from SSL.com or DigiCert for approximately $300 per year. The EV certificate is required for immediate SmartScreen reputation on Windows 10 and 11, which is critical because a standard OV certificate triggers SmartScreen warnings for new publishers and can take weeks to build reputation. The EV certificate is stored on a hardware token (YubiKey or USB HSM) per Microsoft's requirement that EV keys never leave the token. The signing process uses azure-signtool or signtool with the /fd sha256 flag for SHA-256 digest, which is the current Windows requirement.",
+        "Code-signing is the hardest problem to solve for free, because the certificate authorities (DigiCert, SSL.com, Sectigo) charge real money for the trust they provide. However, three free or near-free paths exist, and the right choice depends on the platform. For Windows, the primary path is <b>SignPath Foundation</b>, a non-profit that provides free code-signing certificates to open-source projects. The application requires a public GitHub repository with an OSI-approved license (MetaRDU Desktop is MIT licensed, which qualifies), a maintained release history, and a clear description of the project. Approval takes 1-2 weeks. Once approved, SignPath integrates directly with GitHub Actions via their app, signing every release build automatically with a certificate that SmartScreen recognizes. This eliminates the Windows EV certificate cost entirely.",
         BODY
     ))
 
     story.append(Paragraph(
-        "For macOS, an Apple Developer ID is purchased for $99 per year. The Developer ID Application certificate is used to sign the .app bundle, and the notarization process uses the notarytool command-line tool to submit the bundle to Apple's notarization service, which scans for malware and signs the bundle with an Apple-issued ticket. The stapler tool then staples the ticket to the bundle so it works offline. The hardened runtime is enabled with the com.apple.security.cs.allow-jit entitlement if the Rust sidecar uses JIT, and the com.apple.security.cs.disable-library-validation entitlement is avoided unless absolutely necessary. For Linux, the AppImage is signed with GPG and the .deb is signed with dpkg-sig, though Linux desktop users rarely verify signatures.",
+        "The fallback for Windows, if SignPath approval is delayed or rejected, is a <b>self-signed certificate</b> generated locally via PowerShell's New-SelfSignedCertificate cmdlet. The signed binary will trigger a SmartScreen warning ('Windows protected your PC') on first run, which users bypass by clicking 'More info' then 'Run anyway'. This is the same warning that hundreds of indie games and open-source tools live with, and it does not prevent installation. The mitigation is documentation: the metardu.com download page and the README must include screenshots showing exactly how to bypass SmartScreen, with clear language explaining that the warning appears because the app is not signed by a paid certificate authority, not because it is malware. Over time, as download volume grows, SmartScreen reputation builds organically and the warning disappears, typically after a few thousand downloads with a low report rate.",
         BODY
+    ))
+
+    story.append(Paragraph(
+        "For macOS, the situation is different. Apple does not offer a free code-signing path for distributed applications, and there is no equivalent of SignPath for macOS. The realistic options are: <b>Option A</b> (recommended when budget allows) is the Apple Developer ID at $99 per year, which is the only way to notarize the app and avoid the 'unidentified developer' Gatekeeper warning. <b>Option B</b> (zero-cost) is to skip notarization entirely and document the bypass: macOS users right-click the app, select 'Open', and confirm the dialog, or run <code>xattr -d com.apple.quarantine /Applications/MetaRDU.app</code> in Terminal. This is the path that many open-source macOS apps take, including Inkscape and Audacity in their early years. <b>Option C</b> is to distribute via Homebrew Cask, where the Homebrew community accepts unsigned apps with appropriate caveats. The plan assumes Option B for the initial v2.0 release, with Option A as the first priority once MetaRDU generates any revenue.",
+        BODY
+    ))
+
+    story.append(Paragraph(
+        "For Linux, code-signing is free and always has been. The AppImage is signed with a self-generated GPG key (gpg --gen-key), the public key is published to a keyserver, and the AppImage checksum is published alongside the download. The .deb package is signed with dpkg-sig using the same GPG key. Linux desktop users who care about verification can import the GPG key and verify the signature, but most users rely on the package manager's checksum verification. This is the standard Linux distribution model and requires zero budget.",
+        BODY
+    ))
+
+    story.append(callout(
+        "Code-Signing Decision Summary",
+        "Windows: SignPath Foundation (FREE, 1-2 week approval) as primary; self-signed + SmartScreen bypass docs as fallback. macOS: skip notarization for v2.0 (FREE); document the right-click Open workaround; upgrade to Apple Developer ID ($99/yr) as first priority once revenue exists. Linux: self-generated GPG key (FREE). Total code-signing cost for v2.0 launch: $0."
     ))
 
     story.append(add_subsection("9.2 Auto-Update with Staged Rollout"))
     story.append(Paragraph(
-        "The auto-update infrastructure uses electron-updater in Phases 1 and 2 (Electron shell) and tauri-plugin-updater in Phase 3 (Tauri shell). Both point at GitHub Releases as the update provider, which means a new release is published by tagging a git commit, pushing the tag, and uploading the platform-specific binaries as release assets. The update manifest (latest.yml for electron-updater, latest.json for tauri-plugin-updater) is generated by the build script and uploaded alongside the binaries. The auto-update check runs at app startup and every 4 hours thereafter, with a 15-minute jitter to avoid thundering herd on the GitHub Releases API.",
+        "The auto-update infrastructure is free because it uses GitHub Releases as the update provider, which is free for public repositories. electron-updater (Phases 1-2) and tauri-plugin-updater (Phase 3) both support GitHub Releases natively, requiring only a GitHub personal access token with repo permissions stored as a CI secret. A new release is published by tagging a git commit, pushing the tag, and letting GitHub Actions build and upload the platform-specific binaries as release assets. The update manifest (latest.yml or latest.json) is generated by the build script and uploaded alongside the binaries. The auto-update check runs at app startup and every 4 hours, with a 15-minute jitter to avoid thundering herd on the GitHub Releases API.",
         BODY
     ))
 
     story.append(Paragraph(
-        "The staged rollout follows the Desktop App Engineer's pattern: 1% adoption for the first 7 days, expanding to 10% if the crash-free session rate stays above 99.5% and the update-success rate stays above 95%, then expanding to 100% after another 7 days at 10% with the same gates. The rollout percentage is controlled by the update manifest's stagingPercentage field, which the build script sets based on environment variables. If the crash-free rate drops below 99.5% at any stage, the rollout is paused and the previous manifest is republished, which triggers an automatic rollback for all users who have not yet updated. A rollback drill is run before the public v2.0 release: publish a v2.0.1-rc with a known bug, verify the crash detection, republish v2.0.0 as latest, and verify that users on v2.0.1-rc roll back automatically.",
+        "The staged rollout follows the Desktop App Engineer's pattern: 1% adoption for the first 7 days, expanding to 10% if the crash-free session rate stays above 99.5% and the update-success rate stays above 95%, then expanding to 100% after another 7 days at 10% with the same gates. The rollout percentage is controlled by the update manifest's stagingPercentage field. If the crash-free rate drops below 99.5% at any stage, the rollout is paused and the previous manifest is republished, triggering an automatic rollback for users who have not yet updated. A rollback drill is run before the public v2.0 release: publish a v2.0.1-rc with a known bug, verify the crash detection via Sentry (free tier), republish v2.0.0 as latest, and verify that users on v2.0.1-rc roll back automatically. The entire auto-update infrastructure costs $0.",
         BODY
     ))
 
-    story.append(add_subsection("9.3 Closed Beta Program"))
+    story.append(add_subsection("9.3 Closed Beta Program (Volunteer-Based)"))
     story.append(Paragraph(
-        "The closed beta program launches in Phase 2 Month 5 with the first cohort of 5 Kenyan surveyors, expanding to 10 surveyors in Month 6. The recruitment targets licensed surveyors from the Institution of Surveyors of Kenya (ISK) and the Engineers Board of Kenya (EBK), with a preference for surveyors who already use drone photogrammetry in their practice. Each beta participant signs a Non-Disclosure Agreement and a data-handling agreement that covers the test datasets, the feedback, and any bugs they report. Each participant receives a $500 stipend for the two-week trial period, which compensates them for the time spent testing and providing structured feedback.",
-        BODY
-    ))
-
-    story.append(Paragraph(
-        "The feedback collection is structured: a daily 5-minute pulse survey (rate today's usage from 1 to 10, what worked, what didn't), a weekly 30-minute deep-dive survey (specific workflow walkthroughs, bug reports with screenshots, feature requests), and a final 60-minute interview at the end of the two-week trial. Weekly office hours are held on Zoom every Thursday evening (East Africa Time) for live Q&amp;A and screen-sharing. The feedback is aggregated into a Beta Dashboard that tracks Net Promoter Score, workflow completion rates, bug severity distribution, and feature request priority. The Reality Checker uses this dashboard as evidence at the midpoint gate and the pre-launch gate.",
-        BODY
-    ))
-
-    story.append(add_subsection("9.4 Bug Bounty Program"))
-    story.append(Paragraph(
-        "The bug bounty program launches in Phase 1 Month 3 on GitHub Security Advisories, which is free and integrated with the existing GitHub repository. The scope is the IPC boundary (any channel that can be invoked from the renderer with malformed input), the drone-data ingestion paths (KMZ, ODM output, MAVLink telemetry), the auto-update channel (manifest tampering, binary replacement), and the cryptographic seal (RSA-2048 key handling). Out of scope: the renderer JavaScript (because it runs in a sandbox), the Rust sidecar internal logic (because it is not directly exposed), and social engineering. Reward tiers: $100 for low (information disclosure, denial of service requiring user interaction), $500 for medium (privilege escalation within the app, data corruption), $2000 for high (remote code execution in the main process, key compromise), and $5000 for critical (remote code execution with system access, RSA key extraction).",
-        BODY
-    ))
-
-    story.append(add_subsection("9.5 Tutorial Videos and Public Release"))
-    story.append(Paragraph(
-        "Three tutorial videos are produced in Phase 3 Month 8, each approximately 10 minutes long, covering the three core workflows: cadastral survey (12-leg traverse to sealed Form No. 4 PDF), topographic survey (50,000-point dataset to DXF with contours), and drone survey (flight plan to orthophoto to GCP verification to ML building footprint extraction). The videos are recorded in OBS Studio at 1920 by 1080 resolution with a clean audio track from a USB microphone. The editing is done in DaVinci Resolve (free version), with intro and outro cards, on-screen text for keyboard shortcuts, and chapter markers matching the workflow steps. A freelance video editor is contracted for $1500 total ($500 per video) to handle the editing, allowing the lead engineer to focus on recording.",
+        "The closed beta program runs on volunteer participation rather than paid stipends. This is how most open-source beta programs operate, and it produces equally valuable feedback when the product solves a real problem for the testers. The recruitment targets two groups: <b>licensed surveyors from the Institution of Surveyors of Kenya (ISK) and the Engineers Board of Kenya (EBK)</b> who already use drone photogrammetry and would benefit from a free surveyor's office tool, and <b>surveying students at the University of Nairobi, JKUAT, and the Technical University of Kenya</b> who want to learn modern surveying software and are willing to test in exchange for early access and a mention in the acknowledgments. The compensation is a free perpetual MetaRDU license when v2.0 launches (which costs nothing to grant) and public contributor credit in the release notes.",
         BODY
     ))
 
     story.append(Paragraph(
-        "The public v2.0.0 release in Month 9 follows a documented release runbook: freeze the main branch, run the full CI suite on all three platforms, run the Reality Checker pre-launch gate (requires evidence per criterion), tag the v2.0.0 commit, push the tag, run the release build script which produces the platform-specific binaries and uploads them to GitHub Releases, publish the release notes (auto-generated changelog plus the Technical Writer's narrative), update the metardu.com download page, publish the three tutorial videos to YouTube, and announce on Twitter/X, the ISK mailing list, and the r/Surveying subreddit. The SRE agent is on standby for the first 72 hours, with a PagerDuty escalation path for any P1 incident. The staged rollout begins at 1% on day 1, expands to 10% on day 7 if crash-free rate is above 99.5%, and expands to 100% on day 14.",
+        "The feedback collection is structured exactly as in a paid beta: a daily 5-minute pulse survey via Google Forms (free), a weekly 30-minute deep-dive survey, and a final 60-minute interview. Weekly office hours are held on Zoom (free tier, 40-minute meetings) or Jitsi Meet (free, unlimited) every Thursday evening East Africa Time. The feedback is aggregated into a Beta Dashboard built in Notion (free) or a simple Markdown file in the repository, tracking Net Promoter Score, workflow completion rates, bug severity distribution, and feature request priority. The Reality Checker uses this dashboard as evidence at the midpoint gate and the pre-launch gate. The target is 5 surveyors in Month 5 and 10 surveyors in Month 6, recruited through ISK's WhatsApp groups, the r/Surveying subreddit, and direct outreach to surveying firms in Nairobi. Total cost: $0.",
+        BODY
+    ))
+
+    story.append(add_subsection("9.4 Bug Bounty Program (Community-Based)"))
+    story.append(Paragraph(
+        "The bug bounty program launches in Phase 1 Month 3 on GitHub Security Advisories, which is free and integrated with the existing GitHub repository. The scope is the IPC boundary (any channel that can be invoked from the renderer with malformed input), the drone-data ingestion paths (KMZ, ODM output, MAVLink telemetry), the auto-update channel (manifest tampering, binary replacement), and the cryptographic seal (RSA-2048 key handling). Out of scope: the renderer JavaScript (sandboxed), the Rust sidecar internal logic (not directly exposed), and social engineering. Because there is no cash reward pool, the rewards are non-cash: public acknowledgment in the release notes and Hall of Fame, a contributor credit in the repository, and a free MetaRDU Pro license when a paid tier launches. Most security researchers who report on open-source projects do so for the credit and the portfolio value, not for the cash.",
+        BODY
+    ))
+
+    story.append(Paragraph(
+        "The program is also listed on <b>Huntr.dev</b>, a free bug bounty platform specifically for open-source projects that handles triage and disclosure at no cost to the maintainer. Huntr.dev has a community of researchers who actively test OSS projects for free, and the platform provides a managed disclosure workflow that complies with CVE numbering and responsible disclosure timelines. This is a significantly better option than self-managing reports via GitHub Security Advisories alone, and it costs nothing. The combination of GitHub Security Advisories (for direct reports) and Huntr.dev (for community discovery) provides comprehensive coverage without any cash outlay.",
+        BODY
+    ))
+
+    story.append(add_subsection("9.5 Tutorial Videos (DIY) and Public Release"))
+    story.append(Paragraph(
+        "Three tutorial videos are produced in Phase 3 Month 8, each approximately 10 minutes long, covering the three core workflows: cadastral survey (12-leg traverse to sealed Form No. 4 PDF), topographic survey (50,000-point dataset to DXF with contours), and drone survey (flight plan to orthophoto to GCP verification to ML building footprint extraction). The videos are recorded in OBS Studio (free, open-source) at 1920 by 1080 resolution with audio from any USB microphone or the laptop's built-in mic. The editing is done in DaVinci Resolve (free version, professional-grade) or CapCut (free, simpler). The lead engineer records and edits the videos personally, which takes approximately 8 hours per video including script writing, recording, editing, and review. Total cost: $0, plus 24 hours of the lead engineer's time.",
+        BODY
+    ))
+
+    story.append(Paragraph(
+        "The public v2.0.0 release in Month 9 follows a documented release runbook: freeze the main branch, run the full CI suite on all three platforms (free via GitHub Actions for public repos), run the Reality Checker pre-launch gate (requires evidence per criterion), tag the v2.0.0 commit, push the tag, let GitHub Actions build and upload the platform-specific binaries to GitHub Releases, publish the release notes, update the download page on Cloudflare Pages (free) or GitHub Pages (free), publish the three tutorial videos to YouTube (free), and announce on Twitter/X (free), the ISK mailing list (free), and the r/Surveying subreddit (free). The staged rollout begins at 1% on day 1, expands to 10% on day 7 if crash-free rate is above 99.5%, and expands to 100% on day 14. Crash monitoring uses Sentry's free Developer tier (5,000 errors per month), which is sufficient for a beta release with a few hundred users.",
         BODY
     ))
 
@@ -252,7 +272,7 @@ def build_chapter_10():
         ['R3', 'MAVLink telemetry latency on poor networks', 'Med', 'Med', 'Use USB serial not UDP; buffer telemetry at 5Hz; document USB cable requirements', 'Mark live telemetry as beta; prioritize mission export'],
         ['R4', 'ML model false positives in feature extraction', 'Med', 'Med', 'Use IoU > 0.65 threshold; manual review UI before saving polygons', 'Ship building footprint only; defer road and change detection'],
         ['R5', 'Beta uncovers UX issues blocking release', 'High', 'Med', 'Weekly office hours; structured feedback; iterate weekly on top 3 issues', 'Add 1-month buffer; slip to v2.0.1 patch releases'],
-        ['R6', 'Code-signing cert delays (EV cert provisioning)', 'Low', 'High', 'Order cert in Month 1; use OV cert as interim; document EV process', 'Ship unsigned with explicit warning; defer signing to v2.0.1'],
+        ['R6', 'Code-signing infrastructure setup (SignPath application, self-signed fallback)', 'Med', 'Med', 'Apply to SignPath Foundation in Month 1 (free, 1-2 weeks); self-signed cert as fallback with documented SmartScreen bypass; macOS ships unsigned with right-click Open docs', 'Ship unsigned with explicit warning on all platforms; defer signing to when revenue allows Apple Developer ID ($99/yr)'],
         ['R7', 'better-sqlite3 to rusqlite data migration loses data', 'Low', 'Critical', 'Write migration script with checksum verification; test on 10 sample databases; backup before migration', 'Maintain Electron branch indefinitely; cancel Tauri migration'],
         ['R8', 'GDAL native bindings cross-platform issues', 'Med', 'Med', 'Use gdal-async with pre-built binaries; shell-out fallback; test on all 3 OS in CI', 'Use shell-out only; defer native bindings to v2.1'],
         ['R9', 'Scope creep delays v2.0 beyond 9 months', 'High', 'High', 'Sprint Prioritizer agent; weekly scope review; defer non-P0 features to v2.1', 'Slip to 10-11 months; cut ML feature extraction from v2.0'],
@@ -282,40 +302,52 @@ def build_chapter_10():
 
 
 def build_chapter_11():
-    """Chapter 11: Budget, Timeline & KPIs"""
+    """Chapter 11: Budget, Timeline & KPIs (Zero-Budget Edition)"""
     story = []
     story.extend(add_major_section("Chapter 11: Budget, Timeline &amp; KPIs"))
 
     story.append(Paragraph(
-        "The total budget estimate for the nine-month upgrade is $15,000 to $20,000 USD, with the range reflecting variable costs for drone hardware (purchase vs rental) and bug bounty payouts (which depend on the number and severity of valid reports). The budget is dominated by personnel costs, which assume a lead engineer working full-time on the upgrade and a part-time GIS consultant for the drone-specific math and regulatory compliance. The hardware and infrastructure costs are modest because the project uses open-source software throughout (Electron, Tauri, React, OpenDroneMap, GDAL, ONNX Runtime, MAVSDK) and GitHub Actions for CI/CD.",
+        "The total budget for the nine-month upgrade is $0 to $109 USD per year, depending on whether you choose to purchase the Apple Developer ID. Every other line item in the original $15,000 to $20,000 budget has a free equivalent that is equally production-ready. The principle is that the original budget assumed a paid GIS consultant, paid video editor, paid beta stipends, paid bug bounty rewards, paid code-signing certificates, paid Sentry, and paid drone hardware. Each of these has a free alternative: the GIS consultant is replaced by the agency-agents personas plus community Q&amp;A on r/Surveying and GIS StackExchange; the video editor is replaced by the lead engineer using OBS Studio and DaVinci Resolve; the beta stipends are replaced by volunteer participation from surveyors who want early access; the bug bounty rewards are replaced by public acknowledgment and contributor credit; the code-signing certificates are replaced by SignPath Foundation for Windows and self-signing for macOS and Linux; Sentry is replaced by its free Developer tier; and the drone hardware is replaced by the ArduPilot SITL simulator plus a partnership with a local drone surveying firm.",
         BODY
     ))
 
-    story.append(add_subsection("11.1 Budget Breakdown"))
+    story.append(add_subsection("11.1 Budget Breakdown (Zero-Cost Path)"))
     budget_data = [
-        ['Category', 'Item', 'Cost (USD)', 'Notes'],
-        ['Personnel', 'Lead engineer (you), 9 months full-time', '$0', 'Sweat equity; assumes you are the lead'],
-        ['Personnel', 'GIS consultant, 20 hrs/week × 9 months', '$14,400', '$80/hr × 20 hrs × 9 months'],
-        ['Personnel', 'Video editor, 3 tutorial videos', '$1,500', '$500 per video'],
-        ['Infrastructure', 'GitHub Pro (or Team)', '$48', '$4/mo × 12 months'],
-        ['Infrastructure', 'Apple Developer ID', '$99', 'Annual'],
-        ['Infrastructure', 'Windows EV code-signing cert', '$300', 'Annual, SSL.com or DigiCert'],
-        ['Infrastructure', 'Sentry Team plan', '$312', '$26/mo × 12 months'],
-        ['Infrastructure', 'Domain + hosting (metardu.com)', '$120', '$10/mo × 12 months'],
-        ['Hardware', 'DJI Mavic 3 Enterprise (purchase)', '$3,500', 'OR rental $200/day × 10 days = $2,000'],
-        ['Hardware', 'Pixhawk reference drone (build)', '$1,500', 'For ArduPilot/PX4 testing'],
-        ['Hardware', 'RTK rover (Emlid Reach RS3 rental)', '$600', '$300/week × 2 weeks of GCP surveying'],
-        ['Beta', 'Surveyor stipends (10 × $500)', '$5,000', '2-week trial compensation'],
-        ['Bug bounty', 'Reward pool', '$2,000', 'Estimated 4 medium + 2 high reports'],
-        ['Contingency', '10% buffer', '$1,400', 'For unexpected costs'],
-        ['TOTAL', 'Lower bound (rental drone)', '$17,379', 'Excluding lead engineer sweat equity'],
-        ['TOTAL', 'Upper bound (purchased drone)', '$18,879', 'Excluding lead engineer sweat equity'],
+        ['Category', 'Item', 'Cost (USD/yr)', 'Free Alternative Used'],
+        ['Personnel', 'Lead engineer (you), 9 months full-time', '$0', 'Sweat equity; this is the entire investment'],
+        ['Personnel', 'GIS consultant', '$0', 'Replaced by agency-agents personas + r/Surveying + GIS StackExchange'],
+        ['Personnel', 'Video editor', '$0', 'DIY with OBS Studio (free) + DaVinci Resolve (free)'],
+        ['Infrastructure', 'GitHub (public repo)', '$0', 'Free for public repos; unlimited CI minutes for OSS'],
+        ['Infrastructure', 'Sentry error monitoring', '$0', 'Free Developer tier: 5,000 errors/month'],
+        ['Infrastructure', 'Domain + hosting', '$0 to $10', 'GitHub Pages (free) or Cloudflare Pages (free); .com domain optional at $10/yr via Cloudflare'],
+        ['Code-signing', 'Windows (SignPath Foundation)', '$0', 'Free for OSS projects; 1-2 week approval'],
+        ['Code-signing', 'Windows fallback (self-signed)', '$0', 'SmartScreen warning documented in README'],
+        ['Code-signing', 'macOS (Apple Developer ID)', '$0 or $99', 'OPTIONAL: $99/yr for notarization; OR free with documented right-click Open bypass'],
+        ['Code-signing', 'Linux (GPG self-signed)', '$0', 'Standard Linux distribution model'],
+        ['Auto-update', 'GitHub Releases hosting', '$0', 'Free for public repos'],
+        ['Hardware', 'Drone for testing', '$0', 'ArduPilot SITL simulator (free, tests all MAVLink code); DJI Assistant 2 simulator (free, tests DJI waypoint formats)'],
+        ['Hardware', 'Drone partnership', '$0', 'Partner with local surveying firm: they provide hardware + test data, you provide free MetaRDU licenses'],
+        ['Beta', 'Surveyor stipends', '$0', 'Volunteer participation; compensated with free perpetual license + contributor credit'],
+        ['Bug bounty', 'Cash rewards', '$0', 'GitHub Security Advisories (free) + Huntr.dev (free); rewards are public acknowledgment + Hall of Fame'],
+        ['TOTAL', 'Zero-cost path (no Apple Developer ID)', '$0/yr', 'All free alternatives; SmartScreen + Gatekeeper warnings documented'],
+        ['TOTAL', 'Minimum-viable paid path', '$10-109/yr', 'Domain ($10) + optional Apple Developer ID ($99)'],
     ]
     story.append(Spacer(1, 6))
-    story.append(make_table(budget_data, [0.15, 0.36, 0.13, 0.36]))
+    story.append(make_table(budget_data, [0.13, 0.27, 0.13, 0.47]))
     story.append(Spacer(1, 14))
 
-    story.append(add_subsection("11.2 Timeline (Gantt-Style)"))
+    story.append(add_subsection("11.2 Trade-offs of the Zero-Cost Path"))
+    story.append(Paragraph(
+        "The zero-cost path is not free in the sense of zero effort; it is free in the sense of zero cash. The trade-offs are: (1) the lead engineer spends more time on infrastructure setup (SignPath application, SmartScreen documentation, video editing) that a paid budget would outsource; (2) Windows users see a SmartScreen warning on first install, which reduces conversion by approximately 10-15% until reputation builds (typically 2-3 months after launch with steady download volume); (3) macOS users must right-click and Open the app on first launch, which is documented but adds friction; (4) the bug bounty program receives fewer reports than a paid program, because cash rewards attract professional researchers who would otherwise skip open-source projects; (5) the beta program may take longer to recruit volunteers than paid participants, though the feedback quality is often higher because volunteers are genuinely interested in the product.",
+        BODY
+    ))
+
+    story.append(Paragraph(
+        "None of these trade-offs are release-blockers. Hundreds of successful open-source desktop apps, including Inkscape, Audacity, OBS Studio, and VS Code in its early days, shipped with these same trade-offs and grew into mainstream adoption. The key is to treat the paid budget items as upgrade targets: once MetaRDU generates revenue (through a Pro tier, consulting, or grants), the first $99 pays for the Apple Developer ID (eliminating the macOS friction), the next $300 pays for a Windows EV cert or Azure Trusted Signing subscription (eliminating the SmartScreen warning), and the next $2,000 funds a bug bounty reward pool. Each paid upgrade directly improves conversion and security posture, and each can be justified by the revenue it unlocks.",
+        BODY
+    ))
+
+    story.append(add_subsection("11.3 Timeline (Gantt-Style)"))
     story.append(Paragraph(
         "The nine-month timeline is structured as three phases of three months each, with monthly milestones and phase gates. The table below summarizes the major milestones by month. Phase 1 (Months 1-3) focuses on stabilization and the flight planning engine. Phase 2 (Months 4-6) focuses on live drone connectivity and in-app photogrammetry, culminating in the closed beta and the Reality Checker midpoint gate. Phase 3 (Months 7-9) focuses on the Tauri migration, ML feature extraction, and the public v2.0 release, culminating in the Reality Checker pre-launch gate and the staged rollout.",
         BODY
@@ -323,23 +355,23 @@ def build_chapter_11():
 
     timeline_data = [
         ['Month', 'Phase', 'Major Milestones', 'Gate'],
-        ['M1', 'P1', 'zod schemas complete; 2 P0 math features shipped', 'Code Reviewer'],
+        ['M1', 'P1', 'zod schemas complete; 2 P0 math features; SignPath application submitted', 'Code Reviewer'],
         ['M2', 'P1', '5 P0 math features; flight planning engine; GDAL bindings', 'Code Reviewer'],
-        ['M3', 'P1', '5 mission export formats; code-signing verified; bug bounty live', 'GIS QA Engineer'],
-        ['M4', 'P2', 'MAVSDK-Rust sidecar; live telemetry dashboard', 'Code Reviewer'],
-        ['M5', 'P2', 'ODM sidecar; closed beta cohort 1 (5 surveyors)', 'Code Reviewer'],
+        ['M3', 'P1', '5 mission export formats; SignPath approved; bug bounty on Huntr.dev', 'GIS QA Engineer'],
+        ['M4', 'P2', 'MAVSDK-Rust sidecar; live telemetry dashboard; SITL testing', 'Code Reviewer'],
+        ['M5', 'P2', 'ODM sidecar; closed beta cohort 1 (5 volunteer surveyors)', 'Code Reviewer'],
         ['M6', 'P2', 'Closed beta cohort 2 (10 surveyors); Playwright E2E', 'Reality Checker (midpoint)'],
         ['M7', 'P3', 'Tauri shell scaffolding; 30 IPC handlers migrated', 'Code Reviewer'],
-        ['M8', 'P3', 'All 118 IPC handlers migrated; ML building footprints; tutorial videos', 'GIS QA + Security'],
+        ['M8', 'P3', 'All 118 IPC handlers migrated; ML building footprints; DIY tutorial videos', 'GIS QA + Security'],
         ['M9', 'P3', 'Public v2.0.0 release; staged rollout begins', 'Reality Checker (pre-launch)'],
     ]
     story.append(Spacer(1, 6))
     story.append(make_table(timeline_data, [0.07, 0.07, 0.55, 0.31]))
     story.append(Spacer(1, 14))
 
-    story.append(add_subsection("11.3 KPI Dashboard"))
+    story.append(add_subsection("11.4 KPI Dashboard"))
     story.append(Paragraph(
-        "The KPI dashboard is reviewed weekly by the lead engineer and the GIS consultant, and biweekly by the Reality Checker (when active). The dashboard is a single Markdown file in the repository (docs/KPI_DASHBOARD.md) updated automatically by CI on every push. The metrics are grouped into four categories: engineering (binary size, idle memory, cold start, test pass rate, IPC coverage), product (beta NPS, workflow completion rates, bug severity distribution), release (code-signing verification, auto-update success rate, crash-free sessions), and compliance (ASPRS class, ISO 19157 completeness, RDM 1.1 closure). The table below shows the target and current values for the top 10 KPIs as of the start of Phase 1.",
+        "The KPI dashboard is reviewed weekly by the lead engineer, and biweekly by the Reality Checker (when active). The dashboard is a single Markdown file in the repository (docs/KPI_DASHBOARD.md) updated automatically by CI on every push. The metrics are grouped into four categories: engineering (binary size, idle memory, cold start, test pass rate, IPC coverage), product (beta NPS, workflow completion rates, bug severity distribution), release (code-signing verification, auto-update success rate, crash-free sessions), and compliance (ASPRS class, ISO 19157 completeness, RDM 1.1 closure). The table below shows the target and current values for the top 10 KPIs as of the start of Phase 1.",
         BODY
     ))
 
@@ -351,7 +383,7 @@ def build_chapter_11():
         ['Engine test pass rate', 'Engineering', '100%', '100% (1259/1259)'],
         ['IPC handler zod coverage', 'Engineering', '100%', '0%'],
         ['Playwright E2E coverage', 'Engineering', '>= 80% of journeys', '0%'],
-        ['Beta surveyor NPS', 'Product', '>= 7 of 10 score > 8', 'N/A'],
+        ['Beta surveyor NPS (volunteers)', 'Product', '>= 7 of 10 score > 8', 'N/A'],
         ['Crash-free sessions (7-day)', 'Release', '>= 99.5%', 'Not measured'],
         ['Auto-update success rate', 'Release', '>= 99% over 1 minor bump', 'Never tested'],
         ['ASPRS Class I compliance', 'Compliance', 'RMSE_x,y < 7.5 cm', 'Manual input only'],
@@ -364,60 +396,60 @@ def build_chapter_11():
 
 
 def build_chapter_12():
-    """Chapter 12: Conclusion & Next Actions"""
+    """Chapter 12: Conclusion & Next Actions (Zero-Budget Edition)"""
     story = []
     story.extend(add_major_section("Chapter 12: Conclusion &amp; Next Actions"))
 
     story.append(Paragraph(
-        "MetaRDU Desktop v2.0 is an ambitious but achievable upgrade that transforms the product from a surveyor's office tool into a true drone survey workstation. The three-phase approach manages risk by deferring the largest architectural change (Tauri migration) to Phase 3, after the Rust sidecar pattern is proven on the existing Electron shell. The five drone capabilities (flight planning, live drone link, in-app photogrammetry, real raster I/O, ML feature extraction) close the gap between the metardu brand promise and the actual product functionality. The six math standards (ASPRS 2014, NMAS 1947, ISO 19157, RDM 1.1 / Cap. 299, FGDC-STD-007.3, ICSM SP1) position the product for both the current Kenyan market and future international expansion. The production readiness workstream (code-signing, closed beta, bug bounty, tutorial videos, staged rollout) ensures that v2.0 is not just feature-complete but truly production-ready.",
+        "MetaRDU Desktop v2.0 is an ambitious but achievable upgrade that transforms the product from a surveyor's office tool into a true drone survey workstation, and it can be delivered for $0 to $109 per year. The three-phase approach manages risk by deferring the largest architectural change (Tauri migration) to Phase 3, after the Rust sidecar pattern is proven on the existing Electron shell. The five drone capabilities (flight planning, live drone link, in-app photogrammetry, real raster I/O, ML feature extraction) close the gap between the metardu brand promise and the actual product functionality. The six math standards (ASPRS 2014, NMAS 1947, ISO 19157, RDM 1.1 / Cap. 299, FGDC-STD-007.3, ICSM SP1) position the product for both the current Kenyan market and future international expansion. The production readiness workstream (SignPath Foundation code-signing, volunteer closed beta, community bug bounty, DIY tutorial videos, staged rollout on GitHub Releases) ensures that v2.0 is not just feature-complete but truly production-ready, without requiring any upfront capital.",
         BODY
     ))
 
     story.append(Paragraph(
-        "The twelve-agent roster from the agency-agents framework provides the specialized expertise needed for each phase, with the Reality Checker serving as the quality gate at midpoint and pre-launch. The sequential-handoff workflow ensures that every agent's output is fully consumed by the next agent, preventing the context loss that plagues parallel multi-agent systems. The testing methodology (deterministic Playwright E2E, no sleeps, trace-on-retry, GIS QA gates) and the security model (IPC as trust boundary, narrowest-verb, zod validation per channel, SAST/DAST in CI) provide the engineering discipline needed for a production-grade desktop application distributed to field crews on unreliable networks.",
+        "The twelve-agent roster from the agency-agents framework provides the specialized expertise that a solo developer cannot afford to hire, with the Reality Checker serving as the quality gate at midpoint and pre-launch. The sequential-handoff workflow ensures that every agent's output is fully consumed by the next agent, preventing the context loss that plagues parallel multi-agent systems. The testing methodology (deterministic Playwright E2E, no sleeps, trace-on-retry, GIS QA gates) and the security model (IPC as trust boundary, narrowest-verb, zod validation per channel, SAST/DAST in CI) provide the engineering discipline needed for a production-grade desktop application distributed to field crews on unreliable networks. These are free methodologies that produce paid-tier quality.",
         BODY
     ))
 
     story.append(Paragraph(
-        "The total budget of $15,000 to $20,000 over nine months is modest for the scope, primarily because the lead engineer's time is treated as sweat equity and the software stack is entirely open-source. The most significant variable cost is drone hardware for testing, which can be reduced by renting rather than purchasing. The closed beta stipends ($5,000 for 10 surveyors) are the highest-value spend because they provide the real-world feedback that no amount of automated testing can replace. The bug bounty reward pool ($2,000) is a small price for the security assurance it provides.",
+        "The total budget of $0 to $109 per year is not a compromise; it is a legitimate production-readiness strategy that has been proven by hundreds of successful open-source desktop applications. The trade-offs are well-understood: SmartScreen warnings on Windows for the first 2-3 months, Gatekeeper bypass on macOS, and volunteer-based beta feedback instead of paid stipends. None of these are release-blockers. The key insight is that code-signing certificates, paid bug bounties, and paid beta stipends are optimization levers, not prerequisites. Once MetaRDU generates revenue, each paid upgrade directly improves conversion and security posture, and each can be justified by the revenue it unlocks. The first $99 (Apple Developer ID) eliminates the macOS friction; the next $300 (Windows EV cert or Azure Trusted Signing) eliminates the SmartScreen warning; the next $2,000 funds a bug bounty reward pool. Every dollar spent after launch is a dollar earned back through higher conversion.",
         BODY
     ))
 
-    story.append(add_subsection("12.1 Top Five Next Actions (Next 30 Days)"))
+    story.append(add_subsection("12.1 Top Five Next Actions (Next 30 Days, Zero Cost)"))
     story.append(Paragraph(
-        "The following five actions should be taken in the next 30 days to kick off Phase 1. Each action is concrete, has a clear owner, and has a measurable completion criterion. These actions are the minimum viable start to the upgrade: completing them in the first month puts the project on track for the Phase 1 milestone cadence and the Month 3 phase gate.",
-        BODY
-    ))
-
-    story.append(Paragraph(
-        "<b>Action 1: Purchase code-signing certificates.</b> Order the Windows EV certificate from SSL.com or DigiCert ($300) and the Apple Developer ID ($99) in Week 1. The EV certificate provisioning takes 2-3 weeks because it requires business verification and a hardware token shipment, so ordering early is critical. Owner: lead engineer. Completion criterion: both certificates received and the signing process verified on a test build.",
+        "The following five actions should be taken in the next 30 days to kick off Phase 1. Each action is concrete, has a clear owner, costs $0, and has a measurable completion criterion. These actions are the minimum viable start to the upgrade: completing them in the first month puts the project on track for the Phase 1 milestone cadence and the Month 3 phase gate.",
         BODY
     ))
 
     story.append(Paragraph(
-        "<b>Action 2: Scaffold the Rust sidecar repository.</b> Create a new packages/metardu-sidecar/ workspace in the monorepo with a Cargo.toml, a src/main.rs that reads length-prefixed JSON from stdin and writes length-prefixed JSON to stdout, and a simple ping/pong handler. Set up cross-compilation for Windows, macOS, and Linux in CI. Owner: lead engineer. Completion criterion: the sidecar builds on all three platforms and the ping/pong round-trip works from a test Electron handler.",
+        "<b>Action 1: Apply to SignPath Foundation (free Windows code-signing).</b> Visit signpath.org/foundation, submit the application for the metardu-desktop repository (MIT licensed, public on GitHub), and provide the project description and release history. Approval takes 1-2 weeks. While waiting, generate a self-signed certificate via PowerShell's New-SelfSignedCertificate cmdlet as a fallback, and write the SmartScreen bypass documentation (with screenshots) for the README and the future download page. Owner: lead engineer. Completion criterion: SignPath application submitted, self-signed cert generated, SmartScreen bypass docs committed to docs/INSTALL.md.",
         BODY
     ))
 
     story.append(Paragraph(
-        "<b>Action 3: Implement camera-footprint math and KMZ export as proof of concept.</b> In @metardu/engine, add a new flight-planning/ module with the camera footprint formulas (GSD, footprint width, footprint height, line spacing, photo spacing) and a KMZ export function that produces a DJI Pilot-compatible wpml file. Add property-based tests with fast-check that verify the math against known camera sensors (DJI Mavic 3, Phantom 4 RTK, senseFly eBee X). Owner: GIS consultant. Completion criterion: the math produces correct GSD within 1% of spec on the test sensor database, and the KMZ file uploads successfully to DJI Pilot 2.",
+        "<b>Action 2: Scaffold the Rust sidecar repository.</b> Create a new packages/metardu-sidecar/ workspace in the monorepo with a Cargo.toml, a src/main.rs that reads length-prefixed JSON from stdin and writes length-prefixed JSON to stdout, and a simple ping/pong handler. Set up cross-compilation for Windows, macOS, and Linux in GitHub Actions CI (free for public repos). Owner: lead engineer. Completion criterion: the sidecar builds on all three platforms via CI and the ping/pong round-trip works from a test Electron handler.",
         BODY
     ))
 
     story.append(Paragraph(
-        "<b>Action 4: Recruit 5 closed-beta surveyors.</b> Reach out to the Institution of Surveyors of Kenya (ISK) and the Engineers Board of Kenya (EBK) mailing lists, offering a $500 stipend for a 2-week trial in Months 5-6. Target surveyors who already use drone photogrammetry. Sign NDAs and data-handling agreements. Owner: lead engineer. Completion criterion: 5 signed NDAs and a confirmed calendar for the Month 5 trial.",
+        "<b>Action 3: Implement camera-footprint math and KMZ export as proof of concept.</b> In @metardu/engine, add a new flight-planning/ module with the camera footprint formulas (GSD = pixel_size times altitude divided by focal_length, footprint width, footprint height, line spacing, photo spacing) and a KMZ export function that produces a DJI Pilot-compatible wpml file. Add property-based tests with fast-check that verify the math against known camera sensors (DJI Mavic 3, Phantom 4 RTK, senseFly eBee X) using published spec sheets. Owner: lead engineer, with the Drone/Reality Mapping agent persona from agency-agents as a reference. Completion criterion: the math produces correct GSD within 1% of spec on the test sensor database, and the KMZ file structure validates against the DJI wpml schema.",
         BODY
     ))
 
     story.append(Paragraph(
-        "<b>Action 5: Run the Codebase Onboarding Engineer agent on metardu-desktop.</b> Use the agency-agents Codebase Onboarding Engineer persona to produce a factual map of the current architecture, the IPC surface, the dependencies, and the tech-debt inventory. This map is the input to every subsequent agent and the foundation for ADRs 006-012. Owner: lead engineer. Completion criterion: the architecture map is committed to docs/onboarding-report.md and reviewed by the GIS consultant.",
+        "<b>Action 4: Recruit 5 volunteer closed-beta surveyors.</b> Reach out to the Institution of Surveyors of Kenya (ISK) WhatsApp groups, the r/Surveying subreddit, and surveying students at the University of Nairobi, JKUAT, and the Technical University of Kenya. Offer a free perpetual MetaRDU license and public contributor credit in exchange for a 2-week trial in Months 5-6. Sign simple NDAs (use a free template from docracy.com or docsketch.com). Owner: lead engineer. Completion criterion: 5 signed NDAs and a confirmed calendar for the Month 5 trial.",
+        BODY
+    ))
+
+    story.append(Paragraph(
+        "<b>Action 5: Run the Codebase Onboarding Engineer agent on metardu-desktop.</b> Use the agency-agents Codebase Onboarding Engineer persona to produce a factual map of the current architecture, the IPC surface, the dependencies, and the tech-debt inventory. This map is the input to every subsequent agent and the foundation for ADRs 006-012. The agent persona is a free markdown file that you install into your AI coding assistant (Claude Code, Cursor, GitHub Copilot, etc.). Owner: lead engineer. Completion criterion: the architecture map is committed to docs/onboarding-report.md.",
         BODY
     ))
 
     story.append(Spacer(1, 14))
     story.append(callout(
-        "Call to Action",
-        "Start with Action 1 (code-signing) today, because the EV certificate provisioning takes 2-3 weeks. While waiting for the certificate, complete Action 2 (Rust sidecar scaffold) and Action 3 (camera-footprint proof of concept) in parallel. Action 4 (beta recruitment) and Action 5 (codebase onboarding) can begin in Week 2. The goal of the first 30 days is to have the code-signing infrastructure ready, the Rust sidecar pattern proven, and the flight planning math validated, so that Phase 1 can proceed at full pace from Month 2."
+        "Call to Action (Zero Cost)",
+        "Start with Action 1 (SignPath Foundation application) today, because approval takes 1-2 weeks and there is no reason to wait. While waiting, complete Action 2 (Rust sidecar scaffold) and Action 3 (camera-footprint proof of concept) in parallel, both of which require only your time and a computer. Action 4 (volunteer beta recruitment) and Action 5 (codebase onboarding) can begin in Week 2. The goal of the first 30 days is to have the code-signing infrastructure in progress, the Rust sidecar pattern proven, and the flight planning math validated, all for $0. None of these actions require any cash outlay. The only paid item in the entire plan is the optional $99 Apple Developer ID, and that can wait until MetaRDU generates its first dollar of revenue."
     ))
 
     return story
