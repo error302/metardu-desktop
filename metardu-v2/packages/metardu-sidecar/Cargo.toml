@@ -28,6 +28,25 @@ thiserror = "1.0"
 # Async runtime (for future MAVSDK, ODM, ONNX integration)
 tokio = { version = "1", features = ["full"] }
 
+# GDAL bindings for raster I/O (contour generation, DSM/DTM reading)
+# This requires libgdal-dev to be installed system-wide:
+#   Debian/Ubuntu: apt install libgdal-dev
+#   macOS:         brew install gdal
+#   Windows:       OSGeo4W installer
+# The `bindgen` feature generates bindings at build time for the installed GDAL version.
+gdal = { version = "0.17", optional = true, features = ["bindgen"] }
+
+# GeoJSON serialization (for contour output)
+geojson = { version = "0.24", optional = true }
+
+[features]
+default = ["gdal-bindings"]
+# Enable native GDAL Rust bindings (requires system libgdal)
+gdal-bindings = ["dep:gdal", "dep:geojson"]
+# Shell-out fallback (uses gdal_contour CLI, no native bindings)
+# Use this feature on platforms where native GDAL bindings are hard to build
+shell-out = []
+
 [dev-dependencies]
 assert_matches = "1.5"
 

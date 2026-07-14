@@ -93,6 +93,19 @@ export {
   type BatteryEstimation,
 } from "./flight-planning/battery.js";
 
+// Flight plan summary report (PDF-ready JSON)
+export {
+  generateFlightPlanReport,
+  reportToJson,
+  checkAsprsCompliance,
+  ASPRS_CLASSES,
+  KENYA_COMPLIANCE,
+  type FlightPlanReport,
+  type ReportOptions,
+  type AsprsClass,
+  type KenyaComplianceCheck,
+} from "./flight-planning/report.js";
+
 // Mission export (unified entry point)
 export {
   exportMission,

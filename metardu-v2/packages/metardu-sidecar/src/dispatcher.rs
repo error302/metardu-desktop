@@ -143,10 +143,10 @@ impl Dispatcher {
             ))
         });
 
-        self.register("gdal_contour", |_params: Value| async move {
-            Err(HandlerError::NotImplemented(
-                "GDAL bindings land in Phase 1 Month 2".into(),
-            ))
+        // ---- GDAL contour generation (Phase 1 Month 2 — IMPLEMENTED) ----
+        // Replaces the placeholder with real raster I/O via the gdal crate.
+        self.register("gdal_contour", |params: Value| async move {
+            crate::gdal::handle_gdal_contour(params).await
         });
     }
 

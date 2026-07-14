@@ -7,6 +7,7 @@
 //! Shutdown: on EOF from stdin (renderer closed), exits cleanly with code 0.
 
 mod dispatcher;
+mod gdal;
 mod protocol;
 
 use anyhow::Result;
