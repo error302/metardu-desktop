@@ -49,6 +49,7 @@ shell-out = []
 
 [dev-dependencies]
 assert_matches = "1.5"
+tempfile = "3.10"
 
 [profile.release]
 opt-level = 3

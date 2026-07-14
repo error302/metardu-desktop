@@ -121,18 +121,43 @@ impl Dispatcher {
             }))
         });
 
-        // ---- Phase 2 placeholders (return NotImplemented) ----
+        // ---- Phase 2: MAVLink handlers (use MockDroneLink) ----
+        // In production, these would use MavsdkDroneLink backed by the real mavsdk crate.
 
-        self.register("mavlink_connect", |_params: Value| async move {
-            Err(HandlerError::NotImplemented(
-                "MAVSDK-Rust integration lands in Phase 2".into(),
-            ))
+        self.register("mavlink_connect", |params: Value| async move {
+            crate::mavsdk::handle_mavlink_connect(params, crate::mavsdk::get_drone_link()).await
         });
 
-        self.register("odm_process", |_params: Value| async move {
-            Err(HandlerError::NotImplemented(
-                "OpenDroneMap sidecar integration lands in Phase 2".into(),
-            ))
+        self.register("mavlink_disconnect", |params: Value| async move {
+            crate::mavsdk::handle_mavlink_disconnect(params, crate::mavsdk::get_drone_link()).await
+        });
+
+        self.register("mavlink_get_telemetry", |params: Value| async move {
+            crate::mavsdk::handle_mavlink_get_telemetry(params, crate::mavsdk::get_drone_link()).await
+        });
+
+        self.register("mavlink_upload_mission", |params: Value| async move {
+            crate::mavsdk::handle_mavlink_upload_mission(params, crate::mavsdk::get_drone_link()).await
+        });
+
+        self.register("mavlink_start_mission", |params: Value| async move {
+            crate::mavsdk::handle_mavlink_start_mission(params, crate::mavsdk::get_drone_link()).await
+        });
+
+        self.register("mavlink_rtl", |params: Value| async move {
+            crate::mavsdk::handle_mavlink_rtl(params, crate::mavsdk::get_drone_link()).await
+        });
+
+        self.register("mavlink_arm", |params: Value| async move {
+            crate::mavsdk::handle_mavlink_arm(params, crate::mavsdk::get_drone_link()).await
+        });
+
+        self.register("mavlink_disarm", |params: Value| async move {
+            crate::mavsdk::handle_mavlink_disarm(params, crate::mavsdk::get_drone_link()).await
+        });
+
+        self.register("odm_process", |params: Value| async move {
+            crate::odm::handle_odm_process(params).await
         });
 
         // ---- Phase 3 placeholders ----
@@ -243,19 +268,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_not_implemented_returns_correct_code() {
+    async fn test_mavlink_connect_with_mock_drone_link() {
         let d = Dispatcher::new();
         let req = Request {
             id: "test-5".into(),
             method: "mavlink_connect".into(),
-            params: Value::Null,
+            params: serde_json::json!({
+                "connection_url": "udp://:14540",
+                "baud_rate": 115200,
+                "timeout_sec": 10
+            }),
+        };
+        let resp = d.dispatch(req).await;
+        match resp.payload {
+            crate::protocol::ResponsePayload::Ok { ok, result } => {
+                assert!(ok);
+                assert_eq!(result["connected"], true);
+            }
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_odm_process_validates_params() {
+        let d = Dispatcher::new();
+        let req = Request {
+            id: "test-odm".into(),
+            method: "odm_process".into(),
+            params: Value::Null, // Missing required params
         };
         let resp = d.dispatch(req).await;
         match resp.payload {
             crate::protocol::ResponsePayload::Err { ok, error } => {
                 assert!(!ok);
-                assert_eq!(error.code, "NOT_IMPLEMENTED");
-                assert!(error.message.contains("Phase 2"));
+                assert_eq!(error.code, "INVALID_PARAMS");
             }
             _ => panic!("expected Err"),
         }

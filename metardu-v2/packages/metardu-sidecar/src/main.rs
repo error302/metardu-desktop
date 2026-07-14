@@ -8,6 +8,8 @@
 
 mod dispatcher;
 mod gdal;
+mod mavsdk;
+mod odm;
 mod protocol;
 
 use anyhow::Result;
