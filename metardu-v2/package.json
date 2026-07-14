@@ -1,0 +1,25 @@
+{
+  "name": "metardu-v2",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MetaRDU Desktop v2.0 — Phase 1 build (Rust sidecar + flight planning engine)",
+  "license": "MIT",
+  "author": "error302",
+  "workspaces": [
+    "packages/engine"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "test:engine": "npm run test --workspace packages/engine",
+    "build:sidecar": "cd packages/metardu-sidecar && cargo build --release",
+    "test:sidecar": "cd packages/metardu-sidecar && cargo test",
+    "test:e2e": "python3 scripts/test_sidecar_e2e.py",
+    "demo": "npx tsx scripts/demo-nairobi-survey.mjs",
+    "demo:terrain": "npx tsx scripts/demo-terrain-aware.mjs",
+    "clean": "rm -rf packages/engine/dist packages/engine/coverage packages/metardu-sidecar/target scripts/demo-output"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

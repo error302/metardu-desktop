@@ -75,6 +75,24 @@ export {
   type MissionStats,
 } from "./flight-planning/waypoints.js";
 
+// Terrain-aware altitude
+export {
+  elevationFromGrid,
+  elevationFromFunction,
+  makeTerrainAware,
+  computeTerrainStats,
+  type ElevationLookup,
+  type ElevationGrid,
+  type TerrainStats,
+} from "./flight-planning/terrain.js";
+
+// Battery and flight time estimation
+export {
+  estimateBatteryAndTime,
+  type BatteryEstimationOptions,
+  type BatteryEstimation,
+} from "./flight-planning/battery.js";
+
 // Mission export (unified entry point)
 export {
   exportMission,
