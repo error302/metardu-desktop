@@ -1,0 +1,89 @@
+{
+  "name": "@metardu/engine-flight-planning",
+  "version": "0.1.0",
+  "description": "Drone flight planning engine for MetaRDU Desktop v2.0 — camera footprint math, lawnmower waypoint generation, terrain-aware altitude, battery estimation, and mission export (DJI KMZ, ArduPilot .waypoints, Litchi CSV, senseFly XML, generic KML)",
+  "license": "MIT",
+  "author": "error302",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/error302/metardu-desktop.git",
+    "directory": "packages/engine-flight-planning"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./cameras": {
+      "types": "./dist/cameras.d.ts",
+      "import": "./dist/cameras.js"
+    },
+    "./footprint": {
+      "types": "./dist/footprint.d.ts",
+      "import": "./dist/footprint.js"
+    },
+    "./waypoints": {
+      "types": "./dist/waypoints.d.ts",
+      "import": "./dist/waypoints.js"
+    },
+    "./terrain": {
+      "types": "./dist/terrain.d.ts",
+      "import": "./dist/terrain.js"
+    },
+    "./battery": {
+      "types": "./dist/battery.d.ts",
+      "import": "./dist/battery.js"
+    },
+    "./export": {
+      "types": "./dist/export/index.d.ts",
+      "import": "./dist/export/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:property": "vitest run --reporter=verbose --testNamePattern='property'",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist coverage"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "fast-check": "^3.19.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "drone",
+    "uav",
+    "survey",
+    "photogrammetry",
+    "flight-planning",
+    "waypoint",
+    "gsd",
+    "camera-footprint",
+    "mavlink",
+    "dji",
+    "ardupilot",
+    "px4",
+    "kenya",
+    "surveying",
+    "metardu"
+  ]
+}

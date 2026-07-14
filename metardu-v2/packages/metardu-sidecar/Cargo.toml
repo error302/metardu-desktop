@@ -1,0 +1,43 @@
+[package]
+name = "metardu-sidecar"
+version = "0.1.0"
+edition = "2021"
+description = "Rust sidecar for MetaRDU Desktop v2.0 - handles heavy compute (TIN, point cloud, MAVLink, GDAL, ONNX)"
+license = "MIT"
+authors = ["error302"]
+repository = "https://github.com/error302/metardu-desktop"
+publish = false
+
+[[bin]]
+name = "metardu-sidecar"
+path = "src/main.rs"
+
+[dependencies]
+# JSON protocol
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Async runtime (for future MAVSDK, ODM, ONNX integration)
+tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+assert_matches = "1.5"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true
