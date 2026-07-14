@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MetaRDU Desktop v2.0 Upgrade Plan</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+  <style>
+    @page { size: 794px 1123px; margin: 0; }
+
+    :root {
+      --c-bg: #f5f5f3;
+      --c-accent: #8c7226;
+      --c-secondary: #4f759b;
+      --c-text: #1f1e1c;
+      --c-muted: #807d76;
+      --c-mid: #60573e;
+      --c-surface: #eeedeb;
+      --c-grid: rgba(31, 30, 28, 0.04);
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 794px;
+      height: 1123px;
+      background: var(--c-bg);
+      color: var(--c-text);
+      font-family: 'Inter', sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    @media screen {
+      html { height: auto; display: flex; justify-content: center; min-height: 100vh; background: #ddd; }
+      body { transform-origin: top center; scale: min(1, calc(100vw / 794), calc(100vh / 1123)); margin: 0 auto; box-shadow: 0 0 60px rgba(0,0,0,0.25); }
+    }
+
+    .cover {
+      width: 794px;
+      height: 1123px;
+      position: relative;
+      box-sizing: border-box;
+    }
+
+    /* Layer 1 — Background grid */
+    .layer-1 {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      z-index: 1;
+      background-image:
+        linear-gradient(to right, var(--c-grid) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--c-grid) 1px, transparent 1px);
+      background-size: 50px 50px;
+    }
+
+    /* Layer 2 — Structure */
+    .layer-2 {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+    }
+
+    .anchor-line {
+      position: absolute;
+      left: 80px;
+      top: 112px;
+      bottom: 112px;
+      width: 6px;
+      background: var(--c-accent);
+    }
+
+    .corner-mark {
+      position: absolute;
+      width: 28px;
+      height: 28px;
+      border: 1.5px solid var(--c-mid);
+    }
+    .corner-tl { top: 56px; left: 56px; border-right: none; border-bottom: none; }
+    .corner-tr { top: 56px; right: 56px; border-left: none; border-bottom: none; }
+    .corner-bl { bottom: 56px; left: 56px; border-right: none; border-top: none; }
+    .corner-br { bottom: 56px; right: 56px; border-left: none; border-top: none; }
+
+    /* Layer 3 — Content (left edge at 145px = 80 + 6 + 59 gap) */
+    .layer-3 {
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+    }
+
+    .content {
+      position: absolute;
+      left: 145px;
+      right: 76px;
+      top: 0;
+      bottom: 0;
+    }
+
+    /* Drawer A — Kicker (top y=168) */
+    .kicker {
+      position: absolute;
+      top: 168px;
+      font-size: 11pt;
+      font-weight: 500;
+      color: var(--c-accent);
+      letter-spacing: 3.5pt;
+      text-transform: uppercase;
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* Drawer B — Hero Title (3 stacked lines, each its own element to avoid false-positive overlap) */
+    .title-line1, .title-line2, .title-line3 {
+      position: absolute;
+      left: 0;
+      font-size: 56pt;
+      font-weight: 900;
+      line-height: 1.0;
+      letter-spacing: -1.5pt;
+      font-family: 'Playfair Display', serif;
+      max-width: 540px;
+    }
+    .title-line1 { top: 290px; color: var(--c-text); }
+    .title-line2 { top: 370px; color: var(--c-text); }
+    .title-line3 { top: 450px; color: var(--c-accent); }
+
+    /* Drawer C — Summary (y=580 to leave gap from title) */
+    .summary {
+      position: absolute;
+      top: 580px;
+      font-size: 13.5pt;
+      font-weight: 400;
+      line-height: 1.65;
+      color: var(--c-text);
+      opacity: 0.88;
+      max-width: 440px;
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* Stat row — y=760, after summary */
+    .stats {
+      position: absolute;
+      top: 760px;
+      display: flex;
+      gap: 32px;
+    }
+
+    .stat {
+      display: flex;
+      flex-direction: column;
+      border-left: 2px solid var(--c-accent);
+      padding-left: 14px;
+    }
+
+    .stat-num {
+      font-size: 26pt;
+      font-weight: 900;
+      color: var(--c-text);
+      font-family: 'Playfair Display', serif;
+      line-height: 1.0;
+    }
+
+    .stat-label {
+      font-size: 8pt;
+      font-weight: 500;
+      color: var(--c-muted);
+      letter-spacing: 1pt;
+      text-transform: uppercase;
+      margin-top: 6px;
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* Drawer D — Meta/Date (y=890) */
+    .meta {
+      position: absolute;
+      top: 890px;
+      font-size: 10.5pt;
+      font-weight: 400;
+      line-height: 1.7;
+      color: var(--c-muted);
+      font-family: 'Inter', sans-serif;
+    }
+
+    .meta strong {
+      color: var(--c-text);
+      font-weight: 600;
+    }
+
+    /* Footer (stacked vertically) */
+    .footer-label {
+      position: absolute;
+      bottom: 72px;
+      left: 145px;
+      font-size: 9pt;
+      font-weight: 500;
+      color: var(--c-muted);
+      letter-spacing: 2pt;
+      text-transform: uppercase;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .footer-class {
+      position: absolute;
+      bottom: 48px;
+      left: 145px;
+      font-size: 8pt;
+      font-weight: 400;
+      color: var(--c-muted);
+      letter-spacing: 1.5pt;
+      text-transform: uppercase;
+      font-family: 'Inter', sans-serif;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+<body>
+  <div class="cover">
+    <!-- Layer 1: Grid background -->
+    <div class="layer-1"></div>
+
+    <!-- Layer 2: Structure -->
+    <div class="layer-2">
+      <div class="anchor-line"></div>
+      <div class="corner-mark corner-tl"></div>
+      <div class="corner-mark corner-tr"></div>
+      <div class="corner-mark corner-bl"></div>
+      <div class="corner-mark corner-br"></div>
+    </div>
+
+    <!-- Layer 3: Content -->
+    <div class="layer-3">
+      <div class="content">
+        <div class="kicker">ENGINEERING STRATEGY &nbsp;&middot;&nbsp; VERSION 2.0</div>
+
+        <div class="title-line1">MetaRDU</div>
+        <div class="title-line2">Desktop</div>
+        <div class="title-line3">Upgrade Plan</div>
+
+        <div class="summary">
+          A comprehensive 9-month roadmap to transform MetaRDU Desktop from a surveyor's office tool into a production-grade, Tauri-based drone survey workstation &mdash; with flight planning, live drone link, in-app photogrammetry, real raster I/O, and ML feature extraction.
+        </div>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-num">9</div>
+            <div class="stat-label">Months</div>
+          </div>
+          <div class="stat">
+            <div class="stat-num">3</div>
+            <div class="stat-label">Phases</div>
+          </div>
+          <div class="stat">
+            <div class="stat-num">5</div>
+            <div class="stat-label">Drone Capabilities</div>
+          </div>
+          <div class="stat">
+            <div class="stat-num">6</div>
+            <div class="stat-label">Math Standards</div>
+          </div>
+        </div>
+
+        <div class="meta">
+          Prepared for <strong>error302</strong><br>
+          Repositories <strong>metardu-desktop</strong> &middot; <strong>metardu</strong> &middot; <strong>agency-agents</strong><br>
+          Date <strong>July 2026</strong>
+        </div>
+
+        <div class="footer-label">Production-Readiness Plan</div>
+        <div class="footer-class">Confidential &middot; Internal Strategy</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,1063 @@
+     1→# METARDU Survey Engine — Master Architecture & Build Plan
+     2→
+     3→> **Purpose**: A comprehensive, agent-executable plan for building a professional-grade cadastral survey computation engine that achieves 2nd-order accuracy (1:20,000 closure) and produces legally defensible documents for Kenya's land surveying industry.
+     4→
+     5→---
+     6→
+     7→## Table of Contents
+     8→
+     9→1. [Architecture Overview](#1-architecture-overview)
+    10→2. [Directory Structure](#2-directory-structure)
+    11→3. [Database Schema](#3-database-schema)
+    12→4. [P0: Core Corrections (Accuracy)](#4-p0-core-corrections-accuracy)
+    13→5. [P1: Traverse Engine & Error Propagation](#5-p1-traverse-engine--error-propagation)
+    14→6. [P1: Document Generation (Vector PDF)](#6-p1-document-generation-vector-pdf)
+    15→7. [Database Load Reduction Strategy](#7-database-load-reduction-strategy)
+    16→8. [P2: Map Rendering & Cartography](#8-p2-map-rendering--cartography)
+    17→9. [P3: Advanced Features](#9-p3-advanced-features)
+    18→10. [Build Order & Dependencies](#10-build-order--dependencies)
+    19→11. [Testing Strategy](#11-testing-strategy)
+    20→12. [Accuracy Verification Protocol](#12-accuracy-verification-protocol)
+    21→
+    22→---
+    23→
+    24→## 1. Architecture Overview
+    25→
+    26→```
+    27→┌─────────────────────────────────────────────────────────────────┐
+    28→│                        CLIENT (React/Next.js)                    │
+    29→│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────────┐ │
+    30→│  │  Field Data  │  │  Offline DB  │  │  Map View (OpenLayers)│ │
+    31→│  │  Collection  │  │  (IndexedDB) │  │  + Survey Layers      │ │
+    32→│  └──────┬───────┘  └──────┬───────┘  └───────────┬───────────┘ │
+    33→│         │                  │                       │             │
+    34→│         └──────────────────┼───────────────────────┘             │
+    35→│                            │ Sync API                            │
+    36→└────────────────────────────┼─────────────────────────────────────┘
+    37→                             │
+    38→┌────────────────────────────┼─────────────────────────────────────┐
+    39→│                     SERVER (Next.js API)                          │
+    40→│                            │                                     │
+    41→│  ┌─────────────────────────▼─────────────────────────────────┐  │
+    42→│  │              Survey Computation Engine                      │  │
+    43→│  │  ┌──────────────┐ ┌──────────────┐ ┌───────────────────┐  │  │
+    44→│  │  │  Correction  │ │  Traverse    │ │  Error            │  │  │
+    45→│  │  │  Pipeline    │→│  Engine      │→│  Propagation      │  │  │
+    46→│  │  └──────────────┘ └──────────────┘ └───────────────────┘  │  │
+    47→│  │  ┌──────────────┐ ┌──────────────┐ ┌───────────────────┐  │  │
+    48→│  │  │  COGO Engine │ │  Area/Volume │ │  Coordinate       │  │  │
+    49→│  │  │              │ │  Computation │ │  Transform        │  │  │
+    50→│  │  └──────────────┘ └──────────────┘ └───────────────────┘  │  │
+    51→│  └───────────────────────────────────────────────────────────┘  │
+    52→│                                                                 │
+    53→│  ┌──────────────────┐  ┌────────────────┐  ┌───────────────┐  │
+    54→│  │  Document Engine │  │  Cache Layer   │  │  Job Queue    │  │
+    55→│  │  (Vector PDF)    │  │  (LRU + Redis) │  │  (BullMQ)     │  │
+    56→│  └──────────────────┘  └────────────────┘  └───────────────┘  │
+    57→│                                                                 │
+    58→│  ┌──────────────────────────────────────────────────────────┐  │
+    59→│  │                  PostgreSQL + PgBouncer                   │  │
+    60→│  │  ┌─────────────┐ ┌──────────────┐ ┌──────────────────┐  │  │
+    61→│  │  │  Projects   │ │  Observations│ │  Documents       │  │  │
+    62→│  │  │  Surveys    │ │  Coordinates │ │  Audit Trail     │  │  │
+    63→│  │  └─────────────┘ └──────────────┘ └──────────────────┘  │  │
+    64→│  └──────────────────────────────────────────────────────────┘  │
+    65→└─────────────────────────────────────────────────────────────────┘
+    66→```
+    67→
+    68→---
+    69→
+    70→## 2. Directory Structure
+    71→
+    72→```
+    73→src/
+    74→├── lib/
+    75→│   ├── survey/                          # CORE: Survey computation engine
+    76→│   │   ├── corrections/
+    77→│   │   │   ├── atmospheric.ts           # EDM atmospheric corrections
+    78→│   │   │   ├── curvature-refraction.ts  # C&R correction
+    79→│   │   │   ├── grid-scale-factor.ts     # UTM/Cassini grid scale factor
+    80→│   │   │   ├── sea-level-reduction.ts   # Ellipsoid/sea level reduction
+    81→│   │   │   ├── slope-reduction.ts       # Slope to horizontal
+    82→│   │   │   ├── projection-convergence.ts # Grid convergence
+    83→│   │   │   ├── index.ts                 # Barrel export
+    84→│   │   │   └── __tests__/
+    85→│   │   │       ├── atmospheric.test.ts
+    86→│   │   │       ├── curvature-refraction.test.ts
+    87→│   │   │       ├── grid-scale-factor.test.ts
+    88→│   │   │       ├── sea-level-reduction.test.ts
+    89→│   │   │       └── pipeline.test.ts
+    90→│   │   ├── traverse/
+    91→│   │   │   ├── engine.ts                # Traverse computation engine
+    92→│   │   │   ├── bowditch.ts             # Bowditch/Compass adjustment
+    93→│   │   │   ├── least-squares.ts        # Least squares adjustment
+    94→│   │   │   ├── types.ts                # Traverse-specific types
+    95→│   │   │   └── __tests__/
+    96→│   │   ├── cogo/
+    97→│   │   │   ├── engine.ts               # COGO computations
+    98→│   │   │   ├── intersection.ts         # Line-line, line-curve intersections
+    99→│   │   │   └── __tests__/
+   100→│   │   ├── area/
+   101→│   │   │   ├── computation.ts          # Shoelace, radial methods
+   102→│   │   │   └── __tests__/
+   103→│   │   ├── curves/
+   104→│   │   │   ├── circular.ts             # Circular curve calculations
+   105→│   │   │   ├── transition.ts           # Spiral/transition curves
+   106→│   │   │   ├── vertical.ts             # Vertical curves
+   107→│   │   │   └── __tests__/
+   108→│   │   ├── volumes/
+   109→│   │   │   ├── end-area.ts             # End-area method
+   110→│   │   │   ├── grid-method.ts          # Grid method
+   111→│   │   │   └── __tests__/
+   112→│   │   ├── error-propagation/
+   113→│   │   │   ├── engine.ts               # Variance propagation engine
+   114→│   │   │   ├── error-ellipse.ts        # Confidence error ellipses
+   115→│   │   │   ├── types.ts
+   116→│   │   │   └── __tests__/
+   117→│   │   ├── coordinates/
+   118→│   │   │   ├── transform.ts            # Arc 1960 <-> WGS84
+   119→│   │   │   ├── projections.ts          # UTM, Cassini-Soldner
+   120→│   │   │   ├── datum.ts                # Datum parameters
+   121→│   │   │   └── __tests__/
+   122→│   │   ├── pipeline/
+   123→│   │   │   ├── correction-pipeline.ts  # Unified correction pipeline
+   124→│   │   │   ├── observation-processor.ts # Process raw observations
+   125→│   │   │   └── __tests__/
+   126→│   │   └── index.ts                    # Main barrel export
+   127→│   ├── documents/
+   128→│   │   ├── deed-plan/
+   129→│   │   │   ├── generator.ts            # Vector PDF deed plan
+   130→│   │   │   ├── title-block.ts          # Kenya standard title block
+   131→│   │   │   ├── grid-overlay.ts         # Coordinate grid & ticks
+   132→│   │   │   ├── symbology.ts            # Kenya standard symbols
+   133→│   │   │   └── __tests__/
+   134→│   │   ├── templates/
+   135→│   │   │   ├── form-c22.ts             # Form C-22 template
+   136→│   │   │   ├── beacon-certificate.ts   # Beacon certificate
+   137→│   │   │   ├── traverse-sheet.ts       # Traverse computation sheet
+   138→│   │   │   └── __tests__/
+   139→│   │   ├── pdf-engine.ts               # Core PDF generation engine
+   140→│   │   └── index.ts
+   141→│   ├── cache/
+   142→│   │   ├── memory-cache.ts             # In-memory LRU cache
+   143→│   │   ├── cache-strategies.ts         # Cache invalidation strategies
+   144→│   │   └── index.ts
+   145→│   └── db/
+   146→│       ├── client.ts                    # Prisma client singleton
+   147→│       ├── queries/                     # Optimized query functions
+   148→│       │   ├── projects.ts
+   149→│       │   ├── observations.ts
+   150→│       │   ├── coordinates.ts
+   151→│       │   └── documents.ts
+   152→│       └── batch/                       # Batch operations
+   153→│           ├── sync.ts                  # Field data sync
+   154→│           └── import.ts                # Data import
+   155→├── app/
+   156→│   ├── api/
+   157→│   │   ├── survey/
+   158→│   │   │   ├── traverse/route.ts       # Traverse computation API
+   159→│   │   │   ├── cogo/route.ts           # COGO API
+   160→│   │   │   ├── area/route.ts           # Area computation API
+   161→│   │   │   └── corrections/route.ts    # Corrections API
+   162→│   │   ├── documents/
+   163→│   │   │   ├── deed-plan/route.ts      # Deed plan generation
+   164→│   │   │   └── traverse-sheet/route.ts # Traverse sheet
+   165→│   │   ├── sync/
+   166→│   │   │   └── route.ts               # Offline data sync
+   167→│   │   └── projects/
+   168→│   │       └── route.ts               # Project CRUD
+   169→│   └── (pages)/                         # Next.js pages
+   170→├── components/
+   171→│   ├── survey/                          # Survey UI components
+   172→│   ├── maps/                            # Map components
+   173→│   └── documents/                       # Document preview components
+   174→└── prisma/
+   175→    └── schema.prisma                    # Database schema
+   176→```
+   177→
+   178→---
+   179→
+   180→## 3. Database Schema
+   181→
+   182→### 3.1 Core Tables
+   183→
+   184→```prisma
+   185→// Project & Survey Management
+   186→model Project {
+   187→  id                String    @id @default(cuid())
+   188→  name              String
+   189→  description       String?
+   190→  surveyType        SurveyType
+   191→  surveyOrder       Int       // Kenya survey order number
+   192→  status            ProjectStatus @default(ACTIVE)
+   193→  
+   194→  // Location
+   195→  county            String?
+   196→  subCounty         String?
+   197→  lrNumber          String?   // Land registration number
+   198→  
+   199→  // Datum & Projection
+   200→  datum             DatumType @default(ARC1960)
+   201→  projection        ProjectionType @default(UTM37S)
+   202→  zone              Int?
+   203→  
+   204→  // Audit
+   205→  surveyorName      String
+   206→  surveyorLicense   String    // Kenya surveyor license number
+   207→  createdAt         DateTime  @default(now())
+   208→  updatedAt         DateTime  @updatedAt
+   209→  
+   210→  surveys           Survey[]
+   211→  documents         Document[]
+   212→  
+   213→  @@index([surveyorLicense])
+   214→  @@index([status])
+   215→  @@index([createdAt])
+   216→}
+   217→
+   218→model Survey {
+   219→  id                String    @id @default(cuid())
+   220→  projectId         String
+   221→  project           Project   @relation(fields: [projectId], references: [id])
+   222→  
+   223→  surveyType        SurveyType
+   224→  method            SurveyMethod  // TRAVERSE, TRIANGULATION, GPS, LEVELING
+   225→  order             Int           // 1st, 2nd, 3rd, 4th order
+   226→  
+   227→  // Correction parameters applied
+   228→  correctionsApplied Json       // {atmospheric: true, cr: true, scaleFactor: true, ...}
+   229→  correctionParams   Json?      // Atmospheric conditions, etc.
+   230→  
+   231→  // Results
+   232→  misclosureDistance  Float?    // Linear misclosure in meters
+   233→  misclosureRatio     String?   // e.g., "1:25000"
+   234→  accuracyAchieved    Float?    // Achieved accuracy ratio
+   235→  
+   236→  status             ComputationStatus @default(PENDING)
+   237→  computedAt         DateTime?
+   238→  
+   239→  stations           Station[]
+   240→  observations       Observation[]
+   241→  coordinates        Coordinate[]
+   242→  
+   243→  @@index([projectId])
+   244→  @@index([status])
+   245→}
+   246→
+   247→model Station {
+   248→  id                String    @id @default(cuid())
+   249→  surveyId          String
+   250→  survey            Survey    @relation(fields: [surveyId], references: [id])
+   251→  
+   252→  name              String    // Station name/number
+   253→  type              StationType // TRAVERSE, CONTROL, BEACON, BENCHMARK
+   254→  
+   255→  order             Int       // Sequential order in traverse
+   256→  
+   257→  @@index([surveyId])
+   258→  @@index([name])
+   259→}
+   260→
+   261→model Observation {
+   262→  id                String    @id @default(cuid())
+   263→  surveyId          String
+   264→  survey            Survey    @relation(fields: [surveyId], references: [id])
+   265→  
+   266→  fromStationId     String
+   267→  toStationId       String
+   268→  
+   269→  // Raw measurements
+   270→  rawHorizontalAngle  Float?  // Decimal degrees
+   271→  rawVerticalAngle    Float?  // Decimal degrees
+   272→  rawSlopeDistance     Float?  // Meters
+   273→  
+   274→  // EDM data
+   275→  edmConstant         Float?  // Instrument constant (mm)
+   276→  ppmSetting          Float?  // Parts per million setting
+   277→  
+   278→  // Atmospheric conditions at time of measurement
+   279→  temperature         Float?  // Degrees Celsius
+   280→  pressure            Float?  // Hectopascals/mbar
+   281→  humidity            Float?  // Relative humidity %
+   282→  
+   283→  // Height data
+   284→  instrumentHeight    Float?  // Meters
+   285→  targetHeight        Float?  // Meters
+   286→  
+   287→  // Corrected values (computed)
+   288→  correctedDistance    Float?  // After all corrections applied
+   289→  correctedHd         Float?  // Horizontal distance
+   290→  correctedVd         Float?  // Vertical distance
+   291→  correctedBearing    Float?  // Grid bearing
+   292→  
+   293→  // Corrections log (full audit trail)
+   294→  correctionsLog      Json?   // {atmospheric: {raw: 100, corrected: 99.987}, ...}
+   295→  
+   296→  // Uncertainty
+   297→  stdDevDistance      Float?  // Standard deviation of corrected distance
+   298→  stdDevAngle         Float?  // Standard deviation of corrected angle
+   299→  
+   300→  observationDate     DateTime?
+   301→  
+   302→  @@index([surveyId])
+   303→  @@index([fromStationId])
+   304→  @@index([toStationId])
+   305→}
+   306→
+   307→model Coordinate {
+   308→  id                String    @id @default(cuid())
+   309→  surveyId          String
+   310→  survey            Survey    @relation(fields: [surveyId], references: [id])
+   311→  stationId         String
+   312→  station           Station   @relation(fields: [stationId], references: [id])
+   313→  
+   314→  // Adjusted coordinates
+   315→  easting           Float     // Meters
+   316→  northing          Float     // Meters
+   317→  elevation         Float?    // Meters (orthometric height)
+   318→  
+   319→  // Coordinate system
+   320→  datum             DatumType @default(ARC1960)
+   321→  projection        ProjectionType @default(UTM37S)
+   322→  zone              Int?
+   323→  
+   324→  // Uncertainty
+   325→  stdDevEasting     Float?    // Standard deviation
+   326→  stdDevNorthing    Float?
+   327→  stdDevElevation   Float?
+   328→  errorEllipseSemiMajor  Float?  // Error ellipse semi-major axis (mm)
+   329→  errorEllipseSemiMinor  Float?  // Error ellipse semi-minor axis (mm)
+   330→  errorEllipseOrientation Float? // Error ellipse orientation (degrees)
+   331→  confidenceLevel   Float?    // Confidence level (e.g., 0.95)
+   332→  
+   333→  // Scale factor at this point
+   334→  pointScaleFactor  Float?
+   335→  gridConvergence   Float?    // Degrees
+   336→  
+   337→  isFixed           Boolean   @default(false)  // Control/fixed point
+   338→  
+   339→  @@unique([surveyId, stationId])
+   340→  @@index([surveyId])
+   341→  @@index([easting, northing])
+   342→}
+   343→
+   344→model Document {
+   345→  id                String    @id @default(cuid())
+   346→  projectId         String
+   347→  project           Project   @relation(fields: [projectId], references: [id])
+   348→  
+   349→  documentType      DocumentType
+   350→  title             String
+   351→  
+   352→  // Generation parameters
+   353→  paperSize         PaperSize @default(A4)
+   354→  orientation       Orientation @default(PORTRAIT)
+   355→  scale             Int?      // Map scale denominator (e.g., 1000 for 1:1000)
+   356→  
+   357→  // File storage
+   358→  filePath          String?   // Path to generated PDF
+   359→  fileSize          Int?      // Bytes
+   360→  checksum          String?   // SHA-256 for integrity verification
+   361→  
+   362→  // PDF metadata
+   363→  pdfVersion        String?   // e.g., "PDF/A-1b"
+   364→  isVector          Boolean   @default(false)
+   365→  
+   366→  generatedAt       DateTime?
+   367→  
+   368→  @@index([projectId])
+   369→  @@index([documentType])
+   370→}
+   371→
+   372→// Audit trail for legal compliance
+   373→model AuditLog {
+   374→  id                String    @id @default(cuid())
+   375→  entityType        String    // "Project", "Survey", "Observation", etc.
+   376→  entityId          String
+   377→  action            String    // "CREATE", "UPDATE", "COMPUTE", "GENERATE"
+   378→  userId            String
+   379→  userName          String
+   380→  changes           Json?     // Before/after snapshot
+   381→  timestamp         DateTime  @default(now())
+   382→  
+   383→  @@index([entityType, entityId])
+   384→  @@index([timestamp])
+   385→}
+   386→
+   387→// Reference data (cached, rarely changes)
+   388→model CoordinateSystem {
+   389→  id                String    @id @default(cuid())
+   390→  name              String    @unique
+   391→  datum             DatumType
+   392→  projection        ProjectionType
+   393→  zone              Int?
+   394→  parameters        Json      // Projection parameters
+   395→  epsgCode          Int?
+   396→  
+   397→  createdAt         DateTime  @default(now())
+   398→}
+   399→
+   400→// Enums
+   401→enum SurveyType {
+   402→  CADASTRAL
+   403→  TOPOGRAPHIC
+   404→  ENGINEERING
+   405→  CONTROL
+   406→  HYDROGRAPHIC
+   407→  MINING
+   408→}
+   409→
+   410→enum SurveyMethod {
+   411→  TRAVERSE
+   412→  TRIANGULATION
+   413→  TRILATERATION
+   414→  GPS
+   415→  LEVELING
+   416→  TOTAL_STATION
+   417→}
+   418→
+   419→enum ProjectStatus {
+   420→  ACTIVE
+   421→  COMPLETED
+   422→  ARCHIVED
+   423→  DRAFT
+   424→}
+   425→
+   426→enum ComputationStatus {
+   427→  PENDING
+   428→  COMPUTING
+   429→  COMPLETED
+   430→  FAILED
+   431→}
+   432→
+   433→enum StationType {
+   434→  TRAVERSE
+   435→  CONTROL
+   436→  BEACON
+   437→  BENCHMARK
+   438→  INTERSECTION
+   439→}
+   440→
+   441→enum DatumType {
+   442→  ARC1960
+   443→  WGS84
+   444→}
+   445→
+   446→enum ProjectionType {
+   447→  UTM36S
+   448→  UTM37S
+   449→  CASSINI_SOLDNER
+   450→  LOCAL
+   451→}
+   452→
+   453→enum DocumentType {
+   454→  DEED_PLAN
+   455→  FORM_C22
+   456→  BEACON_CERTIFICATE
+   457→  TRAVERSE_SHEET
+   458→  SETTING_OUT
+   459→  TOPO_PLAN
+   460→  CONTOUR_PLAN
+   461→  CROSS_SECTION
+   462→}
+   463→
+   464→enum PaperSize {
+   465→  A4
+   466→  A3
+   467→  A2
+   468→  A1
+   469→  A0
+   470→}
+   471→
+   472→enum Orientation {
+   473→  PORTRAIT
+   474→  LANDSCAPE
+   475→}
+   476→```
+   477→
+   478→### 3.2 Database Optimization
+   479→
+   480→- **Partitioning**: `Observation` and `AuditLog` by `createdAt` (monthly partitions)
+   481→- **Connection Pooling**: PgBouncer in transaction mode (max 50 connections)
+   482→- **Read Replica**: For heavy queries (document generation, report queries)
+   483→- **Indexes**: All foreign keys + commonly queried columns indexed
+   484→- **JSON columns**: `correctionsLog`, `correctionParams` use PostgreSQL JSONB with GIN indexes
+   485→
+   486→---
+   487→
+   488→## 4. P0: Core Corrections (Accuracy)
+   489→
+   490→### 4.1 Atmospheric Correction for EDM
+   491→
+   492→**File**: `src/lib/survey/corrections/atmospheric.ts`
+   493→
+   494→**Formula** (IAO/ISO standard):
+   495→```
+   496→Corrected distance = Raw distance × N0 / N
+   497→
+   498→Where:
+   499→  N = (n_ref - 1) × 10^6  (reference refractivity)
+   500→  N0 = (n_obs - 1) × 10^6 (observed refractivity)
+   501→
+   502→For standard conditions (t=20°C, P=1013.25 hPa, e=0):
+   503→  N0 = 273.82 (typical for most EDM instruments)
+   504→
+   505→For observed conditions:
+   506→  N_obs = (n - 1) × 10^6
+   507→  n = 1 + (n_group - 1) × λ_ref / λ_obs  (for phase measurement)
+   508→  
+   509→Simplified (most instruments):
+   510→  N = (287.604 + 1.6288 × λ^-2 + 0.0136 × λ^-4) × P / (273.15 + t)
+   511→      - (11.27 × e) / (273.15 + t)
+   512→      
+   513→  Where λ = carrier wavelength in μm (0.6328 for HeNe, 0.850 for IR)
+   514→  
+   515→  e = humidity × 6.112 × exp(17.62 × t / (243.12 + t)) / 100  (Magnus formula)
+   516→```
+   517→
+   518→**Implementation requirements**:
+   519→- Support both HeNe (0.6328 μm) and IR (0.850 μm) EDM wavelengths
+   520→- Accept temperature (°C), pressure (hPa), humidity (%)
+   521→- Auto-compute partial water vapor pressure via Magnus formula
+   522→- Return both correction factor and corrected distance
+   523→- Include ppm deviation from reference conditions
+   524→- Store raw + corrected for audit trail
+   525→
+   526→**Validation**:
+   527→- At standard conditions (20°C, 1013.25 hPa, 0% humidity): correction = 0 ppm
+   528→- At Nairobi (25°C, 840 hPa, 60% humidity): correction ≈ -22 ppm (distance reduced)
+   529→- At Mombasa (32°C, 1010 hPa, 80% humidity): correction ≈ -10 ppm
+   530→
+   531→### 4.2 Curvature & Refraction Correction
+   532→
+   533→**File**: `src/lib/survey/corrections/curvature-refraction.ts`
+   534→
+   535→**Formula**:
+   536→```
+   537→C&R correction = -0.0675 × D²  (meters, D in km)
+   538→
+   539→This is applied to height difference:
+   540→  ΔH_corrected = SD × sin(VA) + (1 - k) / (2R) × D²
+   541→
+   542→Where:
+   543→  k = coefficient of refraction (0.13 for Kenya, 0.14 temperate)
+   544→  R = mean radius of Earth at latitude = 6370 km (equatorial) to 6357 km (polar)
+   545→  R at Kenya latitude (0°-1°S) ≈ 6378 km (close to equatorial)
+   546→  D = horizontal distance in km
+   547→  
+   548→Combined formula:
+   549→  ΔH = SD × sin(VA) + (ih - th) + C&R
+   550→  Where C&R = (1 - k) / (2R) × D²
+   551→  = (1 - 0.13) / (2 × 6378000) × D²
+   552→  = 0.0675 × D²  (D in km, result in meters)
+   553→```
+   554→
+   555→**Implementation requirements**:
+   556→- Accept slope distance, vertical angle, instrument height, target height
+   557→- Use latitude-dependent Earth radius (WGS84 ellipsoid)
+   558→- Configurable refraction coefficient (default 0.13 for Kenya)
+   559→- Return corrected height difference with C&R component separately
+   560→- Flag observations where C&R > 10mm (recommendation: apply for all lines >200m)
+   561→
+   562→### 4.3 Grid Scale Factor
+   563→
+   564→**File**: `src/lib/survey/corrections/grid-scale-factor.ts`
+   565→
+   566→**Formula** (UTM):
+   567→```
+   568→Point scale factor at latitude φ, longitude λ:
+   569→  k = k0 × [1 + (λ - λ0)² / 2 × cos²(φ) × (1 + e'² × cos²(φ) + ...)]
+   570→
+   571→Simplified (sufficient for 2nd order):
+   572→  k = k0 × (1 + E'² / (2 × Rm²))
+   573→
+   574→Where:
+   575→  k0 = 0.9996 (UTM central scale factor)
+   576→  E' = easting from central meridian = E - 500000
+   577→  Rm = mean radius of curvature at latitude φ
+   578→  Rm = √(ρ × ν)
+   579→  ρ = a(1 - e²) / (1 - e² × sin²(φ))^(3/2)  (meridional radius)
+   580→  ν = a / √(1 - e² × sin²(φ))                (prime vertical radius)
+   581→  
+   582→For WGS84/Arc 1960:
+   583→  a = 6378137.0 m (semi-major axis)
+   584→  f = 1/298.257223563
+   585→  e² = 2f - f² = 0.00669437999014
+   586→
+   587→For Cassini-Soldner (Kenya cadastral):
+   588→  k = 1 + E'² / (2 × Rm²)  (no k0 central factor)
+   589→```
+   590→
+   591→**Implementation requirements**:
+   592→- Support both UTM (Zone 36S, 37S) and Cassini-Soldner projections
+   593→- Compute point scale factor from UTM easting/northing
+   594→- Compute line scale factor (average of endpoints or Simpson's rule)
+   595→- Include arc-to-chord correction for grid bearings
+   596→- Return scale factor, corrected distance, and convergence angle
+   597→
+   598→### 4.4 Sea Level / Ellipsoid Reduction
+   599→
+   600→**File**: `src/lib/survey/corrections/sea-level-reduction.ts`
+   601→
+   602→**Formula**:
+   603→```
+   604→Reduced distance = Measured distance × R / (R + h)
+   605→
+   606→Where:
+   607→  R = mean radius of Earth at latitude (use same Rm as grid scale factor)
+   608→  h = mean height of the measured line above the ellipsoid
+   609→
+   610→For Kenya:
+   611→  h_ellipsoid ≈ h_orthometric + N (geoid height)
+   612→  N (geoid undulation) for Kenya ≈ -10 to -20m (varies by location)
+   613→  h_orthometric from leveling ≈ 0-5000m (most work at 1000-2500m)
+   614→```
+   615→
+   616→**Implementation requirements**:
+   617→- Accept measured distance and mean height of line
+   618→- Optional geoid undulation input (default Kenya EGM96 values)
+   619→- Apply reduction before grid scale factor
+   620→- Full reduction chain: slope → horizontal → sea level → grid
+   621→- Return each stage separately for audit trail
+   622→
+   623→### 4.5 Unified Correction Pipeline
+   624→
+   625→**File**: `src/lib/survey/pipeline/correction-pipeline.ts`
+   626→
+   627→**Processing order** (this order matters!):
+   628→```
+   629→1. EDM Instrument Constant     → Add constant to raw distance
+   630→2. Atmospheric Correction       → Correct raw slope distance for temp/pressure/humidity
+   631→3. Slope Reduction              → Convert slope distance to horizontal distance
+   632→4. Curvature & Refraction       → Correct height difference for C&R
+   633→5. Sea Level Reduction          → Reduce horizontal distance to ellipsoid
+   634→6. Grid Scale Factor            → Scale ellipsoid distance to grid distance
+   635→7. Grid Convergence             → Correct bearings for projection convergence
+   636→```
+   637→
+   638→Each stage must:
+   639→- Input: observation + previous stage output
+   640→- Output: corrected value + correction component + uncertainty contribution
+   641→- Log: what was applied, input values, output values
+   642→- Flag: if any correction exceeds configurable thresholds
+   643→
+   644→---
+   645→
+   646→## 5. P1: Traverse Engine & Error Propagation
+   647→
+   648→### 5.1 Traverse Engine
+   649→
+   650→**File**: `src/lib/survey/traverse/engine.ts`
+   651→
+   652→**Implementation**:
+   653→1. Accept raw observations (angles + distances) + control points
+   654→2. Run through correction pipeline (all P0 corrections)
+   655→3. Compute preliminary coordinates
+   656→4. Compute misclosure (angular + linear)
+   657→5. Evaluate misclosure ratio against required order
+   658→6. Apply adjustment (Bowditch for 3rd/4th order, Least Squares for 1st/2nd)
+   659→7. Compute adjusted coordinates with uncertainties
+   660→8. Generate computation sheet data
+   661→
+   662→### 5.2 Error Propagation Engine
+   663→
+   664→**File**: `src/lib/survey/error-propagation/engine.ts`
+   665→
+   666→**Methods**:
+   667→1. **Variance propagation**: For any function f(x₁, x₂, ..., xₙ):
+   668→   σ²_f = Σ(∂f/∂xᵢ)² × σ²_xᵢ + 2 × Σ(∂f/∂xᵢ)(∂f/∂xⱼ) × σ_xᵢxⱼ
+   669→
+   670→2. **Covariance matrix**: Full variance-covariance matrix from least squares
+   671→
+   672→3. **Error ellipse**: From covariance matrix sub-matrix:
+   673→   - Semi-major: a = σ₀√(0.5 × (σ²_E + σ²_N + √((σ²_E - σ²_N)² + 4σ²_EN)))
+   674→   - Semi-minor: b = σ₀√(0.5 × (σ²_E + σ²_N - √((σ²_E - σ²_N)² + 4σ²_EN)))
+   675→   - Orientation: θ = 0.5 × atan2(2σ_EN, σ²_E - σ²_N)
+   676→
+   677→4. **Reliability**: Redundancy numbers, internal/external reliability
+   678→
+   679→### 5.3 Least Squares Adjustment
+   680→
+   681→**File**: `src/lib/survey/traverse/least-squares.ts`
+   682→
+   683→**Method**: Variation of coordinates (parametric adjustment)
+   684→- Design matrix A from observation equations
+   685→- Weight matrix P from a priori standard deviations
+   686→- Normal equations: N = AᵀPA, solution: δx = N⁻¹AᵀPl
+   687→- A posteriori variance factor: σ̂₀² = vᵀPv / (n - u)
+   688→- Covariance matrix: C_xx = σ̂₀² × N⁻¹
+   689→- Statistical tests: Chi-square test on σ̂₀², local test on residuals
+   690→
+   691→---
+   692→
+   693→## 6. P1: Document Generation (Vector PDF)
+   694→
+   695→### 6.1 PDF Engine
+   696→
+   697→**File**: `src/lib/documents/pdf-engine.ts`
+   698→
+   699→**Requirements**:
+   700→- Use `pdfkit` for server-side vector PDF generation
+   701→- All lines, arcs, text as vector paths (no raster)
+   702→- Proper line weights in mm (0.1mm, 0.15mm, 0.3mm, 0.5mm)
+   703→- Text sizes in mm cap height
+   704→- Kenya standard fonts (required: Helvetica or Arial)
+   705→- PDF/A-1b compliance (archival standard)
+   706→- Embedded metadata (surveyor, license, date, project)
+   707→
+   708→### 6.2 Deed Plan Generator
+   709→
+   710→**File**: `src/lib/documents/deed-plan/generator.ts`
+   711→
+   712→**Kenya Deed Plan Standards**:
+   713→- Paper size: A1 (594 × 841mm) or A2
+   714→- Scale: 1:500, 1:1000, 1:2500
+   715→- Line weights: Boundary = 0.5mm, Plot = 0.3mm, Dimension = 0.15mm, Grid = 0.1mm
+   716→- Coordinate grid: UTM ticks at 100m intervals with labels
+   717→- Title block: Bottom right, LR No., Area, Scale, Surveyor, License, Date, County
+   718→- North arrow: With convergence angle notation
+   719→- Legend: Beacon types, boundary types
+   720→- Scale bar: Graphical + representative fraction
+   721→
+   722→### 6.3 Map Quality Standards
+   723→
+   724→| Feature | Standard | Implementation |
+   725→|---------|----------|---------------|
+   726→| Beacon symbol | Cross in circle with type | Vector symbol, 3mm diameter |
+   727→| Boundary lines | Weighted by type | Scheme=0.5mm, Parcel=0.3mm |
+   728→| Coordinate grid | UTM ticks + labels | 100m intervals, 2mm ticks |
+   729→| North arrow | With convergence | Survey standard symbol |
+   730→| Contour lines | Index + intermediate | Index=0.5mm, Inter=0.15mm |
+   731→| Title block | Bottom right | Standard Kenya format |
+   732→| Scale bar | Graphical + ratio | Verified accuracy ±0.5mm |
+   733→
+   734→---
+   735→
+   736→## 7. Database Load Reduction Strategy
+   737→
+   738→### 7.1 Offline-First Architecture
+   739→
+   740→```
+   741→CLIENT (Field)                    SERVER (Office)
+   742→─────────────                     ──────────────
+   743→IndexedDB ←──── Sync API ────→ PostgreSQL
+   744→(All field work)   (Batch)       (Computation & docs)
+   745→```
+   746→
+   747→- **All field data collection happens offline** — IndexedDB stores observations
+   748→- **Sync only when connected** — batch upload at end of day
+   749→- **Server does heavy computation** — traverse adjustment, document generation
+   750→- **Results cached** — adjusted coordinates stored both client and server
+   751→
+   752→### 7.2 Caching Strategy
+   753→
+   754→| Data Type | Cache Location | TTL | Invalidation |
+   755→|-----------|---------------|-----|-------------|
+   756→| Coordinate system params | In-memory LRU | 24h | On parameter update |
+   757→| Datum transformation params | In-memory LRU | 24h | On update |
+   758→| Project metadata | In-memory LRU | 5min | On project update |
+   759→| Survey computation results | Redis | 1h | On re-computation |
+   760→| Generated documents | File system | Permanent | On regeneration |
+   761→| User session data | Redis | 30min | On logout |
+   762→| Reference data (beacons, control) | In-memory LRU | 1h | On update |
+   763→
+   764→### 7.3 Query Optimization
+   765→
+   766→1. **Connection Pooling**: PgBouncer in transaction mode
+   767→   - Max server connections: 50
+   768→   - Max client connections: 500
+   769→   - Reserve pool: 5 (for admin)
+   770→
+   771→2. **Prepared Statements**: For all frequently-used queries
+   772→
+   773→3. **Batch Operations**:
+   774→   - Field sync: Single INSERT with array of observations
+   775→   - Coordinate updates: UNNEST-based bulk update
+   776→   - Document generation: Queue with BullMQ + Redis
+   777→
+   778→4. **Read-Heavy Query Offloading**:
+   779→   - Project listing → Materialized view, refresh on change
+   780→   - Coordinate queries → PostGIS spatial index
+   781→   - Document listing → Separate read-only connection
+   782→
+   783→5. **Write Optimization**:
+   784→   - Observation sync → COPY protocol for bulk inserts
+   785→   - Audit log → Async insert via queue (don't block main query)
+   786→   - Status updates → Optimistic concurrency with version field
+   787→
+   788→### 7.4 Heavy Computation Offloading
+   789→
+   790→```
+   791→┌──────────┐     ┌──────────┐     ┌──────────────┐
+   792→│  Next.js │────→│  BullMQ  │────→│  Worker      │
+   793→│  API     │     │  Queue   │     │  (Python/TS) │
+   794→│  (fast)  │     │  + Redis │     │  (compute)   │
+   795→└──────────┘     └──────────┘     └──────────────┘
+   796→     ↑                                   │
+   797→     └───────── Result via DB ───────────┘
+   798→```
+   799→
+   800→- **Traverse adjustment** → Queue, compute async, poll for result
+   801→- **Document generation** → Queue, compute async, download when ready
+   802→- **Area computation** → Fast enough for inline (<100ms)
+   803→- **COGO** → Fast enough for inline (<50ms)
+   804→
+   805→### 7.5 Database Schema Optimization
+   806→
+   807→- **Partitioning**: `Observation` table by month (for large projects)
+   808→- **Partial indexes**: `WHERE status = 'ACTIVE'` for project listing
+   809→- **JSONB GIN indexes**: On `correctionsLog`, `correctionParams`
+   810→- **Covering indexes**: Include frequently-accessed columns in index
+   811→- **VACUUM**: Auto-vacuum tuned for write-heavy observation tables
+   812→
+   813→---
+   814→
+   815→## 8. P2: Map Rendering & Cartography
+   816→
+   817→### 8.1 Server-Side Map Rendering
+   818→
+   819→**Technology**: MapLibre Native + Mapnik (via Node.js bindings)
+   820→
+   821→**Pipeline**:
+   822→1. Receive map specification (extent, scale, layers, symbology)
+   823→2. Render vector layers server-side at required DPI
+   824→3. Composite with raster layers (aerial photos)
+   825→4. Output as PDF (vector) or high-DPI PNG (raster fallback)
+   826→5. Add title block, grid, legend, scale bar
+   827→
+   828→### 8.2 Kenya Standard Symbology
+   829→
+   830→**File**: `src/lib/documents/deed-plan/symbology.ts`
+   831→
+   832→All symbols defined as SVG paths for vector rendering:
+   833→- Beacon types: Cross in circle, triangle in circle, square in circle
+   834→- Boundary types: Solid, dashed, dot-dash (by ownership type)
+   835→- Vegetation: Tree, hedge, fence symbols
+   836→- Water: Blue line, blue fill patterns
+   837→- Buildings: Hatched fill, solid outline
+   838→- Contours: Brown, index bold, intermediate thin
+   839→
+   840→---
+   841→
+   842→## 9. P3: Advanced Features
+   843→
+   844→### 9.1 Deflection of Vertical Correction
+   845→- For 1st order astronomical observations
+   846→- Requires geoid model (EGM96 or Kenya local geoid)
+   847→- Applies Laplace correction to azimuths
+   848→
+   849→### 9.2 Geoid Model Integration
+   850→- EGM96 or EGM2008 for Kenya
+   851→- Interpolation of geoid undulation at any point
+   852→- Converts GPS ellipsoidal heights to orthometric heights
+   853→
+   854→### 9.3 Digital Signature
+   855→- PDF digital signature placeholder
+   856→- PKI integration for document authentication
+   857→- Timestamp authority integration
+   858→
+   859→---
+   860→
+   861→## 10. Build Order & Dependencies
+   862→
+   863→```
+   864→Phase 1 — Foundation (Week 1-2)
+   865→├── 1.1 Initialize Next.js project with TypeScript
+   866→├── 1.2 Set up Prisma with PostgreSQL
+   867→├── 1.3 Create database schema & migrations
+   868→├── 1.4 Build correction modules (P0)
+   869→│   ├── 1.4.1 atmospheric.ts
+   870→│   ├── 1.4.2 curvature-refraction.ts
+   871→│   ├── 1.4.3 grid-scale-factor.ts
+   872→│   ├── 1.4.4 sea-level-reduction.ts
+   873→│   ├── 1.4.5 slope-reduction.ts
+   874→│   └── 1.4.6 correction-pipeline.ts (unified)
+   875→├── 1.5 Write comprehensive tests for all corrections
+   876→└── 1.6 Build in-memory cache layer
+   877→
+   878→Phase 2 — Computation Engine (Week 3-4)
+   879→├── 2.1 Traverse engine (bowditch + least squares)
+   880→├── 2.2 Error propagation engine
+   881→├── 2.3 Error ellipse computation
+   882→├── 2.4 COGO engine
+   883→├── 2.5 Area computation (Shoelace + radial)
+   884→├── 2.6 Curve calculations (circular + transition + vertical)
+   885→├── 2.7 Coordinate transformations (Arc 1960 ↔ WGS84)
+   886→├── 2.8 Projection handling (UTM + Cassini-Soldner)
+   887→└── 2.9 Tests for all computation modules
+   888→
+   889→Phase 3 — Database & API (Week 5-6)
+   890→├── 3.1 API routes for survey operations
+   891→├── 3.2 Batch sync API for offline data
+   892→├── 3.3 Query optimization & connection pooling
+   893→├── 3.4 BullMQ job queue for heavy computation
+   894→├── 3.5 Redis caching layer
+   895→├── 3.6 Audit trail implementation
+   896→└── 3.7 API integration tests
+   897→
+   898→Phase 4 — Document Generation (Week 7-8)
+   899→├── 4.1 PDF engine (pdfkit vector rendering)
+   900→├── 4.2 Deed plan generator with Kenya standards
+   901→├── 4.3 Title block template
+   902→├── 4.4 Coordinate grid & tick marks
+   903→├── 4.5 Kenya standard symbology (SVG)
+   904→├── 4.6 Scale verification test
+   905→├── 4.7 PDF/A-1b compliance
+   906→├── 4.8 Form C-22 template
+   907→├── 4.9 Beacon certificate template
+   908→└── 4.10 Traverse computation sheet
+   909→
+   910→Phase 5 — Map & Cartography (Week 9-10)
+   911→├── 5.1 Server-side map rendering setup
+   912→├── 5.2 Mapnik/MapLibre integration
+   913→├── 5.3 Professional cartographic output
+   914→├── 5.4 A1/A0 print at 600 DPI
+   915→└── 5.5 Map quality verification
+   916→
+   917→Phase 6 — Polish & Integration (Week 11-12)
+   918→├── 6.1 UI components for field data collection
+   919→├── 6.2 Map viewer integration
+   920→├── 6.3 Document preview & download
+   921→├── 6.4 Offline sync UI
+   922→├── 6.5 End-to-end testing
+   923→└── 6.6 Performance testing & optimization
+   924→```
+   925→
+   926→---
+   927→
+   928→## 11. Testing Strategy
+   929→
+   930→### 11.1 Unit Tests (per module)
+   931→- Each correction: known input → expected output
+   932→- Traverse: Known traverse with published results
+   933→- COGO: Standard bearing/distance problems with known answers
+   934→- Area: Regular polygons with known areas
+   935→- Error propagation: Simple functions with analytically derivable variances
+   936→
+   937→### 11.2 Integration Tests
+   938→- Full correction pipeline: raw observations → corrected coordinates
+   939→- Traverse: Raw observations → adjusted coordinates → error ellipses
+   940→- Document: Coordinates → PDF → verify scale accuracy
+   941→
+   942→### 11.3 Validation Datasets
+   943→- **Kenya Survey Department test traverse**: Published coordinates for verification
+   944→- **UTM Zone 37S test points**: Known scale factors and convergences
+   945→- **Nairobi altitude tests**: Sea level reduction at ~1700m elevation
+   946→- **Reference atmospheric conditions**: Standard, Nairobi, Mombasa
+   947→
+   948→### 11.4 Accuracy Benchmarks
+   949→
+   950→| Computation | Required Accuracy | Test Method |
+   951→|-------------|------------------|-------------|
+   952→| Atmospheric correction | ±0.1 ppm | Compare with NGA formula |
+   953→| C&R correction | ±1mm at 1km | Compare with published tables |
+   954→| Grid scale factor | ±1 ppm | Compare with NGA/NGS values |
+   955→| Sea level reduction | ±1 ppm | Compare with published formula |
+   956→| Traverse closure | 1:100,000 (1st order) | Test traverse |
+   957→| Area computation | ±0.001 m² | Regular polygon test |
+   958→| Coordinate transform | ±10mm | Known Arc 1960 ↔ WGS84 points |
+   959→| Deed plan plotting | ±0.5mm on paper | Scale verification |
+   960→
+   961→---
+   962→
+   963→## 12. Accuracy Verification Protocol
+   964→
+   965→### 12.1 Self-Check After Each Computation
+   966→1. Misclosure ratio must meet or exceed required order
+   967→2. All corrections must be within expected ranges
+   968→3. Error ellipses must be reasonable (not >10cm for cadastral)
+   969→4. A posteriori variance factor must pass Chi-square test (95% confidence)
+   970→
+   971→### 12.2 Scale Verification for Printed Documents
+   972→1. After generating PDF, programmatically measure key distances
+   973→2. Compare measured distance × scale = ground distance
+   974→3. Tolerance: ±0.5mm on paper at declared scale
+   975→4. Auto-fail document if scale verification fails
+   976→
+   977→### 12.3 Cadastral 100% Accuracy Requirements
+   978→
+   979→To achieve 100% cadastral accuracy (every deed plan passes Ardhi House scrutiny):
+   980→
+   981→1. **All P0 corrections applied** — eliminates 600-700 ppm systematic error
+   982→2. **Least squares adjustment** — provides statistically optimal coordinates
+   983→3. **Error ellipses computed** — proves reliability of positions
+   984→4. **Vector PDF with correct line weights** — professional cartographic quality
+   985→5. **Kenya standard title block** — meets formatting requirements
+   986→6. **Coordinate grid with ticks** — required for plan acceptance
+   987→7. **Scale verification** — guarantees plotting accuracy
+   988→8. **Full audit trail** — every correction logged, every computation reproducible
+   989→9. **PDF/A archival** — document integrity guaranteed
+   990→10. **Checksum on documents** — tamper detection
+   991→
+   992→---
+   993→
+   994→## Appendix A: Kenya-Specific Parameters
+   995→
+   996→```
+   997→Kenya Survey Reference Data:
+   998→─────────────────────────────
+   999→Datum: Arc 1960 (Clarke 1880 modified ellipsoid)
+  1000→  Semi-major axis (a): 6378249.145 m
+  1001→  Flattening (f): 1/293.465
+  1002→
+  1003→Transformation Arc 1960 → WGS84:
+  1004→  ΔX = -157 m
+  1005→  ΔY = -2 m  
+  1006→  ΔZ = -291 m
+  1007→(7-parameter Helmert, Kenya national parameters)
+  1008→
+  1009→UTM Zones:
+  1010→  Zone 36S: Central meridian 33°E (western Kenya)
+  1011→  Zone 37S: Central meridian 39°E (central/eastern Kenya)
+  1012→
+  1013→Cassini-Soldner (for cadastral):
+  1014→  Origin latitude: 0° (equator)
+  1015→  Origin longitude: varies by local system
+  1016→  False easting: varies
+  1017→  False northing: 0
+  1018→
+  1019→Refraction coefficient:
+  1020→  Kenya (tropical): k = 0.13 (daytime)
+  1021→  Kenya (night): k = 0.16
+  1022→
+  1023→Geoid undulation (N):
+  1024→  Nairobi: approximately -10 to -15 m
+  1025→  Mombasa: approximately -5 to -10 m
+  1026→  (Use EGM96 or EGM2008 model for precise values)
+  1027→
+  1028→Atmospheric conditions (typical):
+  1029→  Nairobi (1700m): T=20°C, P=830 hPa, RH=60%
+  1030→  Mombasa (50m): T=30°C, P=1010 hPa, RH=75%
+  1031→  Kisumu (1130m): T=24°C, P=880 hPa, RH=65%
+  1032→```
+  1033→
+  1034→---
+  1035→
+  1036→## Appendix B: NPM Dependencies
+  1037→
+  1038→```json
+  1039→{
+  1040→  "dependencies": {
+  1041→    "next": "^16.0.0",
+  1042→    "react": "^19.0.0",
+  1043→    "prisma": "^6.0.0",
+  1044→    "@prisma/client": "^6.0.0",
+  1045→    "pdfkit": "^0.15.0",
+  1046→    "proj4": "^2.11.0",
+  1047→    "bullmq": "^5.0.0",
+  1048→    "ioredis": "^5.0.0",
+  1049→    "zod": "^3.22.0"
+  1050→  },
+  1051→  "devDependencies": {
+  1052→    "typescript": "^5.5.0",
+  1053→    "vitest": "^2.0.0",
+  1054→    "@types/node": "^20.0.0",
+  1055→    "@types/pdfkit": "^0.13.0"
+  1056→  }
+  1057→}
+  1058→```
+  1059→
+  1060→---
+  1061→
+  1062→*This plan is designed to be self-contained — any developer or AI agent can pick it up and continue building from any phase.*
+  1063→
