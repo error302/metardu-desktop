@@ -109,5 +109,16 @@ export { exportLitchiCsv, type LitchiCsvOptions } from "./flight-planning/export
 export { exportSenseflyXml, type SenseflyXmlOptions } from "./flight-planning/export/sensefly-xml.js";
 export { exportKml, type KmlOptions } from "./flight-planning/export/generic-kml.js";
 
+// Mission import (unified entry point)
+export {
+  importMission,
+  importArduPilotWaypoints,
+  importLitchiCsv,
+  importSenseflyXml,
+  importKml,
+  importDjiKmz,
+  type MissionImportFormat,
+} from "./flight-planning/import/index.js";
+
 // Version
 export const ENGINE_VERSION = "0.1.0";
