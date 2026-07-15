@@ -133,5 +133,175 @@ export {
   type MissionImportFormat,
 } from "./flight-planning/import/index.js";
 
+// ═══ Surveying modules ═══
+
+// Real-time stakeout
+export {
+  createStakeoutSession,
+  StakeoutSession,
+  DEFAULT_TOLERANCE,
+  KENYA_TOLERANCE_PRESETS,
+  type DesignPoint,
+  type RoverPosition,
+  type StakeoutTolerance,
+  type StakeoutGuidance,
+  type StakeoutStatus,
+} from "./surveying/stakeout.js";
+
+// Site calibration
+export {
+  computeCalibration,
+  wgs84ToLocal,
+  localToWgs84,
+  type CalibrationPoint,
+  type CalibrationResult,
+} from "./surveying/site-calibration.js";
+
+// Error ellipses
+export {
+  computeErrorEllipse,
+  computePointErrors,
+  chiSquareScale2D,
+  renderErrorEllipsesSvg,
+  ELLIPSE_TOLERANCE_PRESETS,
+  type Covariance2D,
+  type ErrorEllipse,
+  type PointWithError,
+} from "./surveying/error-ellipse.js";
+
+// Leveling
+export {
+  computeRiseAndFall,
+  computeHeightOfCollimation,
+  twoPegTest,
+  parseLevelCsv,
+  adjustLevelNetwork,
+  type LevelObservation,
+  type LevelLine,
+  type TwoPegTestResult,
+} from "./surveying/leveling.js";
+
+// Road alignment
+export {
+  centerlineAtChainage,
+  offsetPoint,
+  generateStakeoutTable,
+  elevationAtChainage,
+  type HAlignElement,
+  type CenterlinePoint,
+  type StakeoutPoint,
+} from "./surveying/road-alignment.js";
+
+// Feature coding
+export {
+  FEATURE_CODES,
+  FEATURE_CODE_MAP,
+  fieldToFinish,
+  generateDxfLayerTable,
+  type FeatureCode,
+  type CodedPoint,
+  type ProcessedFeature,
+} from "./surveying/feature-coding.js";
+
+// Cross-section
+export {
+  computeSectionArea,
+  recordCrossSection,
+  applyDesignTemplate,
+  endAreaVolume,
+  totalEarthworkVolume,
+  renderCrossSectionSvg,
+  type CrossSection,
+  type CrossSectionPoint,
+  type CrossSectionArea,
+} from "./surveying/cross-section.js";
+
+// As-built comparison
+export {
+  comparePoints,
+  renderComparisonSvg,
+  DEFAULT_COMPARISON_TOLERANCE,
+  type PointComparison,
+  type ComparisonSummary,
+  type ComparisonTolerance,
+} from "./surveying/as-built.js";
+
+// Survey report
+export {
+  generateSurveyReport,
+  rdmComplianceTemplate,
+  type SurveyReportInput,
+  type SurveyReport,
+  type ComplianceCheck,
+} from "./surveying/survey-report.js";
+
+// Total station
+export {
+  averageFaceMeasurements,
+  reduceMeasurement,
+  simulateMeasurementSequence,
+  INSTRUMENT_PRESETS,
+  type TotalStationConfig,
+  type TotalStationMeasurement,
+  type AveragedMeasurement,
+  type InstrumentErrors,
+} from "./surveying/total-station.js";
+
+// Map sheets
+export {
+  findKenyaMapSheet,
+  findMapSheet,
+  findSheetByName,
+  SOK_SHEET_REGISTRY,
+  type MapSheet,
+} from "./surveying/map-sheets.js";
+
+// Cloud sync
+export {
+  SyncQueue,
+  computePatch,
+  applyPatch,
+  type SyncConfig,
+  type SyncResult,
+  type SyncQueueEntry,
+  type JsonPatchOp,
+} from "./surveying/cloud-sync.js";
+
+// ═══ Geodesy modules ═══
+
+// Geoid model
+export {
+  egm2008Approximate,
+  convertHeight,
+  ellipsoidalToOrthometric,
+  orthometricToEllipsoidal,
+  GEOID_MODELS,
+  KENYA_GEOID_VALUES,
+  type GeoidModel,
+  type GeoidGrid,
+} from "./geodesy/geoid.js";
+
+// CRS database
+export {
+  CRS_DATABASE,
+  findCrsForLocation,
+  getCrsByEpsg,
+  listSupportedCountries,
+  type CrsDefinition,
+} from "./geodesy/crs-database.js";
+
+// ═══ LULC workflow ═══
+export {
+  runLulcWorkflow,
+  ESRIC_LULC_CLASSES,
+  reclassifyRaster,
+  calculateClassAreas,
+  generateBarChartSvg,
+  generatePieChartSvg,
+  generatePrintLayoutSvg,
+  type LulcClass,
+  type ClassAreaStats,
+} from "./flight-planning/lulc.js";
+
 // Version
-export const ENGINE_VERSION = "0.1.0";
+export const ENGINE_VERSION = "2.0.0";

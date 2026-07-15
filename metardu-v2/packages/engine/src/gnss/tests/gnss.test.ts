@@ -44,7 +44,7 @@ import {
   arc1960ToWgs84,
   helmertTransform,
   type Satellite,
-} from "../../index.js";
+} from "../index.js";
 
 // Helper: strip checksum from NMEA sentences (so we don't need to compute it)
 function noChecksum(s: string): string {
