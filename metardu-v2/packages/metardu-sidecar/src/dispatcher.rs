@@ -160,12 +160,18 @@ impl Dispatcher {
             crate::odm::handle_odm_process(params).await
         });
 
-        // ---- Phase 3 placeholders ----
+        // ---- Phase 3: ML feature extraction (ONNX Runtime) ----
 
-        self.register("ml_extract_buildings", |_params: Value| async move {
-            Err(HandlerError::NotImplemented(
-                "ONNX Runtime ML pipeline lands in Phase 3".into(),
-            ))
+        self.register("ml_extract_buildings", |params: Value| async move {
+            crate::ml::handle_ml_extract_buildings(params).await
+        });
+
+        self.register("ml_extract_roads", |params: Value| async move {
+            crate::ml::handle_ml_extract_roads(params).await
+        });
+
+        self.register("ml_extract_changes", |params: Value| async move {
+            crate::ml::handle_ml_extract_changes(params).await
         });
 
         // ---- GDAL contour generation (Phase 1 Month 2 — IMPLEMENTED) ----

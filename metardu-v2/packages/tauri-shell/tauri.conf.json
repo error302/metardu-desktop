@@ -1,0 +1,58 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicehash/tauri/dev/crates/tauri-config-schema/schema.json",
+  "productName": "MetaRDU Desktop",
+  "version": "2.0.0",
+  "identifier": "com.metardu.desktop",
+  "build": {
+    "frontendDist": "../desktop-frontend/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "cd ../desktop-frontend && npm run dev",
+    "beforeBuildCommand": "cd ../desktop-frontend && npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "MetaRDU Desktop v2.0",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://server.arcgisonline.com; connect-src 'self' ipc: http://ipc.localhost https://ntrip.data.gnss.ga.gov.au; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/*"
+    ],
+    "externalBin": [],
+    "copyright": "© 2026 error302",
+    "category": "DeveloperTool",
+    "shortDescription": "Production-grade drone survey workstation",
+    "longDescription": "MetaRDU Desktop v2.0 — flight planning, live drone operations, in-app photogrammetry, and statutory survey deliverables for the Kenyan surveying industry."
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/error302/metardu-desktop/releases/latest/download/latest.json"
+      ],
+      "dialog": true,
+      "pubkey": ""
+    }
+  }
+}

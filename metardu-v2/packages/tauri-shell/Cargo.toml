@@ -1,0 +1,51 @@
+[package]
+name = "metardu-tauri"
+version = "0.1.0"
+description = "Tauri 2.x shell for MetaRDU Desktop v2.0 — replaces the Electron shell with a 10x smaller binary"
+edition = "2021"
+license = "MIT"
+authors = ["error302"]
+repository = "https://github.com/error302/metardu-desktop"
+
+[lib]
+name = "metardu_tauri_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Re-use the sidecar modules (absorbed into the Tauri binary)
+# In Tauri, the sidecar is NOT a separate process — it's compiled into the main binary
+# This is the key architectural advantage: no IPC protocol needed, direct function calls
+
+# The following are the same dependencies as the sidecar:
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+thiserror = "1"
+
+# GDAL (optional, same as sidecar)
+gdal = { version = "0.17", optional = true, features = ["bindgen"] }
+geojson = { version = "0.24", optional = true }
+
+[features]
+default = ["gdal-bindings"]
+gdal-bindings = ["dep:gdal", "dep:geojson"]
+shell-out = []
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

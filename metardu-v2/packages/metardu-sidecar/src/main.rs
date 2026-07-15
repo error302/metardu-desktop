@@ -9,6 +9,7 @@
 mod dispatcher;
 mod gdal;
 mod mavsdk;
+mod ml;
 mod odm;
 mod protocol;
 

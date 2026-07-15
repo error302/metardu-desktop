@@ -1,0 +1,27 @@
+{
+  "name": "@metardu/electron-bridge",
+  "version": "0.1.0",
+  "description": "Drop-in replacement files for metardu-desktop Electron app — wires the v2.0 Rust sidecar + flight planning engine into the existing v1.0 shell",
+  "license": "MIT",
+  "author": "error302",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@metardu/electron-integration": "workspace:*",
+    "@metardu/engine-flight-planning": "workspace:*",
+    "@metardu/ipc-schemas": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
