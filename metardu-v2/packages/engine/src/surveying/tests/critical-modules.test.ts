@@ -289,7 +289,7 @@ describe("Error Ellipse", () => {
 describe("CRS Database", () => {
   it("should have 11 countries", () => {
     const countries = listSupportedCountries();
-    expect(countries.length).toBe(11);
+    expect(countries.length).toBe(12);
   });
 
   it("should find CRS for Nairobi (Kenya UTM 37S)", () => {
@@ -347,5 +347,24 @@ describe("CRS Database", () => {
 
   it("Kenya should have 3 CRS (2 UTM + 1 Cassini)", () => {
     expect(CRS_DATABASE.KEN.length).toBe(3);
+  });
+});
+
+describe("South Africa CRS", () => {
+  it("should find CRS for Johannesburg (Lo29)", () => {
+    const crs = findCrsForLocation(-26.2041, 28.0473);
+    expect(crs).not.toBeNull();
+    expect(crs!.datum).toBe("Hartebeesthoek94");
+    expect(crs!.centralMeridian).toBe(29);
+  });
+
+  it("should find CRS for Cape Town (Lo19)", () => {
+    const crs = findCrsForLocation(-33.9249, 18.4241);
+    expect(crs).not.toBeNull();
+    expect(crs!.centralMeridian).toBe(19);
+  });
+
+  it("should have 8 South African Lo zones", () => {
+    expect(CRS_DATABASE.ZAF.length).toBe(8);
   });
 });

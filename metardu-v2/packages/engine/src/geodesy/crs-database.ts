@@ -403,6 +403,131 @@ export const USA_CRS: CrsDefinition[] = [
   },
 ];
 
+// ─── South Africa CRS (Hartebeesthoek94) ──────────────────────────
+
+export const SOUTH_AFRICA_CRS: CrsDefinition[] = [
+  // Hartebeesthoek94 / Lo29 (Johannesburg/Pretoria — most populated area)
+  {
+    epsg: 2053,
+    name: "Hartebeesthoek94 / Lo29",
+    datum: "Hartebeesthoek94",
+    projection: "Transverse Mercator",
+    area: "South Africa — 28°E to 30°E (Gauteng: Johannesburg, Pretoria)",
+    bounds: [-35, 28, -22, 30],
+    centralMeridian: 29,
+    falseEasting: 0,
+    falseNorthing: 0,
+    scaleFactor: 1.0,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+  // Hartebeesthoek94 / Lo27 (Durban/KZN)
+  {
+    epsg: 2051,
+    name: "Hartebeesthoek94 / Lo27",
+    datum: "Hartebeesthoek94",
+    projection: "Transverse Mercator",
+    area: "South Africa — 26°E to 28°E (KwaZulu-Natal: Durban)",
+    bounds: [-35, 26, -22, 28],
+    centralMeridian: 27,
+    falseEasting: 0,
+    falseNorthing: 0,
+    scaleFactor: 1.0,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+  // Hartebeesthoek94 / Lo31 (Mpumalanga/Limpopo)
+  {
+    epsg: 2055,
+    name: "Hartebeesthoek94 / Lo31",
+    datum: "Hartebeesthoek94",
+    projection: "Transverse Mercator",
+    area: "South Africa — 30°E to 32°E (Mpumalanga, Limpopo)",
+    bounds: [-35, 30, -22, 32],
+    centralMeridian: 31,
+    falseEasting: 0,
+    falseNorthing: 0,
+    scaleFactor: 1.0,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+  // Hartebeesthoek94 / Lo19 (Western Cape: Cape Town)
+  {
+    epsg: 2046,
+    name: "Hartebeesthoek94 / Lo19",
+    datum: "Hartebeesthoek94",
+    projection: "Transverse Mercator",
+    area: "South Africa — 18°E to 20°E (Western Cape: Cape Town)",
+    bounds: [-35, 18, -22, 20],
+    centralMeridian: 19,
+    falseEasting: 0,
+    falseNorthing: 0,
+    scaleFactor: 1.0,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+  // Hartebeesthoek94 / Lo23 (Eastern Cape)
+  {
+    epsg: 2049,
+    name: "Hartebeesthoek94 / Lo23",
+    datum: "Hartebeesthoek94",
+    projection: "Transverse Mercator",
+    area: "South Africa — 22°E to 24°E (Eastern Cape: Gqeberha, East London)",
+    bounds: [-35, 22, -22, 24],
+    centralMeridian: 23,
+    falseEasting: 0,
+    falseNorthing: 0,
+    scaleFactor: 1.0,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+  // Hartebeesthoek94 / Lo25 (Free State: Bloemfontein)
+  {
+    epsg: 2050,
+    name: "Hartebeesthoek94 / Lo25",
+    datum: "Hartebeesthoek94",
+    projection: "Transverse Mercator",
+    area: "South Africa — 24°E to 26°E (Free State: Bloemfontein)",
+    bounds: [-35, 24, -22, 26],
+    centralMeridian: 25,
+    falseEasting: 0,
+    falseNorthing: 0,
+    scaleFactor: 1.0,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+  // Hartebeesthoek94 / Lo17 (Northern Cape West)
+  {
+    epsg: 2045,
+    name: "Hartebeesthoek94 / Lo17",
+    datum: "Hartebeesthoek94",
+    projection: "Transverse Mercator",
+    area: "South Africa — 16°E to 18°E (Northern Cape: Springbok)",
+    bounds: [-35, 16, -22, 18],
+    centralMeridian: 17,
+    falseEasting: 0,
+    falseNorthing: 0,
+    scaleFactor: 1.0,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+  // Hartebeesthoek94 / Lo33 (Eastern Mpumalanga/Kruger)
+  {
+    epsg: 2057,
+    name: "Hartebeesthoek94 / Lo33",
+    datum: "Hartebeesthoek94",
+    projection: "Transverse Mercator",
+    area: "South Africa — 32°E to 34°E (Kruger National Park area)",
+    bounds: [-35, 32, -22, 34],
+    centralMeridian: 33,
+    falseEasting: 0,
+    falseNorthing: 0,
+    scaleFactor: 1.0,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+];
+
 // ─── Master CRS database ───────────────────────────────────────────
 
 export const CRS_DATABASE: Record<string, CrsDefinition[]> = {
@@ -417,6 +542,7 @@ export const CRS_DATABASE: Record<string, CrsDefinition[]> = {
   ARE: UAE_CRS,
   GBR: UK_CRS,
   USA: USA_CRS,
+  ZAF: SOUTH_AFRICA_CRS,
 };
 
 /**
@@ -479,6 +605,7 @@ export function listSupportedCountries(): Array<{ iso3: string; name: string; cr
     KEN: "Kenya", TZA: "Tanzania", UGA: "Uganda", RWA: "Rwanda",
     BDI: "Burundi", ETH: "Ethiopia", SSD: "South Sudan",
     AUS: "Australia", ARE: "UAE", GBR: "United Kingdom", USA: "United States",
+    ZAF: "South Africa",
   };
   return Object.entries(CRS_DATABASE).map(([iso3, crsList]) => ({
     iso3,
