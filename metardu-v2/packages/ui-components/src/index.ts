@@ -35,3 +35,6 @@ export { StakeoutPanel } from "./panels/StakeoutPanel.js";
 export { GnssPanel } from "./panels/GnssPanel.js";
 export { DroneDashboard } from "./panels/DroneDashboard.js";
 export { AsBuiltPanel } from "./panels/AsBuiltPanel.js";
+export { LulcPanel } from "./panels/LulcPanel.js";
+export { CrossSectionPanel } from "./panels/CrossSectionPanel.js";
+export { AppShell } from "./panels/AppShell.js";

@@ -267,6 +267,24 @@ export {
   type JsonPatchOp,
 } from "./surveying/cloud-sync.js";
 
+// GNSS serial driver
+export {
+  GnssSerialDriver,
+  listGnssPorts,
+  RECEIVER_PRESETS as GNSS_RECEIVER_PRESETS,
+  type GnssConnectionConfig,
+  type GnssStreamData,
+} from "./surveying/gnss-serial-driver.js";
+
+// Total station serial driver
+export {
+  TotalStationSerialDriver,
+  listTotalStationPorts,
+  TS_RECEIVER_PRESETS,
+  type TotalStationConnectionConfig,
+  type TotalStationCommand,
+} from "./surveying/ts-serial-driver.js";
+
 // ═══ Geodesy modules ═══
 
 // Geoid model
