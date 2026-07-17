@@ -1,0 +1,11 @@
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { ErrorBoundary } from "./ErrorBoundary.js";
+import "../packages/ui-components/src/styles/metardu-theme.css";
+import "../packages/ui-components/src/styles/enterprise-layout.css";
+const loading = document.getElementById("loading");
+if (loading) loading.remove();
+const rootEl = document.getElementById("root");
+if (!rootEl) throw new Error("Root element #root not found");
+const root = createRoot(rootEl);
+root.render(<React.StrictMode><ErrorBoundary><div style={{display:"flex",height:"100vh",background:"#0a0a0a",color:"#2dd4bf",fontFamily:"monospace",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:"16px"}}><h1>MetaRDU Desktop v2.1</h1><p>App shell loading...</p></div></ErrorBoundary></React.StrictMode>);
