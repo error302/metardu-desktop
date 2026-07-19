@@ -1,0 +1,127 @@
+# MetaRDU Desktop — Continuous Integration.
+#
+# Runs on every push to main and on every PR. Verifies:
+#   - Sidecar (Rust) builds + tests pass on 3 platforms
+#   - Engine + country-config + ipc-schemas + electron-integration build + test
+#   - Electron main process compiles
+#   - Renderer (Vite) builds
+#   - Electron smoke test passes (Linux only — headless via Xvfb)
+#
+# Per AGENT.md §"Build gate" — a PR that breaks any cell in the matrix
+# is rejected. Per master plan Section 0 rule 6 — agent self-reports
+# are not evidence; this workflow IS the evidence.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─── Rust sidecar ────────────────────────────────────────────────
+  sidecar:
+    name: Sidecar (Rust) — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux deps
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgdal-dev libclang-dev clang
+      - name: Install macOS deps
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install gdal
+          echo "LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib" >> $GITHUB_ENV
+      - name: Build
+        working-directory: metardu-v2/packages/metardu-sidecar
+        run: cargo build --release
+      - name: Test
+        working-directory: metardu-v2/packages/metardu-sidecar
+        run: cargo test --release
+
+  # ─── TypeScript engine + packages ───────────────────────────────
+  typescript:
+    name: TypeScript — Node ${{ matrix.node }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: metardu-v2/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgdal-dev libclang-dev clang
+      - name: Install npm deps
+        working-directory: metardu-v2
+        run: npm install --no-audit --no-fund
+      - name: Build sidecar
+        working-directory: metardu-v2/packages/metardu-sidecar
+        env:
+          LIBCLANG_PATH: /usr/lib/llvm-14/lib
+        run: cargo build --release
+      - name: Build workspace packages
+        working-directory: metardu-v2
+        run: |
+          npm run build --workspace @metardu/country-config
+          npm run build --workspace @metardu/electron-integration
+          npm run build --workspace @metardu/ipc-schemas
+          npm run build --workspace @metardu/engine-flight-planning
+      - name: Type-check all packages
+        working-directory: metardu-v2
+        run: |
+          cd packages/engine && npx tsc --noEmit
+          cd ../country-config && npx tsc --noEmit
+          cd ../electron-integration && npx tsc --noEmit
+          cd ../ipc-schemas && npx tsc --noEmit
+          cd ../../apps/desktop && npx tsc --noEmit
+      - name: Test all packages
+        working-directory: metardu-v2
+        run: |
+          cd packages/engine && npx vitest run
+          cd ../country-config && npx vitest run
+          cd ../electron-integration && npx vitest run
+          cd ../ipc-schemas && npx vitest run
+          cd ../../tests && npx vitest run
+          cd ../apps/desktop && npx vitest run
+      - name: Build renderer
+        working-directory: metardu-v2
+        run: npx vite build
+      - name: Electron smoke test
+        working-directory: metardu-v2
+        run: |
+          # Install Xvfb for headless testing
+          sudo apt-get install -y xvfb
+          # Build the desktop main + preload
+          cd apps/desktop && npm run build
+          # Run the smoke test
+          Xvfb :99 -screen 0 1280x800x24 &
+          XVFB_PID=$!
+          sleep 1
+          DISPLAY=:99 timeout 15 ../node_modules/.bin/electron . \
+            --no-sandbox --disable-gpu --disable-dev-shm-usage > /tmp/smoke.log 2>&1 || true
+          kill $XVFB_PID 2>/dev/null || true
+          # Verify the sidecar reached running state
+          if grep -q "sidecar.*state.*running" /tmp/smoke.log; then
+            echo "✅ Smoke test PASSED"
+          else
+            echo "❌ Smoke test FAILED"
+            cat /tmp/smoke.log
+            exit 1
+          fi

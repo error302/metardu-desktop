@@ -4,6 +4,12 @@
   "description": "MetaRDU Desktop — Electron shell that hosts the React UI, spawns the Rust sidecar, and brokers IPC between renderer and sidecar.",
   "license": "MIT",
   "author": "error302",
+  "homepage": "https://github.com/error302/metardu-desktop",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/error302/metardu-desktop.git",
+    "directory": "metardu-v2/apps/desktop"
+  },
   "type": "module",
   "main": "./dist/main/index.js",
   "scripts": {
@@ -12,7 +18,12 @@
     "start": "electron .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist release",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
   },
   "dependencies": {
     "@metardu/electron-integration": "*",
@@ -20,7 +31,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "electron": "^33.0.0",
+    "electron": "33.4.11",
+    "electron-builder": "^25.1.8",
     "typescript": "^5.5.0",
     "vitest": "^2.1.0"
   },

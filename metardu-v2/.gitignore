@@ -6,6 +6,8 @@ node_modules/
 # Build outputs
 dist/
 build/
+# Allow apps/desktop/build/ — it contains committed brand icons + installer scripts
+!apps/desktop/build/
 target/
 *.tsbuildinfo
 

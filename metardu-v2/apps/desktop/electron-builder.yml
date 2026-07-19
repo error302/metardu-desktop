@@ -1,0 +1,167 @@
+# electron-builder configuration for MetaRDU Desktop.
+#
+# This file defines how the app is packaged for distribution on Windows,
+# macOS, and Linux. Run `npm run dist` in apps/desktop/ to build for the
+# current platform; CI builds all three on tag push.
+#
+# Per master plan Section 11 + recovery plan §3 Phase 7:
+#   - Sidecar binary (Rust) is bundled into resources/ and resolved at
+#     runtime via process.resourcesPath in apps/desktop/src/main/index.ts.
+#   - Renderer (Vite build) is bundled into app/renderer-build/.
+#   - Logo is used as the app icon on all platforms.
+#   - Code signing is OFF for v0.2.0-alpha — see docs/release-checklist.md
+#     for the SignPath Foundation application (free Windows signing for OSS).
+#
+# Output: apps/desktop/release/ containing the installers.
+#   - Windows: MetaRDU-Desktop-Setup-0.2.0.exe (NSIS installer)
+#   - macOS:   MetaRDU-Desktop-0.2.0.dmg (disk image, unsigned)
+#   - Linux:   MetaRDU-Desktop-0.2.0.AppImage (portable, no install)
+
+appId: com.metardu.desktop
+productName: MetaRDU Desktop
+# Executable name (no spaces, no caps — Debian tooling friendly).
+executableName: metardu-desktop
+# Artifact filename uses lowercase + dashes (Debian tooling dislikes capitals/spaces).
+artifactName: metardu-desktop-${version}-${arch}.${ext}
+copyright: Copyright © 2026 Mohammed (error302)
+
+# Use the version from package.json (don't duplicate it here).
+# electron-builder reads it automatically.
+
+# Directories
+directories:
+  output: release
+  buildResources: build
+
+# Files to include in the app bundle (relative to apps/desktop/).
+# Everything NOT in this list is excluded — keeps the bundle small.
+files:
+  - dist/**/*
+  - renderer-build/**/*
+  - package.json
+  - node_modules/**/*
+  # Explicitly exclude dev tooling from the bundle.
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md,readme}"
+  - "!**/node_modules/*/{test,tests,__tests__,docs,doc,examples,example}/**"
+  - "!**/node_modules/**/*.d.ts"
+  - "!**/node_modules/**/*.md"
+  - "!**/node_modules/.cache/**"
+
+# Extra resources — sidecar binary + brand assets go into resources/
+# (process.resourcesPath in the main process).
+# `from` paths are relative to the app dir (apps/desktop/).
+extraResources:
+  # Rust sidecar binary. Built by `npm run build:sidecar` (cargo build --release).
+  # Path is relative to apps/desktop/ → ../../packages/metardu-sidecar/target/release/
+  - from: ../../packages/metardu-sidecar/target/release/metardu-sidecar
+    to: metardu-sidecar
+    filter: ["**/*"]
+  # Brand logo (used for splash screen, about dialog, etc.)
+  # Path is relative to apps/desktop/ → ../../brand/
+  - from: ../../brand/metardu-logo.jpeg
+    to: metardu-logo.jpeg
+
+# App icon — electron-builder generates platform-specific icon formats
+# from this single PNG. We supply a 1024×1024 PNG; the builder converts
+# to .ico (Windows), .icns (macOS), and embeds in the AppImage (Linux).
+# See scripts/generate-icons.sh for the JPEG→PNG conversion step.
+icon: build/icon.png
+
+# Platform-specific configuration
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  # Unsigned for v0.2.0-alpha. SignPath Foundation application is pending
+  # (free Windows code-signing for OSS projects — see docs/release-checklist.md).
+  # Users will see a SmartScreen warning on first install until the binary
+  # builds reputation. This is acceptable for an alpha; documented in the
+  # release notes.
+  signAndEditExecutable: false
+  # The publisher name shown in the installer. Must match the cert subject
+  # once we get one.
+  publisherName: Mohammed (error302)
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  # Installer wizard art — uses the brand logo.
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  # Show a license agreement if LICENSE.md exists at the repo root.
+  license: ../../LICENSE.md
+  # Shortcuts: desktop + start menu.
+  shortcutName: MetaRDU Desktop
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  # Unsigned for v0.2.0-alpha. macOS users will need to right-click → Open
+  # on first launch (or run `xattr -d com.apple.quarantine /Applications/MetaRDU\ Desktop.app`).
+  # This is how Inkscape, Audacity, and OBS Studio shipped for years
+  # before they got notarized. Documented in release notes.
+  identity: null
+  # Hardened runtime is required even for unsigned builds on Apple Silicon.
+  hardenedRuntime: true
+  category: public.app-category.developer-tools
+  # Minimum macOS version — matches Electron 33's requirement.
+  minimumSystemVersion: "10.15.0"
+  # Show the logo in the DMG.
+  icon: build/icon.icns
+
+dmg:
+  title: MetaRDU Desktop ${version}
+  # Background image (uses brand logo on navy).
+  background: build/dmg-background.png
+  # Standard DMG layout: app icon + Applications folder shortcut.
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    # Also produce a .deb for Debian/Ubuntu users who want a package manager install.
+    - target: deb
+      arch: [x64]
+  category: Science
+  # AppStream metadata — shows up in software centers.
+  synopsis: Multi-country survey automation platform
+  description: |
+    MetaRDU Desktop is a local-first desktop application for post-field-data
+    survey automation. Supports cadastral, topographic, engineering,
+    construction setting-out, and sectional properties workflows across
+    Kenya (reference), Australia, UK, South Africa, and UAE.
+  maintainer: Mohammed <error302@users.noreply.github.com>
+  vendor: MetaRDU
+  # App icon for the .desktop file.
+  icon: build/icon.png
+
+# AppImage-specific settings.
+# (Note: appImage.systemIntegration is deprecated in electron-builder 25+;
+# AppImageLauncher handles desktop integration automatically on the user's
+# side. We omit the appImage key entirely — defaults are correct.)
+
+# Deb-specific settings.
+deb:
+  depends:
+    - libgdal32 (>= 3.6)
+    - libclang19 | libclang-19-dev
+  # Post-install script: create desktop entry.
+  afterInstall: build/deb-after-install.sh
+  afterRemove: build/deb-after-remove.sh
+
+# Publish configuration — attach artifacts to GitHub Releases on tag push.
+# In CI we set GH_TOKEN env var; electron-builder uses it to upload.
+publish:
+  provider: github
+  owner: error302
+  repo: metardu-desktop
+  releaseType: release

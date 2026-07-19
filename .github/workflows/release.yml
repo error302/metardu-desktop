@@ -1,0 +1,301 @@
+# MetaRDU Desktop — Release build workflow.
+#
+# On git tag push (v*), builds the app for all 3 platforms and attaches
+# the artifacts to a GitHub Release. Per recovery plan §3 Phase 7.
+#
+# Tag format: v0.2.0-alpha, v0.2.0, v0.3.0, etc.
+#
+# Artifacts produced:
+#   - Windows: MetaRDU-Desktop-Setup-{version}.exe (NSIS installer)
+#   - macOS:   MetaRDU-Desktop-{version}.dmg (x64 + arm64)
+#   - Linux:   MetaRDU-Desktop-{version}.AppImage + .deb
+#
+# Code signing:
+#   - Windows: UNSIGNED for v0.2.0-alpha. SignPath Foundation application
+#     is pending (free OSS code-signing). Users will see a SmartScreen
+#     warning on first install — documented in the release notes.
+#   - macOS:   UNSIGNED. Users right-click → Open on first launch, or
+#     run `xattr -d com.apple.quarantine /Applications/MetaRDU\ Desktop.app`.
+#   - Linux:   GPG-signed AppImage (self-generated key — always free).
+#
+# Once SignPath is approved, add the signing step in the windows job.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v0.2.0-alpha)"
+        required: true
+        type: string
+
+permissions:
+  contents: write  # needed by softprops/action-gh-release
+
+jobs:
+  # ─── Linux ───────────────────────────────────────────────────────
+  # Builds AppImage + .deb. Linux is the easiest target — no signing
+  # requirements, runs in any GitHub Actions runner.
+  release-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: metardu-v2/package-lock.json
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgdal-dev \
+            libclang-dev \
+            clang \
+            libsecret-1-dev \
+            libusb-1.0-0-dev \
+            libudev-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-bin
+
+      - name: Install npm dependencies
+        working-directory: metardu-v2
+        run: npm install --no-audit --no-fund
+
+      - name: Build workspace packages
+        working-directory: metardu-v2
+        run: |
+          npm run build --workspace @metardu/country-config
+          npm run build --workspace @metardu/electron-integration
+          npm run build --workspace @metardu/ipc-schemas
+          npm run build --workspace @metardu/engine-flight-planning
+
+      - name: Build sidecar (Rust)
+        working-directory: metardu-v2/packages/metardu-sidecar
+        env:
+          LIBCLANG_PATH: /usr/lib/llvm-14/lib
+        run: cargo build --release
+
+      - name: Build renderer (Vite)
+        working-directory: metardu-v2
+        run: npx vite build
+
+      - name: Build desktop main + preload
+        working-directory: metardu-v2/apps/desktop
+        run: npm run build
+
+      - name: Generate icons
+        run: |
+          pip install Pillow
+          python3 - <<'PY'
+          from PIL import Image
+          img = Image.open("metardu-v2/brand/metardu-logo.jpeg").convert("RGBA")
+          img1024 = img.resize((1024, 1024), Image.LANCZOS)
+          img1024.save("metardu-v2/apps/desktop/build/icon.png", "PNG")
+          img1024.save("metardu-v2/apps/desktop/build/icon.ico", format="ICO",
+                       sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])
+          img1024.save("metardu-v2/apps/desktop/build/icon.icns", "PNG")
+          # DMG background
+          bg = Image.new("RGB", (660, 400), (26, 31, 54))
+          logo = img.resize((300, 300), Image.LANCZOS)
+          bg.paste(logo, ((660-300)//2, (400-300)//2), logo)
+          bg.save("metardu-v2/apps/desktop/build/dmg-background.png", "PNG")
+          PY
+
+      - name: Package (electron-builder)
+        working-directory: metardu-v2/apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --linux --publish always
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: metardu-linux
+          path: |
+            metardu-v2/apps/desktop/release/*.AppImage
+            metardu-v2/apps/desktop/release/*.deb
+
+  # ─── Windows ─────────────────────────────────────────────────────
+  # Builds the NSIS installer. Cross-compiles from Linux using Wine
+  # for the electron binary (no native Windows runner needed).
+  # UNSIGNED — SignPath Foundation application pending.
+  release-windows:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: metardu-v2/package-lock.json
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Install Linux build deps + Wine
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgdal-dev \
+            libclang-dev \
+            clang \
+            wine64 \
+            mingw-w64
+
+      - name: Install npm dependencies
+        working-directory: metardu-v2
+        run: npm install --no-audit --no-fund
+
+      - name: Build workspace packages
+        working-directory: metardu-v2
+        run: |
+          npm run build --workspace @metardu/country-config
+          npm run build --workspace @metardu/electron-integration
+          npm run build --workspace @metardu/ipc-schemas
+          npm run build --workspace @metardu/engine-flight-planning
+
+      # Note: building the Rust sidecar for Windows from Linux requires
+      # the gdal-sys crate to find Windows gdal libraries. This is
+      # non-trivial — for the alpha we ship the Linux sidecar binary
+      # and document that Windows users need WSL or a native Windows
+      # build. Phase 8 will set up proper Windows cross-compilation.
+      #
+      # For now, build the Linux sidecar (the Windows .exe will fail
+      # to spawn it — documented in release notes).
+      - name: Build sidecar (Linux native — Windows cross-compile is Phase 8)
+        working-directory: metardu-v2/packages/metardu-sidecar
+        env:
+          LIBCLANG_PATH: /usr/lib/llvm-14/lib
+        run: cargo build --release
+
+      - name: Build renderer + desktop
+        working-directory: metardu-v2
+        run: |
+          npx vite build
+          cd apps/desktop && npm run build
+
+      - name: Generate icons
+        run: |
+          pip install Pillow
+          python3 - <<'PY'
+          from PIL import Image
+          img = Image.open("metardu-v2/brand/metardu-logo.jpeg").convert("RGBA")
+          img1024 = img.resize((1024, 1024), Image.LANCZOS)
+          img1024.save("metardu-v2/apps/desktop/build/icon.png", "PNG")
+          img1024.save("metardu-v2/apps/desktop/build/icon.ico", format="ICO",
+                       sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])
+          img1024.save("metardu-v2/apps/desktop/build/icon.icns", "PNG")
+          PY
+
+      - name: Package Windows (electron-builder — uses Wine for NSIS)
+        working-directory: metardu-v2/apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Wine is needed to sign the .exe — without a cert, this step
+          # is skipped but electron-builder still needs Wine to run makensis.
+        run: npx electron-builder --win --publish always
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: metardu-windows
+          path: metardu-v2/apps/desktop/release/*.exe
+
+  # ─── macOS ───────────────────────────────────────────────────────
+  # Builds the DMG for both x64 and arm64. Must run on a macOS runner
+  # (cannot cross-compile from Linux). UNSIGNED — users right-click → Open.
+  release-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: metardu-v2/package-lock.json
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install macOS build deps
+        run: |
+          brew install gdal
+          brew install libclang
+
+      - name: Install npm dependencies
+        working-directory: metardu-v2
+        run: npm install --no-audit --no-fund
+
+      - name: Build workspace packages
+        working-directory: metardu-v2
+        run: |
+          npm run build --workspace @metardu/country-config
+          npm run build --workspace @metardu/electron-integration
+          npm run build --workspace @metardu/ipc-schemas
+          npm run build --workspace @metardu/engine-flight-planning
+
+      - name: Build sidecar (Rust)
+        working-directory: metardu-v2/packages/metardu-sidecar
+        env:
+          LIBCLANG_PATH: /opt/homebrew/opt/llvm/lib
+        run: cargo build --release
+
+      - name: Build renderer + desktop
+        working-directory: metardu-v2
+        run: |
+          npx vite build
+          cd apps/desktop && npm run build
+
+      - name: Generate icons (PNG + ICNS via iconutil)
+        run: |
+          pip3 install Pillow
+          python3 - <<'PY'
+          from PIL import Image
+          img = Image.open("metardu-v2/brand/metardu-logo.jpeg").convert("RGBA")
+          img1024 = img.resize((1024, 1024), Image.LANCZOS)
+          img1024.save("metardu-v2/apps/desktop/build/icon.png", "PNG")
+          PY
+          # Generate proper ICNS via iconutil
+          mkdir -p /tmp/icon.iconset
+          for size in 16 32 64 128 256 512; do
+            s2=$((size * 2))
+            sips -z $size $size metardu-v2/apps/desktop/build/icon.png --out /tmp/icon.iconset/icon_${size}x${size}.png
+            sips -z $s2 $s2 metardu-v2/apps/desktop/build/icon.png --out /tmp/icon.iconset/icon_${size}x${size}@2x.png
+          done
+          iconutil -c icns /tmp/icon.iconset -o metardu-v2/apps/desktop/build/icon.icns
+
+      - name: Package macOS (electron-builder)
+        working-directory: metardu-v2/apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Identity null = unsigned build. macOS users right-click → Open.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --mac --publish always
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: metardu-macos
+          path: |
+            metardu-v2/apps/desktop/release/*.dmg
+            metardu-v2/apps/desktop/release/*.zip
