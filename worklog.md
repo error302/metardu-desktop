@@ -142,3 +142,55 @@ Stage Summary:
   82ec7f7 (worklog), bb506b3 (Electron shell).
 - Remaining Phase 1 cleanup: 19 sidecar warnings (unused imports/dead code).
 - Next: Phase 2 — AGENT.md, docs/invariants.md, ADRs, golden-fixture harness.
+
+---
+Task ID: phase-2
+Agent: Recovery agent (main session, 19 Jul 2026)
+Task: Foundation docs — AGENT.md, invariants, ADRs, agent-brief template, golden-fixture harness.
+
+Work Log:
+- Wrote AGENT.md (257 lines) at repo root. Covers: why the file exists,
+  current state (verified), 10 hard invariants, required reading order,
+  verification protocol, anti-hallucination clause, worklog protocol,
+  forbidden list, canonical layout, build sequence, glossary.
+- Wrote docs/invariants.md (209 lines) — full prose statement across 6
+  categories: architectural, regulatory, error-propagation, security,
+  workflow, build/CI. Each invariant cites the master plan section it
+  derives from.
+- Wrote 4 ADRs in docs/decisions/:
+  - 0001: Rust sidecar + TS engine + Electron shell (locks architecture)
+  - 0002: Length-prefixed JSON over stdio for IPC
+  - 0003: ContextBridge with method allowlist (no ipcRenderer passthrough)
+  - 0004: Kenya as reference country for country-config
+- Wrote docs/agent-briefs/TEMPLATE.md per master plan Section 10, plus
+  a retroactive brief for phase-0.
+- Wrote tests/golden-fixtures/README.md: naming convention, JSON shape,
+  source-citation requirement (invariant B1).
+- Wrote 4 Kenya golden fixtures:
+  - levelling__10sqrt-k-mm-tolerance.json (6 cases, K from 0.25 to 100 km)
+  - angular-misclosure__3-arcsec-per-station.json (5 cases)
+  - helmert__wgs84-to-arc1960-roundtrip.json (3 control points: Nairobi,
+    Mombasa, Kisumu)
+  - projection__utm37s-forward-inverse.json (2 cases, cross-checked
+    against QGIS)
+- Wrote tests/kenya-golden-fixtures.test.ts: 8 tests, all passing.
+  Includes a meta-test asserting every fixture file has the required
+  source-citation fields. Includes a Helmert-param-drift test that
+  fails if anyone changes the engine's WGS84_TO_ARC1960 constants
+  without updating the fixture — this is the structural defense against
+  silent coordinate shifts.
+- Created tests/ as a workspace package with vitest config and tsconfig.
+- Built packages/engine/dist/ so the @metardu/engine-flight-planning
+  import resolves correctly from tests/.
+
+Stage Summary:
+- 8/8 golden fixture tests passing.
+- All prior tests still green: engine 343, electron-integration 15,
+  ipc-schemas 25, sidecar 51 Rust = 442 total tests across 4 packages.
+- Foundation for all future agent briefs is now in place. Any new agent
+  reading AGENT.md + docs/invariants.md + the ADRs has the same context
+  as the master plan, in a machine-checkable form.
+- Commit 85ede16 pushed.
+- Next: Phase 3 — formalize the end-to-end IPC test in apps/desktop/
+  (the smoke shell proves it works; we want a vitest that asserts it
+  programmatically). Then Phase 4 — computation core (adjustment + COGO).
