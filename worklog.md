@@ -724,3 +724,51 @@ Stage Summary:
 - Next: the app is feature-complete for v0.4.0-alpha. Remaining work
   is polish (map canvas, DXF output, code-splitting) + statutory
   document renderers for AU/GB/ZA/AE (gated on source PDFs).
+
+---
+Task ID: quality-dxf
+Agent: Recovery agent (main session, 19 Jul 2026)
+Task: DXF output module — CAD-compatible deliverables for all survey plans.
+
+Research (via web search):
+- Surveyed Carlson Survey / Civil 3D / Trimble feature sets.
+- Key finding: DXF is the industry-standard exchange format. Every
+  professional surveying tool reads/writes DXF. Surveyors expect a DXF
+  companion alongside every PDF plan.
+- Researched dxf-writer (CommonJS, older), dxf-parser-writer (unmaintained),
+  @tarikjabiri/dxf (TypeScript-native, MIT, zero deps, 287KB, active).
+  Chose @tarikjabiri/dxf for TS types, active maintenance, clean API.
+- Researched map canvas options: Leaflet/MapLibre/OpenLayers are all
+  heavy (500KB+). For a surveying app that draws TIN/contours/boundaries
+  (not street maps), a lightweight SVG canvas is better — smaller
+  bundle, no tile server dependency. (SVG canvas deferred to next commit.)
+- Researched reliability patterns: edge-case testing at operational
+  boundaries, robust input validation, workflow-based test cases.
+
+Work Log:
+- Built packages/engine/src/documents/dxf-output.ts (399 lines):
+  - createSurveyDxf(): DxfDocument with 21 pre-defined survey layers
+    (BOUNDARY, BEACON, TEXT-COORDS, CONTOURS, TIN-EDGES, ALIGNMENT,
+    DESIGN-SURFACE, UNIT-BOUNDARY, etc.) per AIA CAD Layer Guidelines
+  - Entity helpers: addPolygon, addBeacon, addText, addBearingDistanceLabel,
+    addNorthArrow, addScaleBar, addTIN, addContours, addSpotHeights
+  - generateForm3Dxf(): complete DXF companion for Kenya Form 3
+  - serializeDxf(): standard DXF R2018 output
+- Added @tarikjabiri/dxf as engine dependency
+- Wrote 14 tests in dxf-output.test.ts covering: layer creation, DXF
+  header validation, all entity types, full Form 3 DXF generation,
+  ASCII-only output, edge cases (empty/single beacon)
+- Exported all DXX functions from engine public API
+
+Stage Summary:
+- 649 total tests passing (was 635 + 14 new DXF tests):
+  - Sidecar Rust: 91/91
+  - Engine TS: 403/403 (was 389 + 14 new)
+  - Country-config: 99/99
+  - Electron-integration: 15/15
+  - IPC schemas: 25/25
+  - Golden fixtures: 9/9
+  - Apps/desktop IPC: 7/7
+- Electron smoke test PASSED.
+- 1 commit pushed: 0b53175.
+- Next: SVG map canvas for visual TIN/contour/boundary display.
