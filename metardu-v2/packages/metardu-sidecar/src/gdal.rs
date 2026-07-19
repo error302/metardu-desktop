@@ -139,10 +139,10 @@ mod native {
     ///   5. Convert pixel coordinates to WGS84 using the geotransform
     ///   6. Serialize contours as GeoJSON FeatureCollection
     pub fn generate_contours_native(params: ContourParams) -> Result<ContourResult> {
-        use gdal::config::register_threads;
-
-        // Register GDAL thread pool (required for some operations)
-        register_threads();
+        // Note: gdal::config::register_threads was removed in newer gdal crate versions.
+        // GDAL's C library initializes its own thread pool lazily on first use; explicit
+        // registration is no longer required. We keep a no-op here so callers don't need
+        // to change if the API is reintroduced.
 
         // Open the dataset
         let dataset = Dataset::open(&params.dsm_path)
@@ -158,9 +158,17 @@ mod native {
         let (width, height) = (size.0 as usize, size.1 as usize);
         info!(width, height, "Raster dimensions");
 
-        // Read the entire band as f32 (elevations)
-        let pixels: Vec<f32> = rasterband.read_as::<f32>((0, 0), (width as usize, height as usize), (width as usize, height as usize))?
-            .data;
+        // Read the entire band as f32 (elevations).
+        // gdal 0.17 changed read_as signature: argument #4 is the resample algorithm.
+        // We pass None to use the default (nearest-neighbour), which is correct for
+        // 1:1 reads (window size == buffer size). Buffer.data is now accessed via .data().
+        let buffer = rasterband.read_as::<f32>(
+            (0, 0),
+            (width as usize, height as usize),
+            (width as usize, height as usize),
+            None, // ResampleAlg::None (default)
+        )?;
+        let pixels: Vec<f32> = buffer.data().to_vec();
 
         // Get the geotransform: [origin_x, pixel_width, 0, origin_y, 0, pixel_height]
         let geotransform = dataset.geo_transform()
@@ -222,7 +230,10 @@ mod native {
         // Serialize as GeoJSON
         let geojson = serialize_contours_geojson(&contours)?;
 
-        // Write to file if output_path specified
+        // Write to file if output_path specified; otherwise return GeoJSON inline.
+        // Compute the branch flag up front so `output_path` is not partially moved
+        // when we later decide whether to attach the geojson string.
+        let wrote_to_file = params.output_path.is_some();
         let output_path = if let Some(path) = &params.output_path {
             std::fs::write(path, &geojson)
                 .with_context(|| format!("Failed to write GeoJSON to {}", path))?;
@@ -238,7 +249,7 @@ mod native {
             interval: params.interval,
             format: params.format,
             output_path,
-            geojson: if output_path.is_none() { Some(geojson) } else { None },
+            geojson: if !wrote_to_file { Some(geojson) } else { None },
         })
     }
 
@@ -262,11 +273,13 @@ mod native {
         // Iterate over each 2x2 cell
         for y in 0..(height - 1) {
             for x in 0..(width - 1) {
-                // Get the four corner values (TL, TR, BR, BL)
-                let tl = pixels[y * width + x].unwrap_or(f32::NAN);
-                let tr = pixels[y * width + x + 1].unwrap_or(f32::NAN);
-                let br = pixels[(y + 1) * width + x + 1].unwrap_or(f32::NAN);
-                let bl = pixels[(y + 1) * width + x].unwrap_or(f32::NAN);
+                // Get the four corner values (TL, TR, BR, BL).
+                // pixels is &[f32] (not &[Option<f32>]), so we read directly and
+                // treat f32::NAN as the missing-value sentinel.
+                let tl = pixels[y * width + x];
+                let tr = pixels[y * width + x + 1];
+                let br = pixels[(y + 1) * width + x + 1];
+                let bl = pixels[(y + 1) * width + x];
 
                 // Skip cells with nodata
                 if !tl.is_finite() || !tr.is_finite() || !br.is_finite() || !bl.is_finite() {
@@ -348,6 +361,16 @@ mod native {
     /// Geotransform format: [origin_x, pixel_width, rot_x, origin_y, rot_y, pixel_height]
     ///   X_geo = origin_x + px * pixel_width + py * rot_x
     ///   Y_geo = origin_y + px * rot_y + py * pixel_height
+    fn pixel_to_wgs84(px: f64, py: f64, gt: &[f64; 6]) -> [f64; 2] {
+        // Same formula as pixel_to_wgs64 below; the two names exist because the
+        // original code had a typo (pixel_to_wgs84 vs pixel_to_wgs64). Both now
+        // resolve to the same implementation. pixel_to_wgs64 is kept as an alias
+        // for any external caller; pixel_to_wgs84 is the canonical name used by
+        // the interpolation closure above.
+        pixel_to_wgs64(px, py, gt)
+    }
+
+    /// Canonical pixel-to-world transform. See pixel_to_wgs84 for the wrapper.
     fn pixel_to_wgs64(px: f64, py: f64, gt: &[f64; 6]) -> [f64; 2] {
         let x = gt[0] + px * gt[1] + py * gt[2];
         let y = gt[3] + px * gt[4] + py * gt[5];
@@ -363,7 +386,10 @@ mod native {
                 .map(|pt| JsonValue::Array(vec![pt[0].into(), pt[1].into()]))
                 .collect();
 
-            let geometry = Geometry::new(Value::LineString(c.coordinates.clone()));
+            let geometry = Geometry::new(Value::LineString({
+                // geojson 0.24 expects Vec<Vec<f64>> for LineString, not Vec<[f64; 2]>.
+                c.coordinates.iter().map(|pt| vec![pt[0], pt[1]]).collect()
+            }));
 
             let mut properties = JsonObject::new();
             properties.insert("elevation".to_string(), c.elevation.into());

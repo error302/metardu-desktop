@@ -125,13 +125,19 @@ export interface ClipParams {
  */
 export function clipRaster(params: ClipParams): {
   gdalCommand: string;
+  cutlinePath: string;
+  cutlineJson: string;
   outputPath: string;
 } {
-  // Convert boundary to GeoJSON for gdalwarp's cutline
-  const geojson = {
+  // Convert boundary to GeoJSON for gdalwarp's cutline.
+  // NOTE: the caller is responsible for writing cutlineJson to cutlinePath
+  // before invoking gdalCommand. (Earlier versions emitted only the gdalwarp
+  // invocation and silently dropped the cutline payload — that broke the
+  // clip step at runtime. We now return both pieces.)
+  const cutlineJson = JSON.stringify({
     type: "Polygon",
     coordinates: [params.boundary.map(p => [p.lng, p.lat])],
-  };
+  });
 
   const cutlinePath = params.outputPath.replace(/\.\w+$/, "_cutline.geojson");
 
@@ -146,6 +152,8 @@ export function clipRaster(params: ClipParams): {
 
   return {
     gdalCommand,
+    cutlinePath,
+    cutlineJson,
     outputPath: params.outputPath,
   };
 }

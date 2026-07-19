@@ -133,5 +133,27 @@ export {
   type MissionImportFormat,
 } from "./flight-planning/import/index.js";
 
+// ─── Surveying & GNSS modules (Phase 1.1 — re-export fix) ───────────────
+// These modules were added in earlier commits but never re-exported from the
+// package root, causing 42 gnss tests to fail with "X is not a function".
+// See docs/audits/phase-0-baseline.md defect #2.
+
+// GNSS — survey-grade satellite positioning, NMEA/RTCM/NTRIP/RINEX, datum transforms
+export * from "./gnss/index.js";
+
+// Surveying modules — post-field-data computation primitives
+export * from "./surveying/leveling.js";
+export * from "./surveying/road-alignment.js";
+export * from "./surveying/cross-section.js";
+export * from "./surveying/as-built.js";
+export * from "./surveying/feature-coding.js";
+export * from "./surveying/error-ellipse.js";
+export * from "./surveying/site-calibration.js";
+export * from "./surveying/stakeout.js";
+
+// Geodesy — CRS database, geoid models
+export * from "./geodesy/crs-database.js";
+export * from "./geodesy/geoid.js";
+
 // Version
-export const ENGINE_VERSION = "0.1.0";
+export const ENGINE_VERSION = "0.2.0";

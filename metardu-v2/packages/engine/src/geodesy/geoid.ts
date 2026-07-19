@@ -210,9 +210,11 @@ export function egm2008Approximate(lat: number, lng: number): number {
   // (reference: Pavlis et al. 2012, EGM2008 paper)
 
   // J2 term (Earth's oblateness — largest contribution)
+  // WGS84 reference: a = 6378137.0 m, GM = 3.986004418e14 m³/s²,
+  // omega = 7.292115e-5 rad/s. Only `a` and J2 are needed for this
+  // low-degree approximation; GM and omega are documented for reference
+  // but not used in the formula below.
   const a = 6378137.0;          // WGS84 semi-major axis
-  const GM = 3.986004418e14;    // WGS84 gravitational constant
-  const omega = 7.292115e-5;    // WGS84 angular velocity
   const J2 = 1.08263e-3;
 
   // Normal gravity formula (reference ellipsoid)

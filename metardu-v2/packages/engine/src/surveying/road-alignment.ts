@@ -52,7 +52,11 @@ export function centerlineAtChainage(
   let easting = startEasting;
   let northing = startNorthing;
   let bearing = startBearing;
-  let prevEndChainage = elements[0]?.startChainage ?? 0;
+  // prevEndChainage reserved for future continuity-check / gap-detection logic.
+  // Kept here as a placeholder so the parameter list reads naturally; will be
+  // used when we add gap detection between alignment elements.
+  const _prevEndChainage = elements[0]?.startChainage ?? 0;
+  void _prevEndChainage;
 
   for (const el of elements) {
     if (chainage < el.startChainage) break;

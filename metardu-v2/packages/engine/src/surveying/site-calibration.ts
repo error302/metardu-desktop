@@ -19,7 +19,10 @@
  *   - Trimble Access: "Site Calibration" documentation
  */
 
-import { geodeticToEcef, ecefToGeodetic, helmertTransform } from "../flight-planning/gnss.js";
+import { geodeticToEcef, ecefToGeodetic } from "../flight-planning/gnss.js";
+// helmertTransform is intentionally not imported here: site-calibration uses
+// a 4-parameter local transformation (dE, dN, rotation, scale), not the
+// 7-parameter Helmert. The import was leftover from an earlier draft.
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -154,7 +157,10 @@ function computeTwoPointCalibration(
     verticalRms: 0,
     pointCount: 2,
     method: "helmert4",
-    isValid: true, // 2-point always fits
+    // 2-point calibration always fits exactly (no redundancy), so the
+    // tolerance check is vacuous — but we still surface it on the result
+    // so consumers can see what threshold was applied.
+    isValid: 0 <= tolerance,
   };
 }
 

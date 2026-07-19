@@ -372,8 +372,9 @@ export function parseGSA(sentence: string): GSA | null {
 
   const satellites: string[] = [];
   for (let i = 3; i < 15; i++) {
-    if (parts[i] && parts[i].trim()) {
-      satellites.push(parts[i]!.trim());
+    const part = parts[i];
+    if (part && part.trim()) {
+      satellites.push(part.trim());
     }
   }
 

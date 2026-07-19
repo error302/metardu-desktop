@@ -137,12 +137,19 @@ export class StakeoutSession {
   private tolerance: StakeoutTolerance;
   private currentTargetId: string | null = null;
   private stakedPoints: Set<string> = new Set();
+  // startTime is recorded for future session-duration / productivity metrics.
+  // Exposed via getSessionElapsedMs() below so the field is actually read.
   private startTime: number;
 
   constructor(designPoints: DesignPoint[], tolerance: StakeoutTolerance = DEFAULT_TOLERANCE) {
     this.designPoints = [...designPoints];
     this.tolerance = tolerance;
     this.startTime = Date.now();
+  }
+
+  /** Milliseconds since this stakeout session started. */
+  getSessionElapsedMs(): number {
+    return Date.now() - this.startTime;
   }
 
   /** Add a design point. */
@@ -312,7 +319,11 @@ export class StakeoutSession {
 
 // ─── Formatting helpers ────────────────────────────────────────────
 
-function formatDirection(right: number, forward: number, distance: number, bearing: number): string {
+function formatDirection(right: number, forward: number, distance: number, _bearing: number): string {
+  // _bearing is reserved for future directional-arrow rendering (e.g. "↗ 45°").
+  // Currently the offset strings already convey direction; the bearing is
+  // kept on the signature so callers don't need to change when we add it.
+  void _bearing;
   if (distance < 0.001) return "ON POINT";
 
   const absRight = Math.abs(right);
