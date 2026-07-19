@@ -341,24 +341,25 @@ describe("country registry", () => {
     expect(COUNTRY_REGISTRY.KE).toBe(KENYA);
   });
 
-  it("Australia, UK, SA, UAE are placeholders (undefined) until Phase 8+", () => {
-    expect(COUNTRY_REGISTRY.AU).toBeUndefined();
-    expect(COUNTRY_REGISTRY.GB).toBeUndefined();
-    expect(COUNTRY_REGISTRY.ZA).toBeUndefined();
-    expect(COUNTRY_REGISTRY.AE).toBeUndefined();
+  it("all 5 countries are now implemented (AU, GB, ZA, AE added in Phase 8)", () => {
+    expect(COUNTRY_REGISTRY.AU).toBeDefined();
+    expect(COUNTRY_REGISTRY.GB).toBeDefined();
+    expect(COUNTRY_REGISTRY.ZA).toBeDefined();
+    expect(COUNTRY_REGISTRY.AE).toBeDefined();
   });
 
-  it("implementedCountries() returns only KE", () => {
+  it("implementedCountries() returns all 5 codes", () => {
     const implemented = implementedCountries();
-    expect(implemented).toEqual(["KE"]);
+    expect(implemented.sort()).toEqual(["AE", "AU", "GB", "KE", "ZA"]);
   });
 
   it("getCountryConfig('KE') returns the Kenya config", () => {
     expect(getCountryConfig("KE")).toBe(KENYA);
   });
 
-  it("getCountryConfig('AU') throws a clear error citing invariant B1", () => {
-    expect(() => getCountryConfig("AU")).toThrow(/not yet implemented|invariant B1/i);
+  it("getCountryConfig('AU') returns the Australia config", () => {
+    expect(getCountryConfig("AU")).toBeDefined();
+    expect(getCountryConfig("AU").countryName).toContain("Australia");
   });
 });
 

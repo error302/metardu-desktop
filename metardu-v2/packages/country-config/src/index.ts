@@ -6,16 +6,18 @@
  * read tolerances, SRIDs, and statutory document specs through this
  * layer — never from local constants.
  *
- * # Adding a new country
+ * # Implemented countries
  *
- * 1. Create `src/countries/<country>.ts` implementing `CountrySurveyConfig`.
- * 2. Cite every value's source (regulation + page/clause).
- * 3. File the source PDFs under `docs/regulatory-sources/<country>/`.
- * 4. Add golden fixtures under `tests/golden-fixtures/<country>/`.
- * 5. Re-export from this index.
+ *   - KE  Kenya         (Phase 5 — reference implementation per ADR-0004)
+ *   - AU  Australia     (Phase 8 — NSW first; other states are separate future configs)
+ *   - GB  United Kingdom (Phase 8 — general boundaries rule; RICS framework)
+ *   - ZA  South Africa  (Phase 8 — Hartebeesthoek94/Lo zones, SG Diagrams)
+ *   - AE  UAE           (Phase 8 — Dubai first; other emirates are separate future configs)
  *
- * Per ADR-0004, Kenya is the reference implementation. The first new
- * country (Phase 8+) will prove the abstraction scales.
+ * Per invariant B1, statutory document renderers can only be built for
+ * countries whose source documents are filed in
+ * docs/regulatory-sources/<country>/. Check each config's
+ * sourceDocsRequired field for the outstanding-documents list.
  */
 
 export type {
@@ -32,6 +34,7 @@ export type {
   ToleranceRule,
 } from "./types.js";
 
+// Kenya (reference implementation)
 export {
   KENYA,
   angularMisclosureToleranceArcsec,
@@ -42,27 +45,39 @@ export {
   linearMisclosureRatio,
 } from "./countries/kenya.js";
 
+// Australia (NSW first)
+export { AUSTRALIA } from "./countries/australia.js";
+
+// United Kingdom
+export { UNITED_KINGDOM, UK_ETRS89_SRID } from "./countries/united-kingdom.js";
+
+// South Africa
+export { SOUTH_AFRICA } from "./countries/south-africa.js";
+
+// United Arab Emirates (Dubai first)
+export { UNITED_ARAB_EMIRATES } from "./countries/united-arab-emirates.js";
+
 // ─── Registry of all country configs ─────────────────────────────
-//
-// Phase 8+ will add AUSTRALIA, UNITED_KINGDOM, SOUTH_AFRICA,
-// UNITED_ARAB_EMIRATES. Until then, the registry contains only Kenya.
 
 import { KENYA } from "./countries/kenya.js";
+import { AUSTRALIA } from "./countries/australia.js";
+import { UNITED_KINGDOM } from "./countries/united-kingdom.js";
+import { SOUTH_AFRICA } from "./countries/south-africa.js";
+import { UNITED_ARAB_EMIRATES } from "./countries/united-arab-emirates.js";
 import type { CountryCode, CountrySurveyConfig } from "./types.js";
 
 /**
  * Map of all country configs by ISO code.
  *
- * Looking up a country by code returns its config (or undefined).
- * Workflow code that needs to switch behavior by country should use
- * this registry.
+ * Looking up a country by code returns its config (or undefined if not
+ * yet implemented).
  */
 export const COUNTRY_REGISTRY: Record<CountryCode, CountrySurveyConfig | undefined> = {
   KE: KENYA,
-  AU: undefined, // Phase 8 — pick one state first (NSW or VIC) per master plan §8.2
-  GB: undefined, // Phase 8+ — RICS framework
-  ZA: undefined, // Phase 8+ — Hartebeesthoek94/Lo
-  AE: undefined, // Phase 8+ — Dubai-only first per master plan §8.5
+  AU: AUSTRALIA,
+  GB: UNITED_KINGDOM,
+  ZA: SOUTH_AFRICA,
+  AE: UNITED_ARAB_EMIRATES,
 };
 
 /**

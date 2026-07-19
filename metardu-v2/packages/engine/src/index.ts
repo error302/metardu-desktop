@@ -166,13 +166,46 @@ export {
   type Form3Point,
 } from "./documents/form-3.js";
 
-// Workflows — vertical slices tying sidecar + country-config + renderers (Phase 6)
+// Workflows — vertical slices tying sidecar + country-config + renderers
+// (Phase 6 cadastral + Phase 9 topo/engineering/setting-out/sectional)
 export {
   runCadastralWorkflow,
   type CadastralWorkflowInput,
   type CadastralWorkflowOutput,
   type DistanceObservation,
-} from "./workflows/cadastral.js";
+  // Topographic (Phase 9A)
+  runTopographicWorkflow,
+  type TopoPoint,
+  type TIN,
+  type Contour,
+  type SpotHeight,
+  type TopoWorkflowInput,
+  type TopoWorkflowOutput,
+  // Engineering (Phase 9B)
+  runEngineeringWorkflow,
+  type DesignSurface,
+  type Alignment,
+  type CrossSection,
+  type EngineeringWorkflowInput,
+  type EngineeringWorkflowOutput,
+  // Construction Setting-Out (Phase 9C)
+  runSettingOutWorkflow,
+  type DesignPoint,
+  type ControlPoint,
+  type StakeoutMethod,
+  type StakeoutInstruction,
+  type AsBuiltObservation,
+  type AsBuiltResult,
+  type SettingOutWorkflowInput,
+  type SettingOutWorkflowOutput,
+  // Sectional Properties (Phase 9D)
+  runSectionalWorkflow,
+  type Polygon,
+  type BuildingLevel,
+  type SectionalUnit,
+  type SectionalWorkflowInput,
+  type SectionalWorkflowOutput,
+} from "./workflows/index.js";
 
 // Version
-export const ENGINE_VERSION = "0.3.0";
+export const ENGINE_VERSION = "0.4.0";
