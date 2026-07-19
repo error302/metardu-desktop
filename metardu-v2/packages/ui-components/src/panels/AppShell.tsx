@@ -2,6 +2,33 @@ import React, { useState, useEffect, useRef } from "react";
 import "../styles/metardu-theme.css";
 import "../styles/enterprise-layout.css";
 
+/**
+ * MetaRDU Desktop AppShell — the top-level UI frame.
+ *
+ * Layout:
+ *   ┌──────────┬─────────────────────────────────────┐
+ *   │ brand    │ toolbar                             │
+ *   │ logo     ├─────────────────────────────────────┤
+ *   │ + nav    │ breadcrumb                          │
+ *   │          ├─────────────────────────────────────┤
+ *   │          │                                     │
+ *   │          │ content (per-view)                  │
+ *   │          │                                     │
+ *   │          ├─────────────────────────────────────┤
+ *   │          │ statusbar (sidecar state live)      │
+ *   └──────────┴─────────────────────────────────────┘
+ *
+ * Branding: the sidebar header uses the MetaRDU logo on navy
+ * background (matches the logo's deep navy `#1A1F36`). The active
+ * nav item uses orange accent (`#FF9500`) — also from the logo.
+ * See docs/plan/RECOVERY-AND-PRODUCTION-PLAN.md Section 2 for the
+ * full brand spec.
+ *
+ * Status bar: live sidecar state via `window.metardu.sidecar.onState()`
+ * when the preload bridge is available (Electron production). Falls
+ * back to "browser" mode when running under Vite dev or in tests.
+ */
+
 type ViewId = "map"|"flight"|"stakeout"|"gnss"|"drone"|"lulc"|"crosssection"|"asbuilt"|"traverse"|"cogo"|"deedplan";
 interface NavItem { id: ViewId; label: string; icon: string; category: string; shortcut: string; }
 const NAV: NavItem[] = [
@@ -19,9 +46,63 @@ const NAV: NavItem[] = [
 ];
 const CATS = ["Field Work","Drone","Office","Surveying"];
 
+const APP_VERSION = "0.2.0";
+
+// Logo asset — bundled by Vite at build time. The asset URL is resolved
+// relative to the package entry, so this works in both dev (Vite) and
+// production (file:// loader in Electron).
+const LOGO_URL = new URL("../../../../apps/desktop/src/renderer/assets/metardu-logo.jpeg", import.meta.url).href;
+
+// Status bar sidecar state — read from the preload bridge if available.
+type SidecarState = "stopped"|"starting"|"running"|"stopping"|"crashed"|"browser";
+
+function useSidecarState(): SidecarState {
+  const [state, setState] = useState<SidecarState>("browser");
+
+  useEffect(() => {
+    // window.metardu is only defined in the Electron production build.
+    // In Vite dev or in tests, it's undefined — fall back to "browser".
+    const w = window as unknown as {
+      metardu?: {
+        sidecar?: {
+          getState?: () => Promise<string>;
+          onState?: (cb: (s: string) => void) => () => void;
+        };
+      };
+    };
+    if (!w.metardu?.sidecar?.onState) {
+      // Browser mode — no sidecar to monitor.
+      setState("browser");
+      return;
+    }
+
+    // Fetch initial state, then subscribe to changes.
+    w.metardu.sidecar.getState?.().then((s) => setState(s as SidecarState)).catch(() => {});
+    const unsubscribe = w.metardu.sidecar.onState((s: string) => {
+      setState(s as SidecarState);
+    });
+    return unsubscribe;
+  }, []);
+
+  return state;
+}
+
+function sidecarStateClass(state: SidecarState): string {
+  switch (state) {
+    case "running":  return "statusbar-sidecar-running";
+    case "starting": return "statusbar-sidecar-starting";
+    case "crashed":  return "statusbar-sidecar-crashed";
+    case "stopped":
+    case "stopping": return "statusbar-sidecar-stopped";
+    case "browser":  return "statusbar-sidecar-stopped";
+    default:         return "statusbar-sidecar-stopped";
+  }
+}
+
 export const AppShell: React.FC<{children?: React.ReactNode}> = ({children}) => {
   const [view, setView] = useState<ViewId>("map");
   const [sidebar, setSidebar] = useState(true);
+  const sidecarState = useSidecarState();
   const lastKey = useRef<string|null>(null);
   const lastTime = useRef(0);
 
@@ -49,9 +130,14 @@ export const AppShell: React.FC<{children?: React.ReactNode}> = ({children}) => 
   return (
     <div className={`app-shell ${sidebar?"":"sidebar-hidden"}`}>
       <aside className="app-sidebar">
-        <div style={{padding:"12px",borderBottom:"1px solid var(--border-default)"}}>
-          <div style={{fontFamily:"var(--font-mono)",fontSize:"14px",fontWeight:600,color:"var(--accent-primary)"}}>MetaRDU</div>
-          <div style={{fontFamily:"var(--font-mono)",fontSize:"10px",color:"var(--text-tertiary)"}}>Desktop v2.1</div>
+        {/* Brand header — MetaRDU logo on navy background */}
+        <div className="sidebar-brand">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={LOGO_URL} alt="MetaRDU" />
+          <div className="sidebar-brand-text">
+            <span className="sidebar-brand-name">METARDU</span>
+            <span className="sidebar-brand-version">Desktop v{APP_VERSION}</span>
+          </div>
         </div>
         <nav className="app-sidebar-nav">
           {CATS.map(cat=>(
@@ -95,10 +181,10 @@ export const AppShell: React.FC<{children?: React.ReactNode}> = ({children}) => 
           </div>
         </div>
         <div className="app-statusbar">
-          <span>platform: browser</span>
-          <span>sidecar: stopped</span>
+          <span className="mono">platform: {typeof window!=="undefined" && (window as unknown as {metardu?: unknown}).metardu ? "electron" : "browser"}</span>
+          <span className={`mono ${sidecarStateClass(sidecarState)}`}>sidecar: {sidecarState}</span>
           <div style={{flex:1}}/>
-          <span className="mono" style={{color:"var(--text-tertiary)"}}>MetaRDU Desktop v2.1</span>
+          <span className="mono" style={{color:"var(--text-tertiary)"}}>MetaRDU Desktop v{APP_VERSION}</span>
         </div>
       </div>
     </div>

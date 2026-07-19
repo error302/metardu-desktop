@@ -76,13 +76,24 @@ let mainWindow: BrowserWindow | null = null;
 let sidecar: SidecarClient | null = null;
 
 function createWindow(): BrowserWindow {
+  // Resolve the logo asset for the window icon. In dev the JPEG is at
+  // apps/desktop/src/renderer/assets/metardu-logo.jpeg; in production
+  // it's bundled into the renderer-build/ directory by Vite. We use the
+  // brand JPEG directly — Electron accepts JPEG, PNG, or ICO for the
+  // window icon on Linux/macOS. (Windows .ico conversion is handled by
+  // electron-builder in Phase 7.)
+  const logoPath = path.resolve(__dirname, "..", "..", "src", "renderer", "assets", "metardu-logo.jpeg");
+
   const windowOptions: BrowserWindowConstructorOptions = {
     width: 1440,
     height: 900,
     minWidth: 1024,
     minHeight: 640,
-    backgroundColor: "#0a0a0a",
+    backgroundColor: "#1A1F36",  // METARDU navy — matches the logo background
     title: "MetaRDU Desktop",
+    // Window icon — the MetaRDU logo. Falls back silently if the file
+    // isn't found (e.g. in tests where __dirname resolves differently).
+    icon: fs.existsSync(logoPath) ? logoPath : undefined,
     // Disable GPU compositing in CI/headless environments. Electron's GPU
     // process crashes hard when no display server is available, which can
     // mask real errors in the main process. The renderer is a 2D React UI

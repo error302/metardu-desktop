@@ -1,3 +1,275 @@
 @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
-:root{--bg-primary:#0a0a0a;--bg-secondary:#111;--bg-tertiary:#1a1a1a;--bg-hover:#1f1f1f;--bg-active:#262626;--text-primary:#e5e5e5;--text-secondary:#a3a3a3;--text-tertiary:#737373;--text-disabled:#525252;--text-inverted:#0a0a0a;--border-default:#262626;--border-strong:#404040;--accent-primary:#2dd4bf;--accent-primary-dim:#0d9488;--status-success:#22c55e;--status-warning:#f59e0b;--status-error:#ef4444;--status-info:#3b82f6;--font-mono:"Geist Mono","JetBrains Mono",monospace;--font-sans:"Inter",sans-serif;--text-xs:10px;--text-sm:11px;--text-base:12px;--text-md:13px;--text-lg:14px;--text-xl:16px;--text-2xl:18px;--text-3xl:22px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-6:24px;--space-8:32px;--sidebar-width:240px;--statusbar-height:24px;--toolbar-height:36px;--motion-fast:100ms linear}
-*{box-sizing:border-box;margin:0;padding:0}html,body,#root{height:100%;width:100%;overflow:hidden}body{background:var(--bg-primary);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);-webkit-font-smoothing:antialiased}.mono,code,pre,kbd,input[type=number]{font-family:var(--font-mono);font-variant-numeric:tabular-nums}::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:var(--bg-primary)}::-webkit-scrollbar-thumb{background:var(--border-default)}::selection{background:var(--accent-primary);color:var(--text-inverted)}:focus-visible{outline:2px solid var(--accent-primary);outline-offset:-2px}button{background:transparent;border:1px solid var(--border-default);color:var(--text-primary);font-family:var(--font-mono);font-size:var(--text-sm);padding:6px 12px;cursor:pointer;transition:all var(--motion-fast);border-radius:0}button:hover:not(:disabled){background:var(--bg-hover);border-color:var(--border-strong)}button:disabled{color:var(--text-disabled);cursor:not-allowed}button.primary{background:var(--accent-primary);color:var(--text-inverted);border-color:var(--accent-primary);font-weight:500}button.danger{color:var(--status-error);border-color:var(--status-error)}input,select,textarea{background:var(--bg-tertiary);border:1px solid var(--border-default);color:var(--text-primary);font-family:var(--font-mono);font-size:var(--text-sm);padding:4px 8px;border-radius:0;outline:none}input:focus,select:focus,textarea:focus{border-color:var(--accent-primary)}label{font-family:var(--font-sans);font-size:var(--text-sm);color:var(--text-secondary)}table{width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:var(--text-sm)}thead th{background:var(--bg-tertiary);color:var(--text-tertiary);font-size:var(--text-xs);font-weight:500;text-transform:uppercase;padding:4px 8px;text-align:left;border-bottom:1px solid var(--border-strong)}tbody td{padding:4px 8px;color:var(--text-primary);border-bottom:1px solid var(--border-default)}tbody tr:hover{background:var(--bg-hover)}.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:2px;font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;font-weight:500}.badge.success{background:rgba(34,197,94,0.12);color:var(--status-success);border:1px solid rgba(34,197,94,0.25)}.badge.warning{background:rgba(245,158,11,0.12);color:var(--status-warning);border:1px solid rgba(245,158,11,0.25)}.badge.error{background:rgba(239,68,68,0.12);color:var(--status-error);border:1px solid rgba(239,68,68,0.25)}.badge.info{background:rgba(59,130,246,0.12);color:var(--status-info);border:1px solid rgba(59,130,246,0.25)}.sidebar{width:var(--sidebar-width);background:var(--bg-secondary);border-right:1px solid var(--border-default);display:flex;flex-direction:column;overflow:hidden}.sidebar-item{display:flex;align-items:center;gap:8px;padding:6px 12px;color:var(--text-secondary);font-family:var(--font-mono);font-size:var(--text-sm);cursor:pointer;border-left:2px solid transparent;transition:all var(--motion-fast)}.sidebar-item:hover{background:var(--bg-hover);color:var(--text-primary)}.sidebar-item.active{background:var(--bg-active);color:var(--accent-primary);border-left-color:var(--accent-primary)}.sidebar-item .shortcut{margin-left:auto;font-size:var(--text-xs);color:var(--text-disabled)}
+
+/* ─── MetaRDU brand palette ───────────────────────────────────────
+ * Logo: navy #1A1F36 (backgrounds), orange #FF9500 (accents),
+ * white #FFFFFF (text). Teal #2dd4bf kept as secondary accent for
+ * status indicators only. See docs/plan/RECOVERY-AND-PRODUCTION-PLAN.md
+ * Section 2 for the full brand spec.
+ * ───────────────────────────────────────────────────────────────── */
+:root{
+  /* Backgrounds — dark, with navy tint from the logo */
+  --bg-primary:#0a0a0a;
+  --bg-secondary:#111;
+  --bg-tertiary:#1a1a1a;
+  --bg-navy:#1A1F36;            /* METARDU navy — for headers, footers */
+  --bg-navy-light:#252b45;
+  --bg-hover:#1f1f1f;
+  --bg-active:#262626;
+
+  /* Text */
+  --text-primary:#ffffff;
+  --text-secondary:#a3a3a3;
+  --text-tertiary:#737373;
+  --text-disabled:#525252;
+  --text-inverted:#0a0a0a;
+
+  /* Borders */
+  --border-default:#262626;
+  --border-strong:#404040;
+
+  /* Accents — orange is now primary, teal is secondary */
+  --accent-primary:#FF9500;            /* METARDU orange — action buttons, active nav */
+  --accent-primary-dim:#cc7700;
+  --accent-secondary:#2dd4bf;          /* teal — status indicators only */
+  --accent-secondary-dim:#0d9488;
+
+  /* Status */
+  --status-success:#22c55e;
+  --status-warning:#f59e0b;
+  --status-error:#ef4444;
+  --status-info:#3b82f6;
+
+  /* Fonts */
+  --font-mono:"Geist Mono","JetBrains Mono",monospace;
+  --font-sans:"Inter",sans-serif;
+
+  /* Type scale */
+  --text-xs:10px;
+  --text-sm:11px;
+  --text-base:12px;
+  --text-md:13px;
+  --text-lg:14px;
+  --text-xl:16px;
+  --text-2xl:18px;
+  --text-3xl:22px;
+
+  /* Spacing */
+  --space-1:4px;
+  --space-2:8px;
+  --space-3:12px;
+  --space-4:16px;
+  --space-6:24px;
+  --space-8:32px;
+
+  /* Layout */
+  --sidebar-width:240px;
+  --statusbar-height:24px;
+  --toolbar-height:36px;
+
+  /* Motion */
+  --motion-fast:100ms linear;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body,#root{height:100%;width:100%;overflow:hidden}
+body{
+  background:var(--bg-primary);
+  color:var(--text-primary);
+  font-family:var(--font-sans);
+  font-size:var(--text-base);
+  -webkit-font-smoothing:antialiased;
+}
+.mono,code,pre,kbd,input[type=number]{
+  font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:var(--bg-primary)}
+::-webkit-scrollbar-thumb{background:var(--border-default)}
+::selection{background:var(--accent-primary);color:var(--text-inverted)}
+:focus-visible{outline:2px solid var(--accent-primary);outline-offset:-2px}
+
+/* Buttons — orange primary, default ghost */
+button{
+  background:transparent;
+  border:1px solid var(--border-default);
+  color:var(--text-primary);
+  font-family:var(--font-mono);
+  font-size:var(--text-sm);
+  padding:6px 12px;
+  cursor:pointer;
+  transition:all var(--motion-fast);
+  border-radius:0;
+}
+button:hover:not(:disabled){
+  background:var(--bg-hover);
+  border-color:var(--border-strong);
+}
+button:disabled{
+  color:var(--text-disabled);
+  cursor:not-allowed;
+}
+button.primary{
+  background:var(--accent-primary);
+  color:var(--text-inverted);
+  border-color:var(--accent-primary);
+  font-weight:500;
+}
+button.primary:hover:not(:disabled){
+  background:var(--accent-primary-dim);
+  border-color:var(--accent-primary-dim);
+}
+button.danger{
+  color:var(--status-error);
+  border-color:var(--status-error);
+}
+
+/* Inputs */
+input,select,textarea{
+  background:var(--bg-tertiary);
+  border:1px solid var(--border-default);
+  color:var(--text-primary);
+  font-family:var(--font-mono);
+  font-size:var(--text-sm);
+  padding:4px 8px;
+  border-radius:0;
+  outline:none;
+}
+input:focus,select:focus,textarea:focus{
+  border-color:var(--accent-primary);
+}
+label{
+  font-family:var(--font-sans);
+  font-size:var(--text-sm);
+  color:var(--text-secondary);
+}
+
+/* Tables */
+table{width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:var(--text-sm)}
+thead th{
+  background:var(--bg-tertiary);
+  color:var(--text-tertiary);
+  font-size:var(--text-xs);
+  font-weight:500;
+  text-transform:uppercase;
+  padding:4px 8px;
+  text-align:left;
+  border-bottom:1px solid var(--border-strong);
+}
+tbody td{padding:4px 8px;color:var(--text-primary);border-bottom:1px solid var(--border-default)}
+tbody tr:hover{background:var(--bg-hover)}
+
+/* Badges */
+.badge{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:2px 6px;
+  border-radius:2px;
+  font-family:var(--font-mono);
+  font-size:var(--text-xs);
+  text-transform:uppercase;
+  font-weight:500;
+}
+.badge.success{background:rgba(34,197,94,0.12);color:var(--status-success);border:1px solid rgba(34,197,94,0.25)}
+.badge.warning{background:rgba(245,158,11,0.12);color:var(--status-warning);border:1px solid rgba(245,158,11,0.25)}
+.badge.error{background:rgba(239,68,68,0.12);color:var(--status-error);border:1px solid rgba(239,68,68,0.25)}
+.badge.info{background:rgba(59,130,246,0.12);color:var(--status-info);border:1px solid rgba(59,130,246,0.25)}
+
+/* Sidebar items — orange active accent */
+.sidebar{
+  width:var(--sidebar-width);
+  background:var(--bg-secondary);
+  border-right:1px solid var(--border-default);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.sidebar-item{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 12px;
+  color:var(--text-secondary);
+  font-family:var(--font-mono);
+  font-size:var(--text-sm);
+  cursor:pointer;
+  border-left:2px solid transparent;
+  transition:all var(--motion-fast);
+}
+.sidebar-item:hover{background:var(--bg-hover);color:var(--text-primary)}
+.sidebar-item.active{
+  background:var(--bg-active);
+  color:var(--accent-primary);
+  border-left-color:var(--accent-primary);
+}
+.sidebar-item .shortcut{margin-left:auto;font-size:var(--text-xs);color:var(--text-disabled)}
+
+/* Brand sidebar header — navy background like the logo */
+.sidebar-brand{
+  background:var(--bg-navy);
+  padding:var(--space-3);
+  border-bottom:1px solid var(--border-default);
+  display:flex;
+  align-items:center;
+  gap:var(--space-2);
+}
+.sidebar-brand img{
+  width:32px;
+  height:32px;
+  object-fit:contain;
+}
+.sidebar-brand-text{
+  display:flex;
+  flex-direction:column;
+  line-height:1.2;
+}
+.sidebar-brand-name{
+  font-family:var(--font-mono);
+  font-size:var(--text-md);
+  font-weight:600;
+  color:var(--accent-primary);
+  letter-spacing:0.02em;
+}
+.sidebar-brand-version{
+  font-family:var(--font-mono);
+  font-size:var(--text-xs);
+  color:var(--text-tertiary);
+}
+
+/* Loading screen — logo centered on navy */
+.loading-screen{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  height:100vh;
+  background:var(--bg-navy);
+  color:var(--text-primary);
+  font-family:var(--font-mono);
+  gap:var(--space-6);
+}
+.loading-screen img{
+  width:120px;
+  height:120px;
+  object-fit:contain;
+  animation:pulse 2s ease-in-out infinite;
+}
+.loading-screen-text{
+  font-size:var(--text-lg);
+  color:var(--text-secondary);
+  letter-spacing:0.04em;
+}
+
+@keyframes pulse{
+  0%,100%{opacity:1}
+  50%{opacity:0.6}
+}
+
+/* Status bar — orange accent for live sidecar state */
+.statusbar-sidecar-running{color:var(--accent-secondary)}
+.statusbar-sidecar-stopped{color:var(--text-disabled)}
+.statusbar-sidecar-crashed{color:var(--status-error)}
+.statusbar-sidecar-starting{color:var(--status-warning)}

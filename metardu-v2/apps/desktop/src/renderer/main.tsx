@@ -14,9 +14,22 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { AppShell } from "@metardu/ui-components";
+import "../preload/index.js";  // type-only side-effect import for the d.ts
 
+// Logo asset — bundled by Vite at build time.
+const LOGO_URL = new URL("./assets/metardu-logo.jpeg", import.meta.url).href;
+
+// Replace the static loading placeholder with a branded one.
 const loading = document.getElementById("loading");
-if (loading) loading.remove();
+if (loading) {
+  loading.innerHTML = `
+    <div class="loading-screen">
+      <img src="${LOGO_URL}" alt="MetaRDU" />
+      <div class="loading-screen-text">MetaRDU Desktop — loading…</div>
+    </div>
+  `;
+  setTimeout(() => loading.remove(), 0);
+}
 
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("Root element #root not found");
