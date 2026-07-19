@@ -27,10 +27,12 @@
   },
   "dependencies": {
     "@metardu/electron-integration": "*",
-    "@metardu/ipc-schemas": "*"
+    "@metardu/ipc-schemas": "*",
+    "ol": "^10.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/ol": "^6.5.3",
     "electron": "33.4.11",
     "electron-builder": "^25.1.8",
     "typescript": "^5.5.0",

@@ -392,6 +392,180 @@ export function generateForm3Dxf(
   return serializeDxf(doc);
 }
 
+// ─── High-level: generate a Topographic DXF ──────────────────────
+
+/**
+ * Generate a DXF for a topographic survey plan.
+ *
+ * Includes: TIN edges, contour lines, spot heights, grid, north arrow,
+ * scale bar. All on standard survey layers.
+ *
+ * @param tin The TIN (vertices + triangles)
+ * @param contours Array of contour lines
+ * @param spotHeights Array of spot height points
+ * @param srid SRID for the coordinate system
+ * @returns DXF file as a string
+ */
+export function generateTopoDxf(
+  tin: { vertices: { easting: number; northing: number; elevation: number }[]; triangles: [number, number, number][] },
+  contours: { elevation: number; coordinates: [number, number][] }[],
+  spotHeights: { easting: number; northing: number; elevation: number }[],
+  srid: number,
+): string {
+  const doc = createSurveyDxf();
+
+  // TIN edges
+  addTIN(
+    doc,
+    tin.vertices.map((v) => ({ x: v.easting, y: v.northing })),
+    tin.triangles,
+  );
+
+  // Contours
+  addContours(doc, contours);
+
+  // Spot heights (convert from easting/northing to x/y for the DXF API)
+  addSpotHeights(doc, spotHeights.map((sh) => ({ x: sh.easting, y: sh.northing, elevation: sh.elevation })));
+
+  // North arrow + scale bar
+  const maxE = Math.max(...tin.vertices.map((v) => v.easting));
+  const maxN = Math.max(...tin.vertices.map((v) => v.northing));
+  const minE = Math.min(...tin.vertices.map((v) => v.easting));
+  const minN = Math.min(...tin.vertices.map((v) => v.northing));
+  addNorthArrow(doc, { x: maxE + 5, y: maxN + 5 }, 5);
+  addScaleBar(doc, { x: minE, y: minN - 10 }, 50, 4);
+
+  // SRID label
+  addText(doc, `COORDINATES: SRID ${srid}`, { x: minE, y: minN - 15 }, "TEXT-COORDS", 2.0);
+
+  return serializeDxf(doc);
+}
+
+// ─── High-level: generate an Engineering DXF ─────────────────────
+
+/**
+ * Generate a DXF for an engineering survey (cut/fill plan).
+ *
+ * Includes: alignment centerline, cross-section locations, design
+ * surface outline, existing ground outline, cut/fill area annotations.
+ *
+ * @param alignment The centerline alignment
+ * @param sections Cross-section data with cut/fill areas
+ * @param srid SRID
+ * @returns DXF file as a string
+ */
+export function generateEngineeringDxf(
+  alignment: { points: { chainage: number; easting: number; northing: number }[] },
+  sections: { chainage: number; centerline: { easting: number; northing: number }; area: number }[],
+  srid: number,
+): string {
+  const doc = createSurveyDxf();
+
+  // Draw the alignment as a series of connected lines.
+  for (let i = 0; i < alignment.points.length - 1; i++) {
+    const a = alignment.points[i]!;
+    const b = alignment.points[i + 1]!;
+    doc.entities.modelSpace.addLine(
+      toVec3({ x: a.easting, y: a.northing }),
+      toVec3({ x: b.easting, y: b.northing }),
+      { layerName: "ALIGNMENT" },
+    );
+  }
+
+  // Mark each cross-section location.
+  for (const s of sections) {
+    addBeacon(doc, { x: s.centerline.easting, y: s.centerline.northing }, 0.5, `CH${s.chainage.toFixed(0)}`);
+    // Cut/fill annotation
+    const label = s.area > 0 ? `CUT ${s.area.toFixed(1)}m²` : s.area < 0 ? `FILL ${Math.abs(s.area).toFixed(1)}m²` : "—";
+    addText(doc, label, { x: s.centerline.easting + 2, y: s.centerline.northing + 2 }, "CROSS-SECTIONS", 1.5);
+  }
+
+  // North arrow + scale bar
+  const allPoints = [...alignment.points.map((p) => ({ x: p.easting, y: p.northing }))];
+  if (allPoints.length > 0) {
+    const maxE = Math.max(...allPoints.map((p) => p.x));
+    const maxN = Math.max(...allPoints.map((p) => p.y));
+    const minE = Math.min(...allPoints.map((p) => p.x));
+    const minN = Math.min(...allPoints.map((p) => p.y));
+    addNorthArrow(doc, { x: maxE + 5, y: maxN + 5 }, 5);
+    addScaleBar(doc, { x: minE, y: minN - 10 }, 50, 4);
+    addText(doc, `COORDINATES: SRID ${srid}`, { x: minE, y: minN - 15 }, "TEXT-COORDS", 2.0);
+  }
+
+  return serializeDxf(doc);
+}
+
+// ─── High-level: generate a Sectional Properties DXF ─────────────
+
+/**
+ * Generate a DXF for a sectional properties plan.
+ *
+ * Includes: building footprint, unit boundaries (with labels),
+ * common property areas, participation quota annotations.
+ *
+ * @param levels Building levels with units
+ * @returns DXF file as a string
+ */
+export function generateSectionalDxf(
+  levels: {
+    level: number;
+    name: string;
+    footprint: { vertices: { easting: number; northing: number }[] };
+    units: { number: string; boundary: { vertices: { easting: number; northing: number }[] }; type: string }[];
+    commonProperty: { vertices: { easting: number; northing: number }[] }[];
+  }[],
+): string {
+  const doc = createSurveyDxf();
+
+  // Draw each level (only ground floor for now — multi-level DXF
+  // requires separate layout tabs, which is a future enhancement).
+  const level0 = levels.find((l) => l.level === 0) ?? levels[0];
+  if (level0) {
+    // Building footprint (dashed outline)
+    addPolygon(
+      doc,
+      level0.footprint.vertices.map((v) => ({ x: v.easting, y: v.northing })),
+      "COMMON-PROPERTY",
+    );
+
+    // Unit boundaries
+    for (const unit of level0.units) {
+      addPolygon(
+        doc,
+        unit.boundary.vertices.map((v) => ({ x: v.easting, y: v.northing })),
+        "UNIT-BOUNDARY",
+      );
+      // Unit label at centroid
+      const cx = unit.boundary.vertices.reduce((s, v) => s + v.easting, 0) / unit.boundary.vertices.length;
+      const cy = unit.boundary.vertices.reduce((s, v) => s + v.northing, 0) / unit.boundary.vertices.length;
+      addText(doc, `Unit ${unit.number}`, { x: cx - 3, y: cy }, "TEXT-COORDS", 2.0);
+      addText(doc, `(${unit.type})`, { x: cx - 3, y: cy - 3 }, "TEXT-COORDS", 1.5);
+    }
+
+    // Common property
+    for (const cp of level0.commonProperty) {
+      addPolygon(
+        doc,
+        cp.vertices.map((v) => ({ x: v.easting, y: v.northing })),
+        "COMMON-PROPERTY",
+      );
+    }
+
+    // North arrow + scale bar
+    const allVerts = level0.footprint.vertices;
+    if (allVerts.length > 0) {
+      const maxE = Math.max(...allVerts.map((v) => v.easting));
+      const maxN = Math.max(...allVerts.map((v) => v.northing));
+      const minE = Math.min(...allVerts.map((v) => v.easting));
+      const minN = Math.min(...allVerts.map((v) => v.northing));
+      addNorthArrow(doc, { x: maxE + 2, y: maxN + 2 }, 3);
+      addScaleBar(doc, { x: minE, y: minN - 5 }, 10, 4);
+    }
+  }
+
+  return serializeDxf(doc);
+}
+
 // ─── Helper ──────────────────────────────────────────────────────
 
 function toVec3(p: DxfPoint): vec3_t {

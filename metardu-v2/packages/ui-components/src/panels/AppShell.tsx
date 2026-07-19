@@ -62,7 +62,7 @@ const NAV: NavItem[] = [
 ];
 const CATS = ["Field Work","Drone","Office","Surveying","Engineering"];
 
-const APP_VERSION = "0.4.0";
+const APP_VERSION = "0.5.0";
 
 // Logo asset — bundled by Vite at build time.
 const LOGO_URL = new URL("../../../../apps/desktop/src/renderer/assets/metardu-logo.jpeg", import.meta.url).href;
@@ -133,7 +133,7 @@ export const AppShell: React.FC<{
           m:"map",f:"flight",s:"stakeout",g:"gnss",d:"drone",
           l:"lulc",c:"crosssection",a:"asbuilt",
           v:"traverse",o:"cogo",e:"deedplan",
-          t:"topo",n:"engineering",q:"sectional",
+          t:"topo",n:"engineering",q:"sectional",p:"map",
         };
         if(m[e.key.toLowerCase()]){e.preventDefault();setView(m[e.key.toLowerCase()]);}
         lastKey.current=null;return;
