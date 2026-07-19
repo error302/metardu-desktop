@@ -1,19 +1,21 @@
 /**
  * Topographic workflow view.
  *
- * Provides a minimal UI for running the topographic workflow:
+ * Provides a UI for running the topographic workflow:
  *   - Input: paste field points as CSV (id,e,n,code)
  *   - Configure: contour interval, spot height density
  *   - Run: calls runTopographicWorkflow from the engine
  *   - Output: TIN stats, contour count, elevation range, mean slope
+ *   - Visual: SurveyCanvas SVG showing the TIN + contours + spot heights
+ *     (pan with mouse drag, zoom with mouse wheel)
  *
- * In production this would have a map canvas showing the TIN +
- * contours. For v0.4.0 we show the numeric results + a text summary.
+ * Country: Kenya (Arc 1960 / UTM 37S).
  */
 
 import React, { useState } from "react";
 import { KENYA, type CountrySurveyConfig } from "@metardu/country-config";
 import { runTopographicWorkflow, type TopoPoint, type TopoWorkflowOutput } from "@metardu/engine-flight-planning";
+import { SurveyCanvas, type SurveyPoint, type SurveyContour, type SurveyTriangle } from "@metardu/ui-components";
 
 const COUNTRIES: Record<string, CountrySurveyConfig> = {
   KE: KENYA,
@@ -101,7 +103,25 @@ export const TopographicView: React.FC = () => {
 
       {result && (
         <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: "12px" }}>
-          <h3 style={{ fontSize: "var(--text-lg)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>Results</h3>
+          {/* Visual: SVG canvas with TIN + contours + spot heights */}
+          <SurveyCanvas
+            height={350}
+            title="Topographic Plan"
+            showPointLabels={true}
+            triangles={result.tin.triangles.map((tri): SurveyTriangle => ({
+              a: { easting: result.tin.vertices[tri[0]]!.easting, northing: result.tin.vertices[tri[0]]!.northing },
+              b: { easting: result.tin.vertices[tri[1]]!.easting, northing: result.tin.vertices[tri[1]]!.northing },
+              c: { easting: result.tin.vertices[tri[2]]!.easting, northing: result.tin.vertices[tri[2]]!.northing },
+            }))}
+            contours={result.contours.map((c): SurveyContour => ({
+              elevation: c.elevation,
+              coordinates: c.coordinates,
+            }))}
+            spotHeights={result.spotHeights.map((sh): SurveyPoint => ({
+              easting: sh.easting, northing: sh.northing, elevation: sh.elevation,
+            }))}
+          />
+          <h3 style={{ fontSize: "var(--text-lg)", marginBottom: "8px", fontFamily: "var(--font-mono)", marginTop: "12px" }}>Results</h3>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px", marginBottom: "12px" }}>
             <StatCard label="Points" value={String(result.tin.vertices.length)} />
             <StatCard label="Triangles" value={String(result.triangleCount)} />
