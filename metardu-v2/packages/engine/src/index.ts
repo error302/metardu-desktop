@@ -155,5 +155,24 @@ export * from "./surveying/stakeout.js";
 export * from "./geodesy/crs-database.js";
 export * from "./geodesy/geoid.js";
 
+// Documents — statutory document renderers (Phase 6)
+export {
+  generateForm3Pdf,
+  type Form3Input,
+  type Form3Output,
+  type Form3Parcel,
+  type Form3Beacon,
+  type Form3Surveyor,
+  type Form3Point,
+} from "./documents/form-3.js";
+
+// Workflows — vertical slices tying sidecar + country-config + renderers (Phase 6)
+export {
+  runCadastralWorkflow,
+  type CadastralWorkflowInput,
+  type CadastralWorkflowOutput,
+  type DistanceObservation,
+} from "./workflows/cadastral.js";
+
 // Version
-export const ENGINE_VERSION = "0.2.0";
+export const ENGINE_VERSION = "0.3.0";

@@ -1,0 +1,63 @@
+{
+  "name": "Kenya cadastral Form 3 — reference parcel (Kasarani, Nairobi)",
+  "country": "KE",
+  "computation": "cadastral-form-3",
+  "source": {
+    "document": "Survey Act Cap. 299, Form No. 3 + Kenya Survey Regulations 1994",
+    "page": "Form 3 + §6 (drawing conventions)",
+    "file": "docs/regulatory-sources/kenya/cadastral/form-3-spec.md",
+    "notes": "Synthetic test parcel. Coordinates verified against pyproj EPSG:4674 → EPSG:21037 (Arc 1960 / UTM zone 37S). Survey Act Cap. 299 form template NOT YET FILED — fixture values verified against the spec doc, not the regulation itself."
+  },
+  "input": {
+    "parcel": {
+      "surveyNumber": "S/12345",
+      "district": "NAIROBI",
+      "location": "KASARANI",
+      "areaHa": 0.25,
+      "srid": 21037,
+      "beacons": [
+        { "label": "B1", "position": { "easting": 257100.0, "northing": 9857700.0 }, "description": "Concrete pillar" },
+        { "label": "B2", "position": { "easting": 257150.0, "northing": 9857700.0 }, "description": "Concrete pillar" },
+        { "label": "B3", "position": { "easting": 257150.0, "northing": 9857750.0 }, "description": "Concrete pillar" },
+        { "label": "B4", "position": { "easting": 257100.0, "northing": 9857750.0 }, "description": "Concrete pillar" }
+      ]
+    },
+    "surveyor": {
+      "name": "Jane Wanjiru",
+      "iskRegNo": "LS/1234",
+      "dateOfSurvey": "2026-07-19"
+    }
+  },
+  "expected": {
+    "pdf": {
+      "pageCount": 1,
+      "minSizeBytes": 3000,
+      "pageSize": "A4 (595×842 pt)",
+      "titleContains": "S/12345",
+      "author": "Jane Wanjiru",
+      "subjectContains": "Form No. 3",
+      "hasDraftWatermark": true
+    },
+    "scale": 500,
+    "coordinateSystemLabelContains": ["Arc 1960", "UTM zone 37S", "21037"],
+    "titleBlockFields": [
+      "DEED PLAN NO.",
+      "SURVEY NO.",
+      "DISTRICT",
+      "LOCATION",
+      "AREA (ha)",
+      "SCALE",
+      "SURVEYOR'S NAME",
+      "SURVEYOR'S REG. NO. (ISK)",
+      "DATE OF SURVEY",
+      "SEAL"
+    ],
+    "coordinateScheduleColumns": ["Beacon", "Easting", "Northing", "Description"]
+  },
+  "verification": {
+    "method": "packages/engine/src/documents/tests/form-3.test.ts + packages/engine/src/workflows/tests/cadastral.test.ts",
+    "lastRun": "2026-07-19",
+    "testsPassing": 23
+  },
+  "notes": "This fixture locks the Form 3 output shape. If anyone changes the renderer in a way that breaks title block fields, scale selection, or coordinate system labeling, CI fails before the change reaches production. The DRAFT watermark is mandatory per the spec until Survey Act Cap. 299 is filed and the spec is verified page-by-page."
+}
