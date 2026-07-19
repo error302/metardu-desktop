@@ -179,6 +179,68 @@ impl Dispatcher {
         self.register("gdal_contour", |params: Value| async move {
             crate::gdal::handle_gdal_contour(params).await
         });
+
+        // ---- Phase 4: Computation core — geodesy, COGO, adjustment ----
+        // These are the sidecar's source of truth for survey math. The
+        // TypeScript engine NEVER reimplements this — it calls these
+        // handlers and treats the result as ground truth (invariant A1).
+
+        // Geodesy: ECEF ↔ geodetic
+        self.register("geodesy.geodetic_to_ecef", |params: Value| async move {
+            crate::compute_handlers::handle_geodetic_to_ecef(params).await
+        });
+        self.register("geodesy.ecef_to_geodetic", |params: Value| async move {
+            crate::compute_handlers::handle_ecef_to_geodetic(params).await
+        });
+        // Geodesy: Helmert transform
+        self.register("geodesy.helmert", |params: Value| async move {
+            crate::compute_handlers::handle_helmert_transform(params).await
+        });
+        // Geodesy: Transverse Mercator (generic + UTM)
+        self.register("geodesy.tm_forward", |params: Value| async move {
+            crate::compute_handlers::handle_tm_forward(params).await
+        });
+        self.register("geodesy.tm_inverse", |params: Value| async move {
+            crate::compute_handlers::handle_tm_inverse(params).await
+        });
+        self.register("geodesy.utm_forward", |params: Value| async move {
+            crate::compute_handlers::handle_utm_forward(params).await
+        });
+        self.register("geodesy.utm_inverse", |params: Value| async move {
+            crate::compute_handlers::handle_utm_inverse(params).await
+        });
+
+        // COGO: Traverse
+        self.register("cogo.traverse_misclosure", |params: Value| async move {
+            crate::compute_handlers::handle_traverse_misclosure(params).await
+        });
+        self.register("cogo.bowditch", |params: Value| async move {
+            crate::compute_handlers::handle_bowditch_adjust(params).await
+        });
+        self.register("cogo.transit", |params: Value| async move {
+            crate::compute_handlers::handle_transit_adjust(params).await
+        });
+
+        // COGO: Intersection
+        self.register("cogo.bearing_bearing", |params: Value| async move {
+            crate::compute_handlers::handle_bearing_bearing(params).await
+        });
+        self.register("cogo.bearing_distance", |params: Value| async move {
+            crate::compute_handlers::handle_bearing_distance(params).await
+        });
+        self.register("cogo.distance_distance", |params: Value| async move {
+            crate::compute_handlers::handle_distance_distance(params).await
+        });
+
+        // COGO: Area
+        self.register("cogo.area", |params: Value| async move {
+            crate::compute_handlers::handle_area(params).await
+        });
+
+        // Adjustment: Least-squares
+        self.register("adjustment.run", |params: Value| async move {
+            crate::compute_handlers::handle_adjustment_run(params).await
+        });
     }
 
     /// Returns the list of all registered method names.

@@ -6,8 +6,12 @@
 //!
 //! Shutdown: on EOF from stdin (renderer closed), exits cleanly with code 0.
 
+mod adjustment;
+mod cogo;
+mod compute_handlers;
 mod dispatcher;
 mod gdal;
+mod geodesy;
 mod mavsdk;
 mod ml;
 mod odm;

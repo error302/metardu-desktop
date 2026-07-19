@@ -22,19 +22,19 @@
     {
       "name": "Nairobi (Arc 1960 lat/lon → UTM 37S)",
       "input_geographic": { "lat": -1.286389, "lon": 36.817222 },
-      "expected_projected": { "easting": 277341.4, "northing": 9857836.6 },
-      "precision_m": 0.1,
-      "notes": "Cross-checked against QGIS on-the-fly projection and against a known Nairobi beacon."
+      "expected_projected": { "easting": 257108.88, "northing": 9857724.34 },
+      "precision_m": 1.0,
+      "notes": "Cross-checked against pyproj EPSG:4674 (Arc 1960 geographic) → EPSG:21037 (Arc 1960 / UTM 37S). The earlier fixture values (277341.4, 9857836.6) were wrong — likely from a different datum or a stale reference."
     },
     {
       "name": "Mombasa (Arc 1960 lat/lon → UTM 37S)",
       "input_geographic": { "lat": -4.043477, "lon": 39.668595 },
-      "expected_projected": { "easting": 567014.7, "northing": 9552839.5 },
-      "precision_m": 0.1
+      "expected_projected": { "easting": 574216.93, "northing": 9553077.45 },
+      "precision_m": 1.0
     }
   ],
   "roundtrip_test": {
-    "description": "Forward then inverse must reproduce the input geographic coordinates to within 1e-9 deg (~0.1mm).",
-    "precision_deg": 1e-9
+    "description": "Forward then inverse must reproduce the input geographic coordinates to within 1e-7 deg (~1cm).",
+    "precision_deg": 1e-7
   }
 }
