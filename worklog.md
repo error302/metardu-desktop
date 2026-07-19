@@ -802,3 +802,37 @@ Stage Summary:
 - 692 total tests passing (was 649 + 43 new edge-case tests).
 - Vite build succeeds. Electron smoke test PASSED.
 - 1 commit pushed: 9081e18.
+
+---
+Task ID: quality-polish-round2
+Agent: Recovery agent (main session, 19 Jul 2026)
+Task: Code-splitting + OpenLayers + property tests + DXF companions + UI polish.
+
+Research:
+- Surveyed Cursor design system: warm near-black, JetBrains Mono, gradient accents
+- Surveyed Linear design system: Void #08090a, Inter Variable, 4px grid
+- Surveyed ESRI ArcGIS Pro: dark theme preferred for professional surveying
+- Surveyed Trimble TBC: functional but traditional (we can do better)
+
+Work Log:
+- R1: Typography upgrade — switched from Geist Mono to JetBrains Mono
+  (Cursor/Linear standard). Inter with stylistic sets. Tabular figures
+  for coordinate alignment. Cooler near-black backgrounds (#08090a).
+  Added stat-card + view-panel CSS classes. Radius + motion variables.
+- Q7: Code-splitting — all 5 views lazy-loaded via React.lazy +
+  dynamic import(). Suspense fallback. Pattern matches VS Code/Linear.
+- Q8: OpenLayers MapView — 3 basemaps (OSM/satellite/topo), click-to-
+  read coordinates, vector overlay for parcels + beacons. ~500KB
+  lazy-loaded only when user opens the Map view.
+- Q9: Property-based testing — 8 fast-check tests: ECEF round-trip,
+  Helmert identity, WGS84↔Arc1960 round-trip, levelling tolerance
+  monotonicity, bearing symmetry, Shoelace non-negativity.
+- Q10: DXF companions — generateTopoDxf (TIN+contours+spot heights),
+  generateEngineeringDxf (alignment+cross-sections+cut/fill),
+  generateSectionalDxf (units+common property+labels). All exported
+  from engine public API.
+
+Stage Summary:
+- 700 total tests passing (was 692 + 8 new property tests).
+- Vite build succeeds. Electron smoke test PASSED.
+- 1 commit pushed: b96f686.
