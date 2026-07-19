@@ -13,7 +13,8 @@
     "packages/electron-bridge",
     "packages/report-pdf",
     "packages/e2e-tests",
-    "apps/desktop"
+    "apps/desktop",
+    "tests"
   ],
   "scripts": {
     "build": "npm run build --workspaces",

@@ -1,0 +1,19 @@
+{
+  "name": "Kenya angular misclosure — 3.0 arcseconds per station",
+  "country": "KE",
+  "computation": "angular-misclosure-tolerance",
+  "source": {
+    "document": "Kenya Survey Regulations 1994, §4.3 (Angular Misclosure)",
+    "page": "§4.3",
+    "file": "docs/regulatory-sources/kenya/survey-regulations-1994.pdf",
+    "notes": "3.0″ per station, with a 15-course azimuth check separately enforced. Total misclosure = 3.0 * sqrt(N) arcseconds where N is the number of stations."
+  },
+  "cases": [
+    { "stations": 4,  "expected_tolerance_arcsec": 6.0,  "notes": "4-station traverse: 3*sqrt(4) = 6″" },
+    { "stations": 9,  "expected_tolerance_arcsec": 9.0,  "notes": "9-station: 3*sqrt(9) = 9″" },
+    { "stations": 16, "expected_tolerance_arcsec": 12.0, "notes": "16-station: 3*sqrt(16) = 12″" },
+    { "stations": 25, "expected_tolerance_arcsec": 15.0, "notes": "25-station: 3*sqrt(25) = 15″" },
+    { "stations": 100,"expected_tolerance_arcsec": 30.0, "notes": "100-station — sanity ceiling" }
+  ],
+  "rounding": "0.1″ at display time only."
+}

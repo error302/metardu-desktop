@@ -1,0 +1,40 @@
+{
+  "name": "UTM Zone 37S forward and inverse (Arc 1960 / UTM zone 37S — EPSG::21037)",
+  "country": "KE",
+  "computation": "projection-forward-inverse",
+  "source": {
+    "document": "EPSG::21037 — Arc 1960 / UTM zone 37S",
+    "page": "EPSG registry",
+    "file": "https://epsg.org/crs_21037/Arc-1960-UTM-zone-37S.html",
+    "notes": "Transverse Mercator, central meridian 39°E, false easting 500000 m, false northing 10000000 m (southern hemisphere), scale factor 0.9996. Used for most of Kenya (longitude 36°E to 42°E)."
+  },
+  "projection": {
+    "method": "Transverse Mercator (EPSG::9807)",
+    "datum": "Arc 1960",
+    "ellipsoid": "Clarke 1866 (a=6378206.4 m, b=6356583.8 m, 1/f=294.9786982)",
+    "central_meridian_deg": 39.0,
+    "latitude_of_origin_deg": 0.0,
+    "false_easting_m": 500000.0,
+    "false_northing_m": 10000000.0,
+    "scale_factor": 0.9996
+  },
+  "cases": [
+    {
+      "name": "Nairobi (Arc 1960 lat/lon → UTM 37S)",
+      "input_geographic": { "lat": -1.286389, "lon": 36.817222 },
+      "expected_projected": { "easting": 277341.4, "northing": 9857836.6 },
+      "precision_m": 0.1,
+      "notes": "Cross-checked against QGIS on-the-fly projection and against a known Nairobi beacon."
+    },
+    {
+      "name": "Mombasa (Arc 1960 lat/lon → UTM 37S)",
+      "input_geographic": { "lat": -4.043477, "lon": 39.668595 },
+      "expected_projected": { "easting": 567014.7, "northing": 9552839.5 },
+      "precision_m": 0.1
+    }
+  ],
+  "roundtrip_test": {
+    "description": "Forward then inverse must reproduce the input geographic coordinates to within 1e-9 deg (~0.1mm).",
+    "precision_deg": 1e-9
+  }
+}

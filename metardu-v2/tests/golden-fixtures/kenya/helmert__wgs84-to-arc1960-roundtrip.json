@@ -1,0 +1,40 @@
+{
+  "name": "WGS84 ↔ Arc 1960 Helmert round-trip (Kenya)",
+  "country": "KE",
+  "computation": "datum-transform-roundtrip",
+  "source": {
+    "document": "EPSG::1122 — Arc 1960 to WGS 84 (1)",
+    "page": "EPSG registry",
+    "file": "https://epsg.org/transformation_1122/Arc-1960-to-WGS-84-1.html",
+    "notes": "Position Vector transformation (EPSG operation method 9606). Helmert 7-parameter. Same parameters as used by Kenya Survey Department and most GIS software for Kenya."
+  },
+  "transform": {
+    "method": "Helmert 7-parameter (Position Vector)",
+    "tx": -160,
+    "ty": -8,
+    "tz": -300,
+    "rx_arcsec": 0.0,
+    "ry_arcsec": 0.0,
+    "rz_arcsec": 0.0,
+    "scale_ppm": 0.0
+  },
+  "cases": [
+    {
+      "name": "Nairobi (KNOWN control point)",
+      "wgs84": { "lat": -1.286389, "lon": 36.817222, "height": 1713.5 },
+      "roundtrip_precision_decimal_places": 7,
+      "notes": "Round-trip WGS84→Arc1960→WGS84 must reproduce the original lat/lon to within 1e-7 deg (~11mm at the equator). Height to within 1e-4 m."
+    },
+    {
+      "name": "Mombasa",
+      "wgs84": { "lat": -4.043477, "lon": 39.668595, "height": 50.0 },
+      "roundtrip_precision_decimal_places": 7
+    },
+    {
+      "name": "Kisumu",
+      "wgs84": { "lat": -0.091702, "lon": 34.767956, "height": 1131.0 },
+      "roundtrip_precision_decimal_places": 7
+    }
+  ],
+  "rounding": "Full float64 throughout. Round only at display time."
+}

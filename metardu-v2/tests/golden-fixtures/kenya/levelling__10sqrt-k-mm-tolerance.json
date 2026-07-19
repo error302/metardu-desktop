@@ -1,0 +1,20 @@
+{
+  "name": "Kenya levelling tolerance — 10√K mm with K in km",
+  "country": "KE",
+  "computation": "levelling-tolerance",
+  "source": {
+    "document": "Kenya Survey Regulations 1994, Regulation 5.1 (Table 5.1)",
+    "page": "Table 5.1",
+    "file": "docs/regulatory-sources/kenya/survey-regulations-1994.pdf",
+    "notes": "Also restated in RDM 1.1 (2025) §5.3. Tolerance is 10 * sqrt(K) mm where K is the levelling line length in kilometres. This is the Kenya variant of the ISO 17123-2 general survey tolerance."
+  },
+  "cases": [
+    { "K_km": 0.25, "expected_tolerance_mm": 5.0,   "notes": "Quarter-kilometre line" },
+    { "K_km": 1.0,  "expected_tolerance_mm": 10.0,  "notes": "1 km reference" },
+    { "K_km": 4.0,  "expected_tolerance_mm": 20.0,  "notes": "4 km" },
+    { "K_km": 9.0,  "expected_tolerance_mm": 30.0,  "notes": "9 km" },
+    { "K_km": 25.0, "expected_tolerance_mm": 50.0,  "notes": "25 km" },
+    { "K_km": 100.0,"expected_tolerance_mm": 100.0, "notes": "100 km — sanity ceiling" }
+  ],
+  "rounding": "Tolerance values rounded to 0.1 mm at display time only. Mid-computation values use full float64 precision."
+}
