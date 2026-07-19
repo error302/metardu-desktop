@@ -155,7 +155,7 @@ export * from "./surveying/stakeout.js";
 export * from "./geodesy/crs-database.js";
 export * from "./geodesy/geoid.js";
 
-// Documents — statutory document renderers (Phase 6)
+// Documents — statutory document renderers (Phase 6) + DXF output (Phase 10+)
 export {
   generateForm3Pdf,
   type Form3Input,
@@ -165,6 +165,25 @@ export {
   type Form3Surveyor,
   type Form3Point,
 } from "./documents/form-3.js";
+
+// DXF output module — CAD-compatible DXF for all survey plans (Phase 10+)
+export {
+  createSurveyDxf,
+  addPolygon,
+  addBeacon,
+  addText,
+  addBearingDistanceLabel,
+  addNorthArrow,
+  addScaleBar,
+  addTIN,
+  addContours,
+  addSpotHeights,
+  generateForm3Dxf,
+  serializeDxf,
+  SURVEY_LAYERS,
+  type DxfPoint,
+  type DxfLayerDef,
+} from "./documents/dxf-output.js";
 
 // Workflows — vertical slices tying sidecar + country-config + renderers
 // (Phase 6 cadastral + Phase 9 topo/engineering/setting-out/sectional)

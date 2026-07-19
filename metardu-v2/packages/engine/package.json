@@ -60,6 +60,7 @@
   },
   "dependencies": {
     "@metardu/country-config": "*",
+    "@tarikjabiri/dxf": "^2.8.9",
     "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
