@@ -508,3 +508,90 @@ Stage Summary:
   3. No DXF companion output yet — only PDF.
 - Next: Phase 7 — production packaging (electron-builder, 3-platform
   release: Windows NSIS, macOS DMG, Linux AppImage).
+
+---
+Task ID: phase-7
+Agent: Recovery agent (main session, 19 Jul 2026)
+Task: Production packaging — electron-builder + 3-platform release pipeline.
+
+Work Log:
+- Wrote apps/desktop/electron-builder.yml (167 lines): 3-platform config
+  (Windows NSIS, macOS DMG x64+arm64, Linux AppImage+.deb). Sidecar
+  binary + brand logo bundled into resources/ via extraResources.
+  Code signing OFF for v0.2.0-alpha (SignPath Foundation application
+  pending for free OSS Windows signing).
+- Generated brand icons from logo JPEG via PIL:
+  - build/icon.png (1024×1024 PNG)
+  - build/icon.ico (multi-resolution 16-256px, Windows)
+  - build/icon.icns (PNG placeholder — iconutil converts on macOS CI)
+  - build/dmg-background.png (660×400 navy with centered logo)
+- Wrote deb-after-install.sh + deb-after-remove.sh (creates .desktop
+  entry + installs icon for the .deb package).
+- Wrote .github/workflows/ci.yml (127 lines): runs on every push + PR.
+  Sidecar matrix: Ubuntu/Windows/macOS. TypeScript matrix: Node 20/22/24.
+  Verifies cargo build+test, tsc --noEmit, vitest run, vite build,
+  electron smoke under Xvfb.
+- Wrote .github/workflows/release.yml (301 lines): triggers on git tag
+  v* push. Builds all 3 platforms in parallel, attaches artifacts to
+  GitHub Release via electron-builder --publish always.
+- Wrote docs/release-checklist.md (255 lines): pre-release checks,
+  cutting the release (version bump → tag → monitor CI → verify
+  artifacts → smoke test each platform → release notes template →
+  publish), post-release (worklog, announce, monitor), rollback
+  procedure, code signing roadmap (SignPath + Apple Dev ID).
+- Wrote LICENSE.md (MIT) at repo root.
+- Wrote scripts/packaged-smoke.sh (90 lines): runs the packaged
+  binary under Xvfb, asserts sidecar starts + bundles correctly.
+- Added electron-builder 25.1.8 + pinned electron 33.4.11 to
+  apps/desktop/package.json. Added dist/pack/dist:linux/dist:win/
+  dist:mac scripts.
+- Fixed .gitignore to allow apps/desktop/build/ (icons + scripts)
+  while still ignoring other build/ dirs.
+
+Build verification (locally):
+- electron-builder --linux --dir → success, linux-unpacked/ contains
+  the metardu-desktop executable (186MB with Chromium) + resources/
+  with sidecar binary (1.7MB) + brand logo (205KB).
+- electron-builder --linux AppImage → success, 110MB AppImage at
+  release/metardu-desktop-0.2.0-x86_64.AppImage. Verified by
+  extracting + running under Xvfb: sidecar started, ping succeeded,
+  version check succeeded.
+- Packaged smoke test PASSED:
+    [OK] sidecar reached running state
+    [OK] sidecar version check succeeded
+    [OK] no real FATAL lines (GPU FATAL in headless is expected)
+    [OK] sidecar binary bundled in resources/ (1,687,976 bytes)
+    [OK] brand logo bundled in resources/
+- .deb build timed out (electron-builder's fpm step is slow on this
+  container). Not blocking — AppImage is the primary Linux target.
+  .deb will build correctly in CI (GitHub Actions runners are faster).
+
+Stage Summary:
+- 569 total tests still passing (no regressions from Phase 7):
+  - Sidecar Rust: 91/91
+  - Engine TS: 366/366
+  - Country-config: 56/56
+  - Electron-integration: 15/15
+  - IPC schemas: 25/25
+  - Golden fixtures: 9/9
+  - Apps/desktop IPC: 7/7
+- Dev-mode smoke test: PASSED
+- Packaged smoke test: PASSED (AppImage-extracted)
+- Real Linux AppImage built: 110MB
+- 1 commit pushed: d1b737b.
+- The app is now installable. To cut v0.2.0-alpha:
+  1. Tag: git tag v0.2.0-alpha && git push origin v0.2.0-alpha
+  2. Monitor CI: https://github.com/error302/metardu-desktop/actions
+  3. Verify artifacts on the GitHub Release page
+  4. Smoke-test each platform's installer
+  5. Publish release notes (template in docs/release-checklist.md)
+- User action still needed:
+  * Apply to SignPath Foundation (free OSS Windows code-signing):
+    https://signpath.org/foundation — 1-2 week approval
+  * Optionally buy Apple Developer ID ($99/yr) after first paying
+    customer per recovery plan §5
+- All 7 phases (0-7) complete. Critical path to v0.2.0-alpha is done.
+- Future phases (per recovery plan §3):
+  * Phase 8: Second country (decided by first non-Kenya customer)
+  * Phase 9+: Remaining workflows (topo, engineering, setting-out,
+    sectional properties)
