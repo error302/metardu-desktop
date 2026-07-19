@@ -680,3 +680,47 @@ Stage Summary:
   * UI views for the 4 new workflows (Phase 10)
 - Next: Phase 10 — wire the 4 new workflows into the AppShell nav +
   create view components for each.
+
+---
+Task ID: phase-10
+Agent: Recovery agent (main session, 19 Jul 2026)
+Task: Wire 4 workflow views into the AppShell UI.
+
+Work Log:
+- Created 4 view components in apps/desktop/src/renderer/views/:
+  - TopographicView.tsx (133 lines): CSV point input → TIN + contour
+    generation. Shows triangle count, contour list, elevation range,
+    mean slope, spot heights. Country-config-aware tolerance.
+  - EngineeringView.tsx (142 lines): existing-ground TIN + design
+    plane → cut/fill volumes via average-end-area method. Per-section
+    areas table, max cut/fill depths.
+  - SettingOutView.tsx (144 lines): design points + control →
+    stakeout instructions (polar/GNSS RTK) → as-built QC with
+    pass/fail badges per country's construction tolerance. Mock
+    as-built loader for testing.
+  - SectionalView.tsx (150 lines): building levels + units → area
+    computation → participation quotas → area balance check. Country
+    selector (KE/AU/GB/ZA/AE). DRAFT warning when source not filed.
+- Updated AppShell (packages/ui-components/src/panels/AppShell.tsx):
+  - Added 3 new view IDs: topo, engineering, sectional
+  - Added 'Engineering' category to sidebar nav
+  - Renamed 'stakeout' → 'Setting-Out'
+  - Updated keyboard shortcut map
+  - Added optional renderView prop: (ViewId) => ReactNode. Keeps
+    ui-components decoupled from the engine (architecture invariant).
+  - Version bumped to 0.4.0
+- Updated renderer main.tsx + dev frontend/main.tsx to pass renderView
+  that maps view IDs to the new view components.
+
+Stage Summary:
+- 635 tests still passing (no regressions from UI changes).
+- Vite build succeeds (682KB JS — larger because views import engine
+  + country-config; code-splitting deferred).
+- Electron smoke test PASSED.
+- 1 commit pushed: 9a1e5b5.
+- The app now has real, interactive UI for all 5 workflow families:
+  cadastral (Form 3), topographic, engineering, setting-out, sectional.
+- All 5 countries selectable in the sectional view.
+- Next: the app is feature-complete for v0.4.0-alpha. Remaining work
+  is polish (map canvas, DXF output, code-splitting) + statutory
+  document renderers for AU/GB/ZA/AE (gated on source PDFs).
