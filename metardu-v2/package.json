@@ -1,23 +1,37 @@
 {
   "name": "metardu-v2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "MetaRDU Desktop v2.0 — Phase 1 build (Rust sidecar + flight planning engine)",
+  "description": "MetaRDU Desktop v2.0 — multi-country survey automation platform (Rust sidecar + TypeScript engine + Electron shell)",
   "license": "MIT",
   "author": "error302",
   "workspaces": [
-    "packages/engine"
+    "packages/engine",
+    "packages/electron-integration",
+    "packages/ipc-schemas",
+    "packages/ui-components",
+    "packages/electron-bridge",
+    "packages/report-pdf",
+    "packages/e2e-tests",
+    "apps/desktop"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
-    "test": "npm run test --workspaces",
-    "test:engine": "npm run test --workspace packages/engine",
     "build:sidecar": "cd packages/metardu-sidecar && cargo build --release",
+    "build:desktop": "npm run build --workspace @metardu/desktop",
+    "build:renderer": "vite build",
+    "dev": "concurrently -k -n vite,electron \"vite\" \"cross-env METARDU_DEV=1 electron apps/desktop\"",
+    "start": "electron apps/desktop",
+    "test": "npm run test --workspaces",
+    "test:engine": "npm run test --workspace @metardu/engine-flight-planning",
     "test:sidecar": "cd packages/metardu-sidecar && cargo test",
+    "test:electron-integration": "npm run test --workspace @metardu/electron-integration",
+    "test:ipc-schemas": "npm run test --workspace @metardu/ipc-schemas",
     "test:e2e": "python3 scripts/test_sidecar_e2e.py",
+    "lint": "npm run lint --workspaces",
     "demo": "npx tsx scripts/demo-nairobi-survey.mjs",
     "demo:terrain": "npx tsx scripts/demo-terrain-aware.mjs",
-    "clean": "rm -rf packages/engine/dist packages/engine/coverage packages/metardu-sidecar/target scripts/demo-output"
+    "clean": "rm -rf packages/engine/dist packages/engine/coverage packages/metardu-sidecar/target scripts/demo-output apps/desktop/dist"
   },
   "engines": {
     "node": ">=20"
@@ -29,5 +43,10 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "vite": "^8.1.5"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "cross-env": "^7.0.3",
+    "electron": "^33.0.0"
   }
 }

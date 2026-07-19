@@ -21,6 +21,7 @@ dist/
 build/
 target/
 *.tsbuildinfo
+**/renderer-build/
 
 # Coverage
 coverage/

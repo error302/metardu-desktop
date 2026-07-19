@@ -1,24 +1,24 @@
 {
-  "name": "@metardu/electron-bridge",
-  "version": "0.1.0",
-  "description": "Drop-in replacement files for metardu-desktop Electron app — wires the v2.0 Rust sidecar + flight planning engine into the existing v1.0 shell",
+  "name": "@metardu/desktop",
+  "version": "0.2.0",
+  "description": "MetaRDU Desktop — Electron shell that hosts the React UI, spawns the Rust sidecar, and brokers IPC between renderer and sidecar.",
   "license": "MIT",
   "author": "error302",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/main/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "lint": "tsc --noEmit",
+    "dev": "npm run build && electron .",
+    "start": "electron .",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "@metardu/electron-integration": "*",
-    "@metardu/engine-flight-planning": "*",
     "@metardu/ipc-schemas": "*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "electron": "^33.0.0",
     "typescript": "^5.5.0"
   },
   "engines": {

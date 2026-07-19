@@ -18,10 +18,17 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Path to the built sidecar binary — check multiple locations
+// Path to the built sidecar binary — check multiple locations.
+// __dirname is packages/electron-integration/src/tests/, so the sidecar
+// binary at packages/metardu-sidecar/target/release/metardu-sidecar is
+// THREE levels up (../../..), not two. The original two-level path
+// resolved to packages/electron-integration/metardu-sidecar/ which never
+// existed, causing every test to silently it.skip — see phase-0 audit
+// defect #6.
 const POSSIBLE_PATHS = [
-  join(__dirname, "..", "..", "metardu-sidecar", "target", "release", "metardu-sidecar"),
+  join(__dirname, "..", "..", "..", "metardu-sidecar", "target", "release", "metardu-sidecar"),
   "/home/z/my-project/metardu-v2/packages/metardu-sidecar/target/release/metardu-sidecar",
+  "/home/z/my-project/metardu-desktop/metardu-v2/packages/metardu-sidecar/target/release/metardu-sidecar",
 ];
 const SIDECAR_BIN = POSSIBLE_PATHS.find(p => existsSync(p)) ?? POSSIBLE_PATHS[0]!;
 
