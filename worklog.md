@@ -772,3 +772,33 @@ Stage Summary:
 - Electron smoke test PASSED.
 - 1 commit pushed: 0b53175.
 - Next: SVG map canvas for visual TIN/contour/boundary display.
+
+---
+Task ID: quality-svg-validation
+Agent: Recovery agent (main session, 19 Jul 2026)
+Task: SVG SurveyCanvas + robust input validation + comprehensive edge-case tests.
+
+Work Log:
+- Q2: Built SurveyCanvas (packages/ui-components/src/canvas/SurveyCanvas.tsx,
+  290 lines). Zero-dependency SVG renderer with pan/zoom. Renders TIN,
+  contours, boundaries, beacons, spot heights, grid, north arrow,
+  scale bar. Answered 'SVG vs OpenLayers': SVG for survey drawings
+  (no basemap needed, zero bundle cost); OpenLayers later for
+  satellite/street overlay.
+- Q3: Built validation module (packages/engine/src/workflows/validation.ts,
+  230 lines). 10 reusable validators: validateNonNaN, validatePositive,
+  validateRange, validateNonEmptyString, validateMinLength,
+  validatePoints, validatePolygon, validateBearing, validateDistance,
+  validateSRID. Design principle: fail fast, fail loud — no NaN
+  propagation to statutory plans.
+- Q4: Wrote 43 edge-case tests (edge-cases.test.ts, 493 lines) covering
+  all validators + workflow edge cases (sea level, negative elevations,
+  large UTM coords, tiny contour intervals, 100+ points, single-unit
+  buildings, multi-level, area imbalance).
+- Q5: Wired SurveyCanvas into TopographicView — interactive SVG map
+  shows above the numeric results with pan/zoom.
+
+Stage Summary:
+- 692 total tests passing (was 649 + 43 new edge-case tests).
+- Vite build succeeds. Electron smoke test PASSED.
+- 1 commit pushed: 9081e18.
