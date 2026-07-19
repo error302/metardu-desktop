@@ -252,3 +252,95 @@ Stage Summary:
 - The app now looks like the brand and the IPC chain is provably sound.
 - Next: Phase 4 — computation core (adjustment + COGO + geodesy in
   sidecar), proven against Kenya golden fixtures.
+
+---
+Task ID: phase-4
+Agent: Recovery agent (main session, 19 Jul 2026)
+Task: Build the computation core — geodesy + COGO + least-squares adjustment in the Rust sidecar.
+
+Work Log:
+- Geodesy module (packages/metardu-sidecar/src/geodesy/):
+  - ecef.rs: Zhu (1993) closed-form geodetic↔ECEF, 3 ellipsoids
+    (WGS84, Clarke 1866, GRS80). 4 tests passing including a
+    Nairobi ECEF cross-check against pyproj EPSG:4978.
+  - helmert.rs: 7-parameter Helmert with both Position Vector
+    (EPSG::9606) and Coordinate Frame (EPSG::9607) conventions.
+    4 tests including the convention-sign-flip test that catches
+    the most common silent coordinate drift bug.
+  - projection.rs: Transverse Mercator forward+inverse via Snyder
+    series (USGS PP-1395 §8). 4 tests including Nairobi UTM 37S
+    cross-checked against pyproj EPSG:4674 → EPSG:21037.
+  - mod.rs: datums module with WGS84/CLARKE_1866/GRS80 + the
+    WGS84_TO_ARC1960 / ARC1960_TO_WGS84 Helmert params (EPSG::1122).
+    Round-trip Nairobi/Mombasa/Kisumu WGS84→Arc1960→WGS84 verified
+    to 7 dp lat/lon, 1mm height.
+- COGO module (packages/metardu-sidecar/src/cogo/):
+  - traverse.rs: misclosure + Bowditch (Compass Rule) + Transit Rule
+    adjustments. 5 tests including a 4-station perfect-square traverse
+    and a 5cm-misclosure case verifying the ratio ≥ 1:5000 Kenya
+    cadastral tolerance check.
+  - intersection.rs: bearing-bearing, bearing-distance (with
+    forward-solution selection per Davis §5.24), distance-distance.
+    Point2D helper. 6 tests covering perpendicular bearings, parallel
+    bearings (error), unit-circle intersections, no-intersection errors.
+  - area.rs: planar Shoelace + ellipsoidal ground-area correction
+    via combined scale factor (point scale × height scale). 7 tests
+    including a Nairobi-elevation case verifying the ~0.1% ground
+    area correction is applied.
+- Adjustment module (packages/metardu-sidecar/src/adjustment/):
+  - linear.rs: parametric least-squares with FULL variance-covariance
+    propagation. Implements linearization of Distance + HeightDifference
+    observations, Gaussian elimination with partial pivoting, Gauss-Jordan
+    matrix inversion, a posteriori σ₀², per-observation residuals,
+    redundancy numbers (sum = dof), Baarda w-statistic (|w| > 3.29 =
+    potential blunder), global chi-square test via regularized upper
+    incomplete gamma (Lanczos approximation).
+  - 5 tests: trilateration (3 distances, 1 unknown, perfect fit),
+    overdetermined (4 distances with noise, σ₀² > 0), Baarda blunder
+    detection (50mm blunder flagged with |w| > 3.29), underdetermined
+    error, gamma function values, chi-square p-value (5 dof @ 11.07
+    ≈ 0.05).
+  - types.rs: serde-compatible types for the IPC boundary.
+- IPC handlers (compute_handlers.rs): 15 new methods registered:
+    geodesy.{geodetic_to_ecef, ecef_to_geodetic, helmert, tm_forward,
+    tm_inverse, utm_forward, utm_inverse}
+    cogo.{traverse_misclosure, bowditch, transit, bearing_bearing,
+    bearing_distance, distance_distance, area}
+    adjustment.run
+
+Bug fixes during Phase 4:
+- Fixed Point2D.bearing_to() — was using atan2(dn, de) (math convention,
+  CCW from East); switched to atan2(de, dn) (surveyor convention, CW
+  from North). Without this fix every bearing returned was wrong by
+  90° or mirrored.
+- Fixed bearing_distance solution selection — was returning p1 itself
+  when p1 lay on the circle (the "near" solution). Now picks the
+  forward solution per Davis §5.24.
+- Fixed redundancy formula — was Q_vv = Q_ll - σ² (negative result);
+  correct is r_i = 1 - Q_ll/σ² with Q_vv = r_i × σ².
+- Fixed golden fixture projection__utm37s-forward-inverse.json — the
+  previous expected values (277341.4, 9857836.6) didn't match pyproj's
+  actual Arc 1960 → UTM 37S output (257108.88, 9857724.34). Updated
+  with citation and 1m tolerance.
+
+Stage Summary:
+- 489 total tests passing (was 449 — added 40 new tests across
+  geodesy, COGO, adjustment).
+  - Sidecar Rust: 91 (was 51)
+  - Engine TS: 343
+  - Electron-integration: 15
+  - IPC schemas: 25
+  - Golden fixtures: 8
+  - Apps/desktop IPC round-trip: 7
+- list_methods now returns 32 methods (was 17 — added 15 new compute).
+- Electron smoke test PASSED with the new sidecar binary.
+- 1 commit pushed: e50242c.
+- Known limitations documented:
+  1. Snyder TM series has ~5m drift at UTM zone edges. Phase 6
+     (Kenya Form 3) will swap in Karney Krüger n-series for
+     nanometre accuracy.
+  2. Adjustment engine handles Distance + HeightDifference only.
+     Direction/Azimuth/GnssBaseline stubbed for Phase 4B (full
+     survey network adjustment).
+- Next: Phase 5 — country-config abstraction (Kenya reference impl
+  per ADR-0004).
