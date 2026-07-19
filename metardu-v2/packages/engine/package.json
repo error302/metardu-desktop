@@ -58,7 +58,9 @@
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist coverage"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@metardu/country-config": "*"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^2.1.0",

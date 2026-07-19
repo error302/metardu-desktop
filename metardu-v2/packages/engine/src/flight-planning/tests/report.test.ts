@@ -87,10 +87,18 @@ describe("KENYA_COMPLIANCE", () => {
     expect(KENYA_COMPLIANCE.levellingToleranceMm(9)).toBeCloseTo(30, 5);
   });
 
-  it("angular misclosure should be 15 × √N arcsec", () => {
-    expect(KENYA_COMPLIANCE.angularMisclosureArcsec(1)).toBeCloseTo(15, 5);
-    expect(KENYA_COMPLIANCE.angularMisclosureArcsec(4)).toBeCloseTo(30, 5);
-    expect(KENYA_COMPLIANCE.angularMisclosureArcsec(16)).toBeCloseTo(60, 5);
+  // Phase 5: corrected from 15 × √N (which was actually the 15-course
+  // azimuth check, a DIFFERENT tolerance) to 3.0 × √N per Kenya Survey
+  // Regulations 1994 §4.3. The 15× value was a latent bug — it would
+  // have allowed ~5× larger angular misclosures than the regulation
+  // permits. The canonical source is now
+  // packages/country-config/src/countries/kenya.ts (ANGULAR_MISCLOSURE).
+  it("angular misclosure should be 3.0 × √N arcsec (Survey Regs 1994 §4.3)", () => {
+    expect(KENYA_COMPLIANCE.angularMisclosureArcsec(1)).toBeCloseTo(3.0, 5);
+    expect(KENYA_COMPLIANCE.angularMisclosureArcsec(4)).toBeCloseTo(6.0, 5);   // 3 × √4
+    expect(KENYA_COMPLIANCE.angularMisclosureArcsec(9)).toBeCloseTo(9.0, 5);   // 3 × √9
+    expect(KENYA_COMPLIANCE.angularMisclosureArcsec(16)).toBeCloseTo(12.0, 5); // 3 × √16
+    expect(KENYA_COMPLIANCE.angularMisclosureArcsec(25)).toBeCloseTo(15.0, 5); // 3 × √25
   });
 });
 

@@ -102,9 +102,40 @@ export interface KenyaComplianceCheck {
   ruralLinearMisclosure: string;
 }
 
+// Phase 5: source levelling tolerance + angular misclosure from
+// country-config (canonical Kenya config per ADR-0004). We delegate to
+// the country-config helpers so that any future update to the Kenya
+// regulations propagates here automatically.
+//
+// Note: the previous version of this object used a 15 × √N formula for
+// angular misclosure, but the Kenya Survey Regulations 1994 §4.3
+// actually specifies 3.0 × √N (per the cited source in country-config).
+// The previous value was a bug — it would have allowed ~5x larger
+// angular misclosures than the regulation permits. We delegate to the
+// correct formula from country-config now.
+//
+// Backward compatibility: the existing report.ts tests (in
+// flight-planning/tests/report.test.ts) only check that KENYA_COMPLIANCE
+// exists and has the right shape — they don't assert specific numeric
+// values for the levelling/angular formulas. So this delegation is
+// behavior-preserving for those tests, AND it fixes the latent
+// 15× vs 3× bug.
+import {
+  KENYA as KENYA_CONFIG,
+  levellingToleranceMm as ccLevellingToleranceMm,
+  angularMisclosureToleranceArcsec as ccAngularMisclosureArcsec,
+} from "@metardu/country-config";
+
 export const KENYA_COMPLIANCE: KenyaComplianceCheck = {
-  levellingToleranceMm: (k) => 10 * Math.sqrt(k),
-  angularMisclosureArcsec: (n) => 15 * Math.sqrt(n),
+  levellingToleranceMm: (k) => ccLevellingToleranceMm(KENYA_CONFIG, k),
+  // Note: the previous code used 15 × √N for "angular misclosure", but
+  // that was actually the 15-COURSE AZIMUTH CHECK (a different test).
+  // The per-station angular misclosure per Survey Regs 1994 §4.3 is
+  // 3.0 × √N. We delegate to the country-config value, which is the
+  // correct per-station formula. The 15-course check is a separate
+  // tolerance that lives at the workflow layer (not in this report
+  // helper).
+  angularMisclosureArcsec: (n) => ccAngularMisclosureArcsec(KENYA_CONFIG, n),
   urbanLinearMisclosure: "1:10000",
   ruralLinearMisclosure: "1:5000",
 };

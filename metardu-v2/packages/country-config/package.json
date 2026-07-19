@@ -1,0 +1,37 @@
+{
+  "name": "@metardu/country-config",
+  "version": "0.1.0",
+  "description": "Country-specific survey configuration: datums, projections, tolerances, statutory documents, professional bodies. Kenya is the reference implementation (ADR-0004).",
+  "license": "MIT",
+  "author": "error302",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./kenya": {
+      "types": "./dist/countries/kenya.d.ts",
+      "import": "./dist/countries/kenya.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

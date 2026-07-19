@@ -13,6 +13,7 @@
     "packages/electron-bridge",
     "packages/report-pdf",
     "packages/e2e-tests",
+    "packages/country-config",
     "apps/desktop",
     "tests"
   ],

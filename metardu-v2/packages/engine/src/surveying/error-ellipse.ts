@@ -290,14 +290,46 @@ export function renderErrorEllipsesSvg(
 }
 
 // ─── Kenya RDM 1.1 tolerance presets ──────────────────────────────
+//
+// Phase 5: the statutory horizontal position tolerances (cadastral,
+// engineering) are sourced from country-config. The control-order and
+// topographic values are not statutory — they're sensible industry
+// defaults for non-cadastral work — and stay here as workflow constants.
+//
+// Per invariant A2, no literal Kenya statutory tolerance should appear
+// outside country-config. We delegate to the canonical config for
+// cadastral_urban, cadastral_rural, engineering_precise,
+// engineering_standard.
+import { KENYA as KENYA_CONFIG } from "@metardu/country-config";
+
+function ellipseHorizontalTolerance(surveyType: "Cadastral" | "Engineering", variant: string): number {
+  const rule = KENYA_CONFIG.toleranceTable.find(
+    (r) =>
+      r.surveyType === surveyType &&
+      r.toleranceType === "horizontal_position" &&
+      r.formula.includes(variant),
+  );
+  if (!rule) {
+    throw new Error(
+      `No ${surveyType} ${variant} horizontal tolerance in Kenya config — check country-config/src/countries/kenya.ts`,
+    );
+  }
+  return rule.compute({});
+}
 
 export const ELLIPSE_TOLERANCE_PRESETS: Record<string, number> = {
-  cadastral_urban: 0.010,    // 1cm at 95%
-  cadastral_rural: 0.050,    // 5cm at 95%
-  engineering_precise: 0.005, // 5mm at 95%
-  engineering_standard: 0.020, // 2cm at 95%
-  topographic: 0.100,        // 10cm at 95%
-  control_1st_order: 0.003,  // 3mm at 95%
-  control_2nd_order: 0.008,  // 8mm at 95%
-  control_3rd_order: 0.015,  // 15mm at 95%
+  cadastral_urban:      ellipseHorizontalTolerance("Cadastral",   "urban"),     // 10mm at 95%
+  cadastral_rural:      ellipseHorizontalTolerance("Cadastral",   "rural"),     // 50mm at 95%
+  engineering_precise:  ellipseHorizontalTolerance("Engineering", "precise"),   // 5mm at 95%
+  engineering_standard: ellipseHorizontalTolerance("Engineering", "standard"),  // 20mm at 95%
+  // Topographic — no statutory Kenya regulation; sensible default.
+  topographic:          0.100,    // 10cm at 95%
+  // Control surveys — Kenya Survey Regulations 1994 §4.4 specifies
+  // 1:10000 ratio for control, not an absolute positional tolerance.
+  // The values below are sensible industry defaults for the three
+  // control orders; they are NOT statutory and should not be cited
+  // against the regulation.
+  control_1st_order:    0.003,    // 3mm at 95%
+  control_2nd_order:    0.008,    // 8mm at 95%
+  control_3rd_order:    0.015,    // 15mm at 95%
 };

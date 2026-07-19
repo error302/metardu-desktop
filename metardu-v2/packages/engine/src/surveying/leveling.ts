@@ -18,9 +18,34 @@
  *
  * References:
  *   - RDM 1.1 §8: Levelling tolerance = 10 × √K mm (K = line length in km)
+ *     — the canonical source for this constant is now
+ *     packages/country-config/src/countries/kenya.ts (LEVELLING_TOLERANCE).
+ *     The local `levellingToleranceMm` function below delegates to it.
  *   - Schofield & Breach Ch. 5: Levelling
  *   - Ghilani & Wolf Ch. 5: Differential Leveling
  */
+
+// Phase 5: the levelling tolerance formula is now sourced from
+// @metardu/country-config. We import the canonical Kenya config and
+// expose a local helper for backward compatibility with existing call
+// sites. Per invariant A2, no code outside country-config should
+// hardcode `10 * Math.sqrt(K)`.
+//
+// We import from the package's built dist/ — if country-config is not
+// built yet, this throws at module load time. The Phase 5 build script
+// runs country-config build BEFORE engine build to handle this.
+import { levellingToleranceMm as countryConfigLevellingToleranceMm, KENYA } from "@metardu/country-config";
+
+/**
+ * Compute the levelling tolerance in millimetres for a line of length
+ * K kilometres. Delegates to the Kenya config (master plan §8.1).
+ *
+ * Source: Kenya Survey Regulations 1994, Table 5.1 (per
+ * packages/country-config/src/countries/kenya.ts).
+ */
+export function levellingToleranceMm(K_km: number): number {
+  return countryConfigLevellingToleranceMm(KENYA, K_km);
+}
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -145,9 +170,9 @@ export function computeRiseAndFall(
     endBenchmark = startBenchmark; // closed loop
   }
 
-  // Tolerance: 10 × √K mm (K = line length in km)
+  // Tolerance: sourced from country-config (Kenya Survey Regs 1994 Table 5.1).
   const K = totalLength / 1000;
-  const tolerance = 10 * Math.sqrt(K);
+  const tolerance = levellingToleranceMm(K);
 
   // Apply correction (proportional to distance)
   const totalCorrection = -misclosure / 1000; // mm to meters (negative to correct)
@@ -231,7 +256,7 @@ export function computeHeightOfCollimation(
   }
 
   const K = totalLength / 1000;
-  const tolerance = 10 * Math.sqrt(K);
+  const tolerance = levellingToleranceMm(K);
 
   // Apply corrections
   const totalCorrection = -misclosure / 1000;

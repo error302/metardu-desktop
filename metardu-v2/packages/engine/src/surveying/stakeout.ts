@@ -76,14 +76,71 @@ export const DEFAULT_TOLERANCE: StakeoutTolerance = {
   alertDistance: 0.500,
 };
 
-/** RDM 1.1 Kenya tolerance presets. */
+/**
+ * RDM 1.1 Kenya tolerance presets for stakeout.
+ *
+ * Phase 5: the horizontal position tolerances (0.010, 0.050, 0.005,
+ * 0.020 m) are sourced from country-config (Kenya config, derived from
+ * RDM 1.1 §7 + Kenya Survey Regulations 1994 §7). The vertical and
+ * alertDistance values are workflow-specific (stakeout ergonomics, not
+ * statutory) and stay here.
+ *
+ * Per invariant A2: a literal "0.010" or "0.050" for statutory
+ * horizontal tolerances would be a failing review. We read from
+ * country-config's tolerance table via the named presets.
+ */
+import { KENYA as KENYA_CONFIG, getTolerance } from "@metardu/country-config";
+
+function stakeoutHorizontal(surveyType: "Cadastral" | "Engineering", variant: string): number {
+  const rule = KENYA_CONFIG.toleranceTable.find(
+    (r) =>
+      r.surveyType === surveyType &&
+      r.toleranceType === "horizontal_position" &&
+      r.formula.includes(variant),
+  );
+  if (!rule) {
+    throw new Error(
+      `No ${surveyType} ${variant} horizontal tolerance in Kenya config — check country-config/src/countries/kenya.ts`,
+    );
+  }
+  return rule.compute({});
+}
+
 export const KENYA_TOLERANCE_PRESETS: Record<string, StakeoutTolerance> = {
-  cadastral_urban: { horizontal: 0.010, vertical: 0.020, alertDistance: 0.200 },
-  cadastral_rural: { horizontal: 0.050, vertical: 0.100, alertDistance: 0.500 },
-  engineering_precise: { horizontal: 0.005, vertical: 0.005, alertDistance: 0.100 },
-  engineering_standard: { horizontal: 0.020, vertical: 0.020, alertDistance: 0.500 },
+  // horizontal: 10mm (urban cadastral per RDM 1.1 §7)
+  // vertical: 20mm (stakeout-specific, not statutory)
+  // alertDistance: 200mm (UX threshold, not statutory)
+  cadastral_urban: {
+    horizontal: stakeoutHorizontal("Cadastral", "urban"),
+    vertical: 0.020,
+    alertDistance: 0.200,
+  },
+  // horizontal: 50mm (rural cadastral per RDM 1.1 §7)
+  cadastral_rural: {
+    horizontal: stakeoutHorizontal("Cadastral", "rural"),
+    vertical: 0.100,
+    alertDistance: 0.500,
+  },
+  // horizontal: 5mm (engineering precise per RDM 1.1 §7)
+  engineering_precise: {
+    horizontal: stakeoutHorizontal("Engineering", "precise"),
+    vertical: 0.005,
+    alertDistance: 0.100,
+  },
+  // horizontal: 20mm (engineering standard per RDM 1.1 §7)
+  engineering_standard: {
+    horizontal: stakeoutHorizontal("Engineering", "standard"),
+    vertical: 0.020,
+    alertDistance: 0.500,
+  },
+  // Topographic — no statutory Kenya regulation; this is a sensible
+  // default for topo work (sub-meter).
   topographic: { horizontal: 0.100, vertical: 0.050, alertDistance: 1.000 },
 };
+
+// Suppress the unused-import warning for getTolerance (kept for future
+// per-rule lookups by callers of this module).
+void getTolerance;
 
 /** Stakeout status. */
 export type StakeoutStatus =
