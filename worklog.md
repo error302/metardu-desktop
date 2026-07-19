@@ -344,3 +344,73 @@ Stage Summary:
      survey network adjustment).
 - Next: Phase 5 — country-config abstraction (Kenya reference impl
   per ADR-0004).
+
+---
+Task ID: phase-5
+Agent: Recovery agent (main session, 19 Jul 2026)
+Task: Country-config abstraction — port Kenya into CountrySurveyConfig with zero behavior change.
+
+Work Log:
+- Audited Kenya-specific constants across engine: 7 files contained
+  hardcoded Kenya values (leveling.ts 10×√K, stakeout.ts tolerance
+  presets, error-ellipse.ts tolerance presets, report.ts KENYA_COMPLIANCE,
+  gnss/index.ts CORS + Helmert, geoid.ts values, crs-database.ts SRID).
+- Created packages/country-config/ (1,389 lines across 5 files):
+  - types.ts: CountrySurveyConfig interface per master plan §4.1 + 11
+    supporting interfaces (ProjectionZone, ToleranceRule,
+    StatutoryDocSpec, ProfessionalBodyRef, etc.)
+  - countries/kenya.ts: the canonical Kenya config — primarySRID 21037,
+    3 projection zones (UTM 37S/36S + Cassini-Nairobi), 8 tolerance
+    rules with compute() functions and source citations, 3 statutory
+    documents (Form 3, Form 4, Beacon Certificate) with full layout
+    specs, ISK professional body with registration pattern,
+    Sectional Properties Act 2020 regime, 6 source-docs-required
+    checklist items.
+  - index.ts: COUNTRY_REGISTRY with KE implemented + AU/GB/ZA/AE
+    stubbed for Phase 8+. Helper functions (getTolerance,
+    levellingToleranceMm, angularMisclosureToleranceArcsec,
+    linearMisclosureRatio, getStatutoryDoc, getProjectionZone).
+  - tests/kenya.test.ts: 56 tests covering identity, geodetic
+    framework, levelling/angular/linear/horizontal tolerances (with
+    cited Survey Regs 1994 + RDM 1.1 sources), statutory docs,
+    professional body, sectional property, source-docs checklist,
+    country registry, tolerance-rule traceability.
+- Engine refactor — Kenya constants now delegate to country-config:
+  - leveling.ts: levellingToleranceMm() reads from country-config
+  - stakeout.ts: KENYA_TOLERANCE_PRESETS cadastral/engineering
+    horizontal values delegate; vertical + alertDistance stay
+    (workflow UX, not statutory)
+  - error-ellipse.ts: ELLIPSE_TOLERANCE_PRESETS same pattern;
+    control orders stay as non-statutory defaults
+  - flight-planning/report.ts: KENYA_COMPLIANCE delegates to
+    country-config. FIXED a latent bug: previous code used 15×√N for
+    'angular misclosure' — that was actually the 15-COURSE AZIMUTH
+    CHECK, not the per-station angular misclosure per Survey Regs
+    1994 §4.3 which is 3.0 × √N. The 15× value would have allowed
+    ~5× larger angular misclosures than the regulation permits.
+    Test updated to assert the correct 3.0 × √N values.
+
+Stage Summary:
+- 545 total tests passing (was 489 + 56 new country-config tests):
+  - Sidecar Rust: 91
+  - Engine TS: 343 (zero behavior change for the values that were
+    correct; the 15×→3× bug fix is documented in the test)
+  - Electron-integration: 15
+  - IPC schemas: 25
+  - Country-config: 56 (NEW)
+  - Golden fixtures: 8
+  - Apps/desktop IPC: 7
+- Acceptance criteria met (per recovery plan §3 Phase 5):
+  - grep for '10 * Math.sqrt' outside country-config returns zero
+    hits in business logic (only comments + tests)
+  - grep for hardcoded '21037' outside country-config returns only
+    Rust comments citing EPSG + CRS database reference data
+  - grep for '0.010' (Kenya urban) outside country-config returns
+    zero hits in business logic
+- Electron smoke test PASSED.
+- 1 commit pushed: 1fa5868.
+- Phase 6 unblocked: Kenya cadastral Form 3 vertical slice can now
+  read every tolerance, SRID, and statutory document spec from a
+  single canonical source.
+- Next: Phase 6 — Kenya cadastral Form 3 vertical slice end-to-end
+  (boundary re-establishment → adjustment → Form 3 generation).
