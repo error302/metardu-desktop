@@ -414,3 +414,97 @@ Stage Summary:
   single canonical source.
 - Next: Phase 6 — Kenya cadastral Form 3 vertical slice end-to-end
   (boundary re-establishment → adjustment → Form 3 generation).
+
+---
+Task ID: phase-6
+Agent: Recovery agent (main session, 19 Jul 2026)
+Task: Kenya cadastral Form 3 vertical slice — boundary re-establishment → adjustment → Form 3 PDF end-to-end.
+
+Note: Workspace was wiped between sessions. Restored by re-cloning from
+GitHub (all Phase 1-5 commits intact at de38aaa). Re-installed Rust
+toolchain, libclang, npm deps, rebuilt sidecar binary. All 545 prior
+tests still pass.
+
+Work Log:
+- Filed 7 regulatory PDFs from upload/ into docs/regulatory-sources/kenya/:
+  - cadastral/cadastral-survey-guidelines.pdf (3.5MB)
+  - cadastral/annex-6-cadastral-survey-and-aerial-mapping.pdf (126KB)
+  - general/land-survey-handbook.pdf (6.0MB)
+  - reference/ — 4 international standards + sample reports (18MB)
+- Wrote docs/regulatory-sources/kenya/README.md: directory structure
+  + outstanding-docs checklist (Survey Act Cap. 299, Survey Regs
+  1994, RDM 1.1, Sectional Properties Act 2020, LSB Topo Guidelines,
+  ISK Code of Ethics — all cited in country-config but NOT yet filed;
+  flagged for user to supply).
+- Wrote docs/regulatory-sources/kenya/cadastral/form-3-spec.md
+  (165 lines): Form 3 layout spec with page/clause citations for
+  every layout decision — page size, margins, title block fields,
+  plan area drawing conventions, scale selection, coordinate
+  schedule format, certification wording, DXF layer names. Marks
+  as DRAFT pending Survey Act Cap. 299 form template filing.
+- Built packages/engine/src/documents/form-3.ts (796 lines):
+  Form 3 PDF renderer using pdf-lib. Every layout decision cites
+  the spec section in a code comment per invariant B2.
+  - A4 portrait, 595×842 pt
+  - Title block: 10 fields in 2-column bordered table
+  - Plan area: closed boundary polygon + beacon symbols + bearing/
+    distance labels + north arrow + scale bar
+  - Coordinate schedule with SRID header (invariant A2: SRID from
+    country-config, never hardcoded)
+  - Certification block with surveyor info
+  - DRAFT watermark diagonal across page (mandatory per spec until
+    Survey Act Cap. 299 template is filed)
+  - Scale selection per Survey Regs 1994 §6.3 (1:500/1000/2500/5000)
+  - ISK reg number validation against country-config pattern
+- Built packages/engine/src/workflows/cadastral.ts (401 lines):
+  runCadastralWorkflow() ties together known beacons + distance
+  observations + parcel metadata + Form 3 renderer.
+  - Trilateration via Gauss-Newton least-squares with full Jacobian
+    + normal equations
+  - Symmetry-breaking initial offset to avoid singular normal
+    matrix at the centroid (reflection ambiguity)
+  - σ₀² computation + residuals per observation
+  - Falls back gracefully when all observations are between known
+    beacons (no Form 3 if <3 beacons)
+- Added 23 new tests:
+  - documents/tests/form-3.test.ts: 14 tests
+  - workflows/tests/cadastral.test.ts: 9 tests
+- Added golden fixture: tests/golden-fixtures/kenya/cadastral__form-3-reference-parcel.json
+- Generated real Form 3 PDF at /home/z/my-project/download/form-3-sample.pdf
+  (4092 bytes, A4 portrait). Verified with pdfinfo + pypdf:
+    Title: 'Deed Plan — S/12345'
+    Author: 'Jane Wanjiru'
+    Subject: 'Kenya Survey Act Cap. 299, Form No. 3'
+  All 10 title block fields populated. Coordinate schedule with 4
+  beacons × 4 columns. Certification block with surveyor info.
+
+Bug fixes during Phase 6:
+- Trilateration initial centroid caused singular normal matrix
+  (reflection ambiguity from 2-point distance observations). Fixed
+  by perturbing each new beacon's initial position off the centroid.
+- Gauss-Newton initially updated unknowns sequentially (per-beacon)
+  instead of simultaneously. Rewrote to build full Jacobian across
+  all unknowns and solve normal equations in one shot.
+- Jacobian sign for 'to' beacon was wrong: ∂r/∂E_to should be
+  -de/dCalc (not +de/dCalc). Re-derived from first principles.
+
+Stage Summary:
+- 569 total tests passing (was 545 + 24 new):
+  - Sidecar Rust: 91
+  - Engine TS: 366 (was 343 + 23 new)
+  - Electron-integration: 15
+  - IPC schemas: 25
+  - Country-config: 56
+  - Golden fixtures: 9 (was 8 + 1 new)
+  - Apps/desktop IPC: 7
+- Electron smoke test PASSED.
+- Real Form 3 PDF generated and verified with pdfinfo + pypdf.
+- 1 commit pushed: 9dd1a87.
+- Known limitations documented:
+  1. Form 3 spec is DRAFT — Survey Act Cap. 299 form template NOT
+     YET FILED. User must supply. Every PDF carries DRAFT watermark.
+  2. Trilateration handles distance observations only. Direction,
+     azimuth, GNSS baselines require Phase 4B adjustment engine.
+  3. No DXF companion output yet — only PDF.
+- Next: Phase 7 — production packaging (electron-builder, 3-platform
+  release: Windows NSIS, macOS DMG, Linux AppImage).
