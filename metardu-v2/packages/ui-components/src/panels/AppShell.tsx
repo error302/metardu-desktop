@@ -24,33 +24,47 @@ import "../styles/enterprise-layout.css";
  * See docs/plan/RECOVERY-AND-PRODUCTION-PLAN.md Section 2 for the
  * full brand spec.
  *
- * Status bar: live sidecar state via `window.metardu.sidecar.onState()`
- * when the preload bridge is available (Electron production). Falls
- * back to "browser" mode when running under Vite dev or in tests.
+ * Views: AppShell accepts an optional `renderView` function that maps
+ * a ViewId to a React node. If provided, the active view's component
+ * is rendered in the content area instead of the default placeholder.
+ * This lets the renderer (apps/desktop/src/renderer/main.tsx) supply
+ * workflow-specific views that depend on the engine package — which
+ * ui-components deliberately does NOT depend on (per the architecture).
  */
 
-type ViewId = "map"|"flight"|"stakeout"|"gnss"|"drone"|"lulc"|"crosssection"|"asbuilt"|"traverse"|"cogo"|"deedplan";
+type ViewId =
+  | "map" | "flight" | "stakeout" | "gnss" | "drone"
+  | "lulc" | "crosssection" | "asbuilt"
+  | "traverse" | "cogo" | "deedplan"
+  | "topo" | "engineering" | "sectional";
+
 interface NavItem { id: ViewId; label: string; icon: string; category: string; shortcut: string; }
 const NAV: NavItem[] = [
+  // Field Work
   {id:"map",label:"Map",icon:"\u25A6",category:"Field Work",shortcut:"g m"},
-  {id:"stakeout",label:"Stakeout",icon:"\u25C9",category:"Field Work",shortcut:"g s"},
+  {id:"stakeout",label:"Setting-Out",icon:"\u25C9",category:"Field Work",shortcut:"g s"},
   {id:"gnss",label:"GNSS Monitor",icon:"\u25D3",category:"Field Work",shortcut:"g g"},
+  // Drone
   {id:"flight",label:"Flight Planning",icon:"\u2708",category:"Drone",shortcut:"g f"},
   {id:"drone",label:"Drone Dashboard",icon:"\u25B3",category:"Drone",shortcut:"g d"},
+  // Office
+  {id:"topo",label:"Topographic",icon:"\u2240",category:"Office",shortcut:"g t"},
   {id:"lulc",label:"LULC Analysis",icon:"\u25D0",category:"Office",shortcut:"g l"},
   {id:"crosssection",label:"Cross-Sections",icon:"\u2317",category:"Office",shortcut:"g c"},
   {id:"asbuilt",label:"As-Built QC",icon:"\u2713",category:"Office",shortcut:"g a"},
-  {id:"traverse",label:"Traverse",icon:"\u25B3",category:"Surveying",shortcut:"g t"},
+  // Surveying
+  {id:"traverse",label:"Traverse",icon:"\u25B3",category:"Surveying",shortcut:"g v"},
   {id:"cogo",label:"COGO",icon:"\u25BD",category:"Surveying",shortcut:"g o"},
   {id:"deedplan",label:"Deed Plan",icon:"\u25A3",category:"Surveying",shortcut:"g e"},
+  // Engineering
+  {id:"engineering",label:"Engineering",icon:"\u2699",category:"Engineering",shortcut:"g n"},
+  {id:"sectional",label:"Sectional Properties",icon:"\u25A8",category:"Engineering",shortcut:"g q"},
 ];
-const CATS = ["Field Work","Drone","Office","Surveying"];
+const CATS = ["Field Work","Drone","Office","Surveying","Engineering"];
 
-const APP_VERSION = "0.2.0";
+const APP_VERSION = "0.4.0";
 
-// Logo asset — bundled by Vite at build time. The asset URL is resolved
-// relative to the package entry, so this works in both dev (Vite) and
-// production (file:// loader in Electron).
+// Logo asset — bundled by Vite at build time.
 const LOGO_URL = new URL("../../../../apps/desktop/src/renderer/assets/metardu-logo.jpeg", import.meta.url).href;
 
 // Status bar sidecar state — read from the preload bridge if available.
@@ -60,8 +74,6 @@ function useSidecarState(): SidecarState {
   const [state, setState] = useState<SidecarState>("browser");
 
   useEffect(() => {
-    // window.metardu is only defined in the Electron production build.
-    // In Vite dev or in tests, it's undefined — fall back to "browser".
     const w = window as unknown as {
       metardu?: {
         sidecar?: {
@@ -71,12 +83,10 @@ function useSidecarState(): SidecarState {
       };
     };
     if (!w.metardu?.sidecar?.onState) {
-      // Browser mode — no sidecar to monitor.
       setState("browser");
       return;
     }
 
-    // Fetch initial state, then subscribe to changes.
     w.metardu.sidecar.getState?.().then((s) => setState(s as SidecarState)).catch(() => {});
     const unsubscribe = w.metardu.sidecar.onState((s: string) => {
       setState(s as SidecarState);
@@ -99,7 +109,11 @@ function sidecarStateClass(state: SidecarState): string {
   }
 }
 
-export const AppShell: React.FC<{children?: React.ReactNode}> = ({children}) => {
+export const AppShell: React.FC<{
+  children?: React.ReactNode;
+  /** Optional: render a custom view component for the given ViewId. */
+  renderView?: (viewId: ViewId) => React.ReactNode;
+}> = ({ children, renderView }) => {
   const [view, setView] = useState<ViewId>("map");
   const [sidebar, setSidebar] = useState(true);
   const sidecarState = useSidecarState();
@@ -115,7 +129,12 @@ export const AppShell: React.FC<{children?: React.ReactNode}> = ({children}) => 
       if(typing)return;
       const now=Date.now();
       if(lastKey.current==="g"&&now-lastTime.current<700){
-        const m:Record<string,ViewId>={m:"map",f:"flight",s:"stakeout",g:"gnss",d:"drone",l:"lulc",c:"crosssection",a:"asbuilt",t:"traverse",o:"cogo",e:"deedplan"};
+        const m:Record<string,ViewId>={
+          m:"map",f:"flight",s:"stakeout",g:"gnss",d:"drone",
+          l:"lulc",c:"crosssection",a:"asbuilt",
+          v:"traverse",o:"cogo",e:"deedplan",
+          t:"topo",n:"engineering",q:"sectional",
+        };
         if(m[e.key.toLowerCase()]){e.preventDefault();setView(m[e.key.toLowerCase()]);}
         lastKey.current=null;return;
       }
@@ -127,12 +146,21 @@ export const AppShell: React.FC<{children?: React.ReactNode}> = ({children}) => 
 
   const active = NAV.find(n=>n.id===view);
 
+  // Render the content area: if renderView is provided and returns
+  // non-null, use that; otherwise fall back to children or the
+  // default placeholder.
+  const viewContent = renderView?.(view) ?? children ?? (
+    <div className="enterprise-empty-state">
+      <div style={{fontSize:"48px",color:"var(--text-disabled)"}}>{active?.icon??"\u25A6"}</div>
+      <div style={{fontSize:"14px",color:"var(--text-secondary)"}}>{active?.label??"Map"} Panel</div>
+      <div style={{fontSize:"11px",color:"var(--text-tertiary)"}}>This panel is ready for content. Press Ctrl+\ to toggle sidebar.</div>
+    </div>
+  );
+
   return (
     <div className={`app-shell ${sidebar?"":"sidebar-hidden"}`}>
       <aside className="app-sidebar">
-        {/* Brand header — MetaRDU logo on navy background */}
         <div className="sidebar-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={LOGO_URL} alt="MetaRDU" />
           <div className="sidebar-brand-text">
             <span className="sidebar-brand-name">METARDU</span>
@@ -172,11 +200,7 @@ export const AppShell: React.FC<{children?: React.ReactNode}> = ({children}) => 
               <span className="enterprise-panel-title">{active?.label??"Map"}</span>
             </div>
             <div className="enterprise-panel-body">
-              {children ?? <div className="enterprise-empty-state">
-                <div style={{fontSize:"48px",color:"var(--text-disabled)"}}>{active?.icon??"\u25A6"}</div>
-                <div style={{fontSize:"14px",color:"var(--text-secondary)"}}>{active?.label??"Map"} Panel</div>
-                <div style={{fontSize:"11px",color:"var(--text-tertiary)"}}>This panel is ready for content. Press Ctrl+\ to toggle sidebar.</div>
-              </div>}
+              {viewContent}
             </div>
           </div>
         </div>
