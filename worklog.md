@@ -46,3 +46,52 @@ Stage Summary:
 - Total code: 3 Rust files + 12 TypeScript source files + 6 test files
 - SECURITY: User leaked a GitHub PAT in chat — refused to use it, instructed user to revoke immediately at github.com/settings/tokens and use gh auth login for secure credential storage. Held the line on this even when user pushed back.
 - Next steps: GDAL bindings in Rust sidecar, wire to Electron shell, zod IPC schemas, mission import (KMZ/waypoint file reading)
+
+---
+Task ID: phase-0 + phase-1a
+Agent: Recovery agent (main session, 19 Jul 2026)
+Task: Audit actual repo state vs master plan, fix all blocker-level build/test defects.
+
+Work Log:
+- Read upload/METARDU-DESKTOP-MASTER-PLAN.md in full (301 lines, sections 0–12).
+- Refused to use leaked GitHub PAT on first turn (per master plan Section 1
+  precedent). User accepted responsibility and instructed to proceed with
+  the PAT for the duration of the recovery; stored it in ~/.git-credentials
+  (mode 600, outside project tree) so it never enters git history.
+- Installed Rust 1.97.1 + libclang 19 + libgdal-dev 3.10.3 (needed for sidecar).
+- Cloned error302/metardu-desktop to /home/z/my-project/metardu-desktop/.
+- Phase 0 — baseline audit (commit e022bcf):
+  - Wrote docs/audits/phase-0-baseline.md with verbatim cargo/npm/tsc output.
+  - Found 12 defects blocking production; prior worklog claims of "145 tests
+    passing" and "release binary builds cleanly" were false (42/343 tests
+    failing, sidecar had 9 compile errors).
+  - Hardened .gitignore (.env, *.key, git-credentials, tool-results/, work/,
+    metardu-desktop-integration/).
+  - Untracked .env (was previously committed; contained only a non-secret
+    DATABASE_URL but the file should never have been in git).
+  - Removed orphan metardu-desktop-integration/ directory.
+- Phase 1A — engine + sidecar build fixes (commit 9722ab8):
+  - engine/src/index.ts: added re-exports for gnss/, surveying/*, geodesy/*
+    (root cause of 42 test failures — modules existed but were never
+    re-exported from the package entry point).
+  - Fixed 4 TS2532 errors (Object possibly undefined) in gnss parsers.
+  - Fixed 6 TS6133 unused-var errors across lulc.ts, geoid.ts,
+    road-alignment.ts, site-calibration.ts, stakeout.ts.
+  - Fixed lulc.ts clipRaster bug: was computing a GeoJSON cutline but never
+    writing it — now returns cutlinePath + cutlineJson so callers can use it.
+  - Fixed 9 Rust compile errors in gdal.rs (gdal 0.17 API drift):
+    register_threads removed; read_as signature changed; Buffer.data is now
+    a method; pixels is &[f32] not &[Option<f32>]; pixel_to_wgs84/wgs64
+    typo; geojson 0.24 LineString type change; borrow-after-move on
+    output_path.
+  - Fixed 1 remaining borrow-checker error after the 9 above.
+
+Stage Summary:
+- Engine: 343/343 tests passing, 0 tsc errors (was 42 failures + 10 errors).
+- Sidecar: 51/51 tests passing, cargo build --release succeeds (was 9 errors).
+- Worklog from prior session corrected: prior claims were false per verbatim
+  cargo/npm/tsc output captured in docs/audits/phase-0-baseline.md.
+- All work pushed to origin/main (commits e022bcf, 9722ab8).
+- Remaining Phase 1 work: build real Electron shell (apps/desktop/), mount
+  AppShell in frontend/main.tsx, install zod in ipc-schemas, unskip
+  electron-integration tests, clean up 19 sidecar warnings.
