@@ -1,182 +1,128 @@
-# MetaRDU Desktop v2.0 — Phase 1 Build
+<div align="center">
 
-This repository contains the Phase 1 deliverables for the MetaRDU Desktop v2.0
-upgrade plan. It implements three of the five "next 30 days" actions from the
-upgrade plan:
+<img src="brand/metardu-logo.jpeg" alt="MetaRDU Logo" width="200" />
 
-- **Action 2** — Rust sidecar scaffold (`packages/metardu-sidecar/`)
-- **Action 3** — Flight planning engine with camera footprint math, lawnmower
-  waypoint generation, and 5 mission export formats (`packages/engine/`)
-- **Action 5** — Codebase onboarding report (`docs/onboarding-report.md`)
+# MetaRDU Desktop
 
-Actions 1 (SignPath Foundation application) and 4 (volunteer beta recruitment)
-require human action and are documented in the upgrade plan PDF.
+**Multi-country survey automation platform — local-first, offline-capable, regulation-aware.**
 
-## What's Working Right Now
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-442%20passing-brightgreen)]()
+[![License](https://img.shields.io/badge/license-MIT-blue)]()
+[![Phase](https://img.shields.io/badge/phase-3%20of%209-orange)]()
 
-### Rust Sidecar (`packages/metardu-sidecar/`)
+</div>
 
-A length-prefixed JSON protocol over stdin/stdout, ready for integration with
-the Electron (Phase 1-2) or Tauri (Phase 3) shell. Built-in handlers:
-- `ping` — health check with timestamp
-- `echo` — protocol round-trip test
-- `version` — sidecar version info
-- `list_methods` — discover available handlers
-- `mavlink_connect` (Phase 2 placeholder)
-- `odm_process` (Phase 2 placeholder)
-- `ml_extract_buildings` (Phase 3 placeholder)
-- `gdal_contour` (Phase 1 Month 2 placeholder)
+---
 
-**11 unit tests + 6 end-to-end tests, all passing.**
+## What this is
 
-```bash
-cd packages/metardu-sidecar
-cargo build --release
-cargo test
-python3 ../../scripts/test_sidecar_e2e.py
+MetaRDU Desktop is a desktop application for **post-field-data survey
+automation** — what a surveyor does after leaving the field. It covers
+five workflow families:
+
+- **Topographic** — drone/field-data import, TIN, contours, plans
+- **Cadastral** — boundary re-establishment, adjustment, Form 3 / SG
+  Diagram / deed plan generation
+- **Engineering** — cross-sections, volumes, alignment/chainage
+- **Construction Setting-Out** — design import, stakeout, as-built QC
+- **Sectional Properties** — sectional title / strata / condominium plans
+
+Target jurisdictions: **Kenya** (reference implementation) → Australia →
+United Kingdom → South Africa → United Arab Emirates.
+
+## Architecture (locked — see [ADR-0001](metardu-v2/docs/decisions/0001-rust-sidecar-ts-engine-electron-shell.md))
+
+```
+┌────────────────────────────────────────────────┐
+│  Electron main (apps/desktop/)                 │  ← process host, IPC broker
+├────────────────────────────────────────────────┤
+│  Renderer (React UI, Vite-built)               │  ← pure web sandbox
+│    ↕ window.metardu (preload bridge, allowlist) │
+├────────────────────────────────────────────────┤
+│  Engine (TypeScript, packages/engine/)         │  ← orchestration, documents
+├────────────────────────────────────────────────┤
+│  Sidecar (Rust, packages/metardu-sidecar/)     │  ← numerically-sensitive compute
+│    ↕ stdin/stdout length-prefixed JSON         │
+└────────────────────────────────────────────────┘
 ```
 
-### Flight Planning Engine (`packages/engine/`)
+**Why this way:** the sidecar owns all geodetic math (deterministic
+floats, mature Rust crates, small binary). The engine orchestrates but
+never reimplements math. The renderer is sandboxed — no Node access,
+no direct filesystem, no network. Every privileged operation goes
+through a curated preload bridge.
 
-Pure TypeScript, zero runtime dependencies, framework-agnostic. Implements:
-
-- **Camera database** — 12 survey drones (DJI Mavic 3 Enterprise, Phantom 4 RTK,
-  Mini 4 Pro, Air 3, Matrice 350 + H20T, Matrice 350 + P1 35mm, Matrice 350 +
-  P1 24mm, senseFly eBee X, Autel EVO II Pro RTK, Skydio X10, Parrot ANAFI USA,
-  Raspberry Pi HQ Camera)
-- **Footprint math** — GSD (cm/px), image footprint (m), photo spacing (m),
-  line spacing (m), altitude-for-GSD inverse, photo/line count for survey area
-- **Waypoint generation** — lawnmower (boustrophedon) pattern, auto-orientation
-  along longest dimension, margin extension, heading computation, mission stats
-- **Mission export** — 5 formats:
-  - DJI KMZ (wpml) — for DJI Pilot 2 and Litchi
-  - ArduPilot .waypoints (QGC WPL 110) — for Mission Planner and QGroundControl
-  - Litchi CSV — for the Litchi app
-  - senseFly eMotion XML — for eBee X
-  - Generic KML 2.2 — for Google Earth, QGIS, ArcGIS
-
-**109 tests passing (15 camera + 39 footprint + 23 waypoint + 32 export),
-0 TypeScript errors, property-based tests with fast-check.**
+## Quickstart
 
 ```bash
-cd packages/engine
+# Prerequisites: Node 20+, Rust 1.97+, libgdal-dev, libclang
+
+# Install all workspace deps
+cd metardu-v2
 npm install
-npm test
-npx tsc --noEmit
+
+# Build the sidecar
+npm run build:sidecar
+
+# Build the engine + ipc-schemas + electron-integration (for the desktop shell to import)
+npm run build --workspaces
+
+# Build the renderer (Vite)
+npm run build:renderer
+
+# Run the Electron app (headless smoke test)
+/home/z/my-project/scripts/electron-smoke.sh
+
+# Or run all tests
+npm test --workspaces
+cd packages/metardu-sidecar && cargo test --release
+cd ../../tests && npx vitest run
 ```
 
-### Demo: 50ha Nairobi Survey
+## Current state (verified 19 Jul 2026)
 
-```bash
-npx tsx scripts/demo-nairobi-survey.mjs
-```
+| Layer | Status |
+|-------|--------|
+| Sidecar (Rust) | ✅ 51 tests passing, `cargo build --release` clean |
+| Engine (TypeScript) | ✅ 343 tests passing, `tsc --noEmit` 0 errors |
+| Electron shell | ✅ Spawns sidecar, ping round-trip verified |
+| IPC schemas | ✅ 25 tests passing, 5 namespaces |
+| Electron-integration | ✅ 15 tests passing |
+| Golden fixtures | ✅ 8 tests passing (Kenya Helmert, projection, levelling) |
+| Electron smoke | ✅ PASSED |
+| Foundation docs | ✅ AGENT.md, invariants.md, 4 ADRs, brief template |
+| Country-config | ⏳ Phase 5 |
+| Computation core (adjustment + COGO) | ⏳ Phase 4 |
+| Form 3 renderer | ⏳ Phase 6 |
+| Production packaging | ⏳ Phase 7 |
 
-Generates a complete 50-hectare survey mission (DJI Mavic 3 Enterprise at 75m
-AGL, 75%/65% overlap) and exports it to all 5 formats. Output:
+## Reading order for new agents
 
-```
-GSD:                2.12 cm/px
-Footprint width:    111.88 m
-Footprint height:   81.25 m
-Photo spacing:      27.97 m
-Line spacing:       28.44 m
-Total waypoints:    1188
-Flight lines:       27
-Photos per line:    44
-Total distance:     33.17 km
-Est. flight time:   41.2 min
-```
+1. **`AGENT.md`** — operating manual (257 lines, every agent reads first)
+2. **`metardu-v2/docs/invariants.md`** — 23 hard invariants
+3. **`metardu-v2/docs/plan/RECOVERY-AND-PRODUCTION-PLAN.md`** — the 7-phase plan
+4. **`metardu-v2/docs/decisions/`** — ADRs (0001–0004 so far)
+5. **`worklog.md`** — append-only log of every phase
+6. **`upload/METARDU-DESKTOP-MASTER-PLAN.md`** — the controlling master plan
 
-Files written to `scripts/demo-output/`:
-- `nairobi-50ha-survey.kmz` (34 KB) — upload to DJI Pilot 2
-- `nairobi-50ha-survey.waypoints` (98 KB) — load in QGroundControl
-- `nairobi-50ha-survey.csv` (67 KB) — import to Litchi
-- `nairobi-50ha-survey.xml` (466 KB) — open in senseFly eMotion
-- `nairobi-50ha-survey.kml` (956 KB) — open in Google Earth
+## The non-negotiable rule
 
-## Math Verification
+> **Never guess at a regulatory format.** Before building any statutory
+> document renderer (deed plan, mutation plan, SG diagram, sectional
+> title plan, etc.), the source regulatory document MUST exist in
+> `docs/regulatory-sources/<country>/<doc-type>/`. If it doesn't, STOP
+> and ask. A plausible-looking wrong plan is worse than an obvious
+> blocker.
 
-All math is verified against published spec sheets and industry calculators:
-
-| Check | Expected | Actual | Source |
-|---|---|---|---|
-| Mavic 3 Enterprise pixel size | 3.39 µm | 3.3901 µm | DJI spec sheet |
-| Phantom 4 RTK pixel size | 2.41 µm | 2.4123 µm | DJI spec sheet |
-| Zenmuse P1 pixel size | 4.39 µm | 4.3945 µm | DJI spec sheet |
-| Mavic 3 Enterprise GSD at 75m | 2.12 cm/px | 2.1188 cm/px | Pix4D GSD calculator |
-| Phantom 4 RTK GSD at 100m | 2.74 cm/px | 2.7412 cm/px | Pix4D GSD calculator |
-| Mavic 3 Enterprise footprint at 75m | 111.9 × 81.3 m | 111.875 × 81.25 m | Hand-computed |
-
-Property-based tests verify invariants across all 12 cameras at altitudes
-10-500m, including the round-trip identity `altitudeForGsd ∘ gsd = identity`.
-
-## Repository Structure
-
-```
-metardu-v2/
-├── packages/
-│   ├── metardu-sidecar/              # Rust sidecar (Action 2)
-│   │   ├── Cargo.toml
-│   │   ├── src/
-│   │   │   ├── main.rs               # Entry point, stdin/stdout loop
-│   │   │   ├── protocol.rs           # Length-prefixed JSON protocol
-│   │   │   └── dispatcher.rs         # Method dispatch table
-│   │   └── target/release/           # Built binary (metardu-sidecar)
-│   └── engine/                       # TypeScript flight planning (Action 3)
-│       ├── package.json
-│       ├── tsconfig.json
-│       ├── vitest.config.ts
-│       └── src/
-│           ├── index.ts              # Public API
-│           └── flight-planning/
-│               ├── cameras.ts        # 12-drone sensor database
-│               ├── footprint.ts      # GSD + footprint math
-│               ├── waypoints.ts      # Lawnmower generation
-│               ├── export/
-│               │   ├── index.ts      # Unified exportMission()
-│               │   ├── dji-kmz.ts    # DJI wpml format
-│               │   ├── ardupilot-waypoints.ts
-│               │   ├── litchi-csv.ts
-│               │   ├── sensefly-xml.ts
-│               │   └── generic-kml.ts
-│               └── tests/
-│                   ├── cameras.test.ts
-│                   ├── footprint.test.ts
-│                   ├── waypoints.test.ts
-│                   └── export.test.ts
-├── docs/
-│   └── onboarding-report.md          # Codebase analysis (Action 5)
-└── scripts/
-    ├── test_sidecar_e2e.py           # Rust sidecar end-to-end test
-    └── demo-nairobi-survey.mjs       # Full mission generation demo
-```
-
-## What's Next (Phase 1 Month 2)
-
-Per the upgrade plan, the remaining Phase 1 Month 2-3 work:
-
-1. **Terrain-aware altitude** — Adjust altitude at each waypoint using a DTM
-   raster so GSD remains constant over rolling terrain. Uses GDAL bindings
-   (ADR-010).
-2. **Battery/flight time estimation** — Compute number of batteries required
-   based on drone's published cruise speed, battery capacity, and 20% safety
-   margin.
-3. **GDAL bindings** — Replace the placeholder `gdal_contour` handler in the
-   Rust sidecar with real GDAL integration via the `gdal` Rust crate.
-4. **Wire to Electron shell** — Integrate the Rust sidecar and flight planning
-   engine into the existing `metardu-desktop` Electron app, replacing the
-   placeholder drone-imagery.ts functions.
-5. **zod IPC schemas** — Define zod schemas for the 5 highest-risk IPC
-   namespaces (drone:*, gcp:*, pipeline:*, parcel:*, traverse:*).
-
-## Security Note
-
-**Never commit secrets to git.** If you need to push this code to GitHub:
-
-1. Use a fine-grained PAT stored in your OS keychain (via `gh auth login`)
-2. Never paste tokens into chat, issue comments, or commit messages
-3. Add `.gitignore` entries for any local config files containing secrets
+This is master plan Section 3, restated in `AGENT.md` and
+`docs/invariants.md`. It is the single highest-leverage rule in this
+entire project.
 
 ## License
 
-MIT — same as the upstream `metardu-desktop` repository.
+MIT — see `LICENSE` (TODO: Phase 7 will add the file).
+
+## Owner
+
+Mohammed ([@error302](https://github.com/error302))
