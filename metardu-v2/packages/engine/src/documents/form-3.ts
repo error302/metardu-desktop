@@ -323,15 +323,22 @@ function drawBeacons(
   }
 }
 
-/** Draw bearing + distance labels along each boundary segment. */
+/** Draw bearing + distance labels along each boundary segment.
+ *
+ * Based on real Kenyan survey plan layout (reference:
+ * docs/regulatory-sources/kenya/reference/4-acres-working-diagram.pdf):
+ * - Bearing is placed ABOVE the line at the midpoint
+ * - Distance is placed BELOW the line at the midpoint
+ * - Both are centered on the midpoint and offset perpendicular to the line
+ * - The offset direction is computed from the line's angle so labels
+ *   don't overlap the boundary line.
+ */
 function drawBearingDistanceLabels(
   page: PDFPage,
   beacons: Form3Beacon[],
   transform: (p: Form3Point) => { x: number; y: number },
   font: PDFFont,
 ) {
-  // Spec §"Plan area": bearing "DDD°MM'SS\"" + distance "XX.XXX m",
-  // 8pt, along each line.
   for (let i = 0; i < beacons.length; i++) {
     const a = beacons[i]!;
     const b = beacons[(i + 1) % beacons.length]!;
@@ -342,22 +349,67 @@ function drawBearingDistanceLabels(
     const { str: brgStr } = bearingDMS(a.position, b.position);
     const { str: distStr } = distanceM(a.position, b.position);
 
-    // Offset the label 5pt above the line midpoint (perpendicular).
+    // Compute the line angle to determine the perpendicular offset.
+    const dx = pb.x - pa.x;
+    const dy = pb.y - pa.y;
+    const lineLen = Math.sqrt(dx * dx + dy * dy);
+    if (lineLen < 1) continue; // skip degenerate segments
+
+    // Perpendicular unit vector (rotate 90° CCW).
+    // For a line going left-to-right, this pushes labels upward.
+    const perpX = -dy / lineLen;
+    const perpY = dx / lineLen;
+
+    // Offset: 6pt perpendicular for bearing (above), 6pt for distance (below).
+    const offsetBearing = 6;
+    const offsetDistance = 6;
+
+    // Bearing label (above the line)
     page.drawText(brgStr, {
-      x: mid.x - font.widthOfTextAtSize(brgStr, LABEL_FONT_SIZE) / 2,
-      y: mid.y + 5,
+      x: mid.x + perpX * offsetBearing - font.widthOfTextAtSize(brgStr, LABEL_FONT_SIZE) / 2,
+      y: mid.y + perpY * offsetBearing,
       size: LABEL_FONT_SIZE,
       font,
       color: BLACK,
     });
+    // Distance label (below the line, opposite side)
     page.drawText(distStr, {
-      x: mid.x - font.widthOfTextAtSize(distStr, LABEL_FONT_SIZE) / 2,
-      y: mid.y - 12,
+      x: mid.x - perpX * offsetDistance - font.widthOfTextAtSize(distStr, LABEL_FONT_SIZE) / 2,
+      y: mid.y - perpY * offsetDistance - LABEL_FONT_SIZE,
       size: LABEL_FONT_SIZE,
       font,
       color: BLACK,
     });
   }
+}
+
+/** Draw the area annotation inside the parcel (centroid).
+ *
+ * Based on real Kenyan survey plan layout (reference:
+ * docs/regulatory-sources/kenya/reference/4-acres-working-diagram.pdf):
+ * The area is shown as "AREA X.XXXX ha" at the centroid of the parcel.
+ */
+function drawAreaAnnotation(
+  page: PDFPage,
+  beacons: Form3Beacon[],
+  areaHa: number,
+  transform: (p: Form3Point) => { x: number; y: number },
+  font: PDFFont,
+) {
+  // Compute the centroid of the parcel.
+  const cx = beacons.reduce((s, b) => s + b.position.easting, 0) / beacons.length;
+  const cy = beacons.reduce((s, b) => s + b.position.northing, 0) / beacons.length;
+  const center = transform({ easting: cx, northing: cy });
+
+  const areaText = `AREA ${areaHa.toFixed(4)} ha`;
+  const textWidth = font.widthOfTextAtSize(areaText, LABEL_FONT_SIZE + 1);
+  page.drawText(areaText, {
+    x: center.x - textWidth / 2,
+    y: center.y - (LABEL_FONT_SIZE + 1) / 2,
+    size: LABEL_FONT_SIZE + 1,
+    font,
+    color: BLACK,
+  });
 }
 
 /** Draw the north arrow (top-right of plan area). */
@@ -670,12 +722,14 @@ function drawCertification(
   void blockW; // (used for layout debugging if needed)
 }
 
-/** Draw the DRAFT watermark across the entire page. */
+/** Draw the DRAFT watermark across the entire page.
+ *
+ * The Survey Act Cap. 299 is now filed (docs/regulatory-sources/kenya/
+ * cadastral/survey-act-cap-299-revised-2012.pdf). However, the Form 3
+ * spec still needs page-by-page verification against the Act's actual
+ * form templates. The watermark remains until the spec is verified.
+ */
 function drawDraftWatermark(page: PDFPage, font: PDFFont) {
-  // Per spec §"What this spec does NOT yet cover": until Survey Act
-  // Cap. 299 is filed and the spec is verified, every Form 3 PDF
-  // carries a "DRAFT — pending verification against Survey Act Cap. 299"
-  // watermark diagonally across the page.
   const text = "DRAFT — pending verification against Survey Act Cap. 299";
   const size = 28;
   page.drawText(text, {
@@ -684,7 +738,7 @@ function drawDraftWatermark(page: PDFPage, font: PDFFont) {
     size,
     font,
     color: DRAFT_RED,
-    opacity: 0.25,
+    opacity: 0.15, // reduced from 0.25 — less obtrusive now that the Act is filed
     rotate: { type: RotationTypes.Degrees, angle: 45 },
   });
 }
@@ -763,10 +817,11 @@ export async function generateForm3Pdf(input: Form3Input): Promise<Form3Output> 
   // 2. Title block (top)
   drawTitleBlock(page, input, scale, fontBold);
 
-  // 3. Plan area: boundary, beacons, labels, north arrow, scale bar
+  // 3. Plan area: boundary, beacons, labels, area annotation, north arrow, scale bar
   drawBoundary(page, input.parcel.beacons, transform);
   drawBeacons(page, input.parcel.beacons, transform, fontBold);
   drawBearingDistanceLabels(page, input.parcel.beacons, transform, font);
+  drawAreaAnnotation(page, input.parcel.beacons, input.parcel.areaHa, transform, fontBold);
   drawNorthArrow(page, planAreaX + planAreaW - 20, planAreaY + planAreaH - 25, font);
   drawScaleBar(page, planAreaX + 5, planAreaY + 5, scale, font);
 
