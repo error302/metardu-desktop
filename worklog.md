@@ -933,3 +933,33 @@ Stage Summary:
 - Improved Form 3 PDF generated and verified
 - Electron smoke test PASSED
 - 1 commit pushed: eafa9cf
+
+---
+Task ID: drone-processing-pipeline
+Agent: Recovery agent (main session, 20 Jul 2026)
+Task: Drone data processing pipeline + research metardu web/access features.
+
+Research:
+- Surveyed metardu web (206 app pages) — identified features the desktop
+  app is missing: /drone, /working-diagram, /fieldbook, /digital-signature,
+  /ai-plan-checker, /cadastral-workflow, /engineering-workflow, /field/*
+- Surveyed metardu-access (Expo/React Native mobile app with 108 code
+  files) — has matching features: fieldbook, cadastral, engineering,
+  sectional, topo, sync, settings
+- The LinkedIn post shows TrialDroneDataProcessing — a drone data
+  processing tool for orthophoto/DSM/DTM/point cloud generation
+
+Built: packages/engine/src/workflows/drone-processing.ts (166 lines)
+- validatePhotos(): min count (5), GPS data, file types, multi-flight
+- computeGsd(): GSD = (pixelSize × altitude) / focalLength
+- altitudeForGsd(): inverse
+- classifyAsprs(): ASPRS 2014 Class 1/2/3/Not Met
+- estimateOverlap(): forward + side from GPS
+- generateProcessingReport(): JSON report
+
+15 new tests (drone-processing.test.ts) — all passing.
+
+Stage Summary:
+- 716 tests passing (was 701 + 15 new)
+- Electron smoke test PASSED
+- 1 commit pushed: 5da4842
