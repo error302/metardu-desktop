@@ -904,3 +904,32 @@ Stage Summary:
 - 701 tests passing (was 700 + 1 new Electronic Cadastre test)
 - Electron smoke test PASSED
 - 1 commit pushed: ebc5604
+
+---
+Task ID: regulatory-pdfs-round2
+Agent: Recovery agent (main session, 20 Jul 2026)
+Task: File 8 new PDFs + fix Form 3 renderer based on real survey plan layout.
+
+Filed 8 new documents:
+1. Survey Act Cap. 299 (Revised 2012) — the actual Act text
+2. Land Survey Submission Standards SRVY2025-1 — modern submission
+   standard (WGS 84 / UTM 43N, Shapefile deliverables, file naming)
+3. Form LRA-27 Mutation Form — actual Kenya mutation form template
+4. 4 Acres Working Diagram — REAL survey plan showing layout convention
+5. 5 Acres Working Model — second real survey plan
+6. SURVEY PLAN.dwg — AutoCAD 2018 DWG of a real survey plan
+7. Road Surveying Reconnaissance — engineering survey reference
+8. Geometric Design, Road Safety Audits — road design reference
+
+Form 3 renderer fixes (based on the working diagram):
+- Bearing/distance labels now offset PERPENDICULAR to the boundary
+  line (was vertical offset causing overlap)
+- Added area annotation ('AREA X.XXXX ha') at the parcel centroid
+- Reduced DRAFT watermark opacity (0.25 → 0.15, Act is now filed)
+- Sample beacons use AB1/AB2/AB3/AB4 (real Kenyan convention)
+
+Stage Summary:
+- 701 tests still passing (no regressions)
+- Improved Form 3 PDF generated and verified
+- Electron smoke test PASSED
+- 1 commit pushed: eafa9cf
