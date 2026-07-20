@@ -870,3 +870,37 @@ Stage Summary:
 - Vite build: 12 separate chunks, proper code-splitting.
 - Electron smoke test PASSED.
 - 1 commit pushed: 7c2f18c.
+
+---
+Task ID: regulatory-pdfs
+Agent: Recovery agent (main session, 20 Jul 2026)
+Task: File 5 user-supplied regulatory PDFs + extract context + apply improvements.
+
+PDFs filed:
+1. Kenya Gazette (1994) → kenya/cadastral/kenya-gazette-survey-regulations-1994.pdf (5.1MB)
+   — The actual Survey (Amendment) Regulations 1994 gazette publication
+2. Electronic Cadastre Regulations 2020 → kenya/electronic-cadastre/ (290KB)
+   — Legal Notice 132 of 2020, governs NLIS digital submission
+3. Siriba et al. (2011) → kenya/reference/ (678KB)
+   — Academic analysis of Kenyan cadastre, accuracy table for map types
+4. Annex 6 Aerial Mapping → kenya/cadastral/ (126KB)
+   — KETRACO transmission line survey requirements
+5. Bahrain Cadastral Standards (2024) → bahrain/cadastral/ (7.4MB)
+   — Complete accuracy standards for Gulf-region surveying
+
+Key findings applied:
+- Kenya Survey Regulations 1994 gazette is now the cited source for
+  Form 3 tolerances (was previously only referenced by name)
+- Electronic Cadastre Transactions Regulations 2020 added to Kenya
+  config sourceDocsRequired + NLIS/Ardhisasa added as regulatory body
+- Siriba paper validates 0.03m accuracy for Survey Plans/Deed Plans
+  (matches our Kenya config)
+- Bahrain manual provides the most detailed accuracy table for any
+  Gulf country — template for improving UAE config
+- Annex 6 validates drone flight planning module (30cm GSD, 1:10,000
+  control) and engineering workflow (2m contours, 1:2500 topo)
+
+Stage Summary:
+- 701 tests passing (was 700 + 1 new Electronic Cadastre test)
+- Electron smoke test PASSED
+- 1 commit pushed: ebc5604
