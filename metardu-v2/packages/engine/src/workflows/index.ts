@@ -60,3 +60,18 @@ export {
   type SectionalWorkflowInput,
   type SectionalWorkflowOutput,
 } from "./sectional.js";
+
+// Drone data processing (photogrammetry pipeline)
+export {
+  validatePhotos,
+  computeGsd,
+  altitudeForGsd,
+  classifyAsprs,
+  estimateOverlap,
+  generateProcessingReport,
+  type DronePhoto,
+  type GCP,
+  type ProcessingQuality,
+  type ProcessingResult,
+  type DroneProcessingInput,
+} from "./drone-processing.js";

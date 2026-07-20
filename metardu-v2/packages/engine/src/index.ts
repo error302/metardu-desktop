@@ -227,6 +227,17 @@ export {
   type SectionalUnit,
   type SectionalWorkflowInput,
   type SectionalWorkflowOutput,
+  // Drone data processing (photogrammetry)
+  validatePhotos,
+  computeGsd,
+  classifyAsprs,
+  estimateOverlap,
+  generateProcessingReport,
+  type DronePhoto,
+  type GCP,
+  type ProcessingQuality,
+  type ProcessingResult,
+  type DroneProcessingInput,
 } from "./workflows/index.js";
 
 // Version
