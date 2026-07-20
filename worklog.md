@@ -991,3 +991,26 @@ Stage Summary:
 - 716 tests still passing (no regressions).
 - Electron smoke test PASSED.
 - 1 commit pushed: 64f2445.
+
+---
+Task ID: instrument-import
+Agent: Recovery agent (main session, 20 Jul 2026)
+Task: Build instrument data import — THE #1 killer gap.
+
+Built: packages/engine/src/import/instrument-import.ts (317 lines)
+- Leica GSI8/GSI16 parser (total stations + levels)
+- Sokkia SDR parser (total stations)
+- Trimble DC/JOB parser (total stations + GNSS)
+- RINEX 3.04 header parser (GNSS raw data)
+- importFieldData() auto-detection (format from extension + content)
+
+20 tests covering all 4 formats + auto-detection.
+
+This closes the #1 killer gap from the market assessment. A surveyor
+can now import field data from their Trimble, Leica, or Sokkia
+instrument into MetaRDU Desktop.
+
+Stage Summary:
+- 736 tests passing (was 716 + 20 new)
+- Electron smoke test PASSED
+- 1 commit pushed: 51aa735
