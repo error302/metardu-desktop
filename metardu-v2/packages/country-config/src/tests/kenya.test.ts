@@ -318,7 +318,11 @@ describe("Kenya config: source docs checklist (invariant B1 gate)", () => {
   });
 
   it("lists Kenya Survey Regulations 1994 as required", () => {
-    expect(KENYA.sourceDocsRequired).toContain("Kenya Survey Regulations 1994");
+    expect(KENYA.sourceDocsRequired.some((s) => s.includes("Kenya Survey Regulations 1994"))).toBe(true);
+  });
+
+  it("lists Survey (Electronic Cadastre Transactions) Regulations 2020 as required", () => {
+    expect(KENYA.sourceDocsRequired.some((s) => s.includes("Electronic Cadastre Transactions"))).toBe(true);
   });
 
   it("lists RDM 1.1 (2025) as required", () => {

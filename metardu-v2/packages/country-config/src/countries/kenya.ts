@@ -325,6 +325,11 @@ export const KENYA: CountrySurveyConfig = {
       url: "https://www.survey.go.ke/",
       scope: "national — professional registration",
     },
+    {
+      name: "National Land Information System (NLIS)",
+      url: "https://ardhisasa.go.ke/",
+      scope: "national — electronic cadastre (per Survey (Electronic Cadastre Transactions) Regulations 2020)",
+    },
   ],
   geodeticFramework: {
     datum: "Arc 1960",
@@ -371,14 +376,15 @@ export const KENYA: CountrySurveyConfig = {
   },
   sourceDocsRequired: [
     "Survey Act Cap. 299 (Laws of Kenya)",
-    "Kenya Survey Regulations 1994",
+    "Kenya Survey Regulations 1994 (Kenya Gazette No. 26, 27 May 1994)",
+    "Survey (Electronic Cadastre Transactions) Regulations 2020 (Legal Notice 132 of 2020)",
     "RDM 1.1 (2025) — Kenya Roads Design Manual",
     "Sectional Properties Act 2020",
     "LSB Topographical Survey Guidelines",
     "ISK Code of Ethics",
   ],
-  version: "0.1.0",
-  lastReviewed: "2026-07-19",
+  version: "0.2.0",
+  lastReviewed: "2026-07-20",
 };
 
 // ─── Convenience helpers (read-only, derive from KENYA) ──────────
