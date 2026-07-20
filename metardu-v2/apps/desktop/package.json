@@ -28,7 +28,8 @@
   "dependencies": {
     "@metardu/electron-integration": "*",
     "@metardu/ipc-schemas": "*",
-    "ol": "^10.9.0"
+    "ol": "^10.9.0",
+    "lucide-react": "*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
