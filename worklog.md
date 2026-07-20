@@ -963,3 +963,31 @@ Stage Summary:
 - 716 tests passing (was 701 + 15 new)
 - Electron smoke test PASSED
 - 1 commit pushed: 5da4842
+
+---
+Task ID: sync-signing-assessment
+Agent: Recovery agent (main session, 20 Jul 2026)
+Task: Sync with metardu web + digital signature + honest market assessment.
+
+Built:
+1. SyncClient (175 lines) — REST API client for project sync with
+   metardu web. Queue-based, conflict detection, last-write-wins.
+2. Digital signature module (220 lines) — PKI-based plan signing using
+   Web Crypto API. Key generation, signing, verification, seal text.
+3. Market assessment (217 lines) — honest analysis of where MetaRDU
+   stands, what's holding it back, and the path to market.
+
+Key findings from the market assessment:
+- THE #1 KILLER GAP: no instrument data import (Trimble/Leica/Sokkia).
+  Without this, no surveyor can use the app.
+- The UK surveyor profile shows a market need for: Total Station data
+  processing, GNSS RTK post-processing, utility mapping (GPR),
+  RICS-compliant plan generation, digital signing.
+- Recommendation: focus on UK market (RICS is the gold standard).
+- Build order: Trimble import → UK plan renderer → digital signing →
+  sync → GPR module.
+
+Stage Summary:
+- 716 tests still passing (no regressions).
+- Electron smoke test PASSED.
+- 1 commit pushed: 64f2445.
