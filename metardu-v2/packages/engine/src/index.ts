@@ -240,5 +240,31 @@ export {
   type DroneProcessingInput,
 } from "./workflows/index.js";
 
+// Sync with metardu web
+export {
+  SyncClient,
+  type SyncConfig,
+  type SyncProject,
+  type SyncQueueItem,
+  type SyncConflict,
+  type SyncStatus,
+} from "./sync/sync-client.js";
+
+// Digital signature + seal
+export {
+  generateKeyPair,
+  exportPublicKeyBase64,
+  importPublicKeyBase64,
+  exportPrivateKeyBase64,
+  importPrivateKeyBase64,
+  signContent,
+  verifySignature,
+  generateSealText,
+  createIdentity,
+  type SurveyorIdentity,
+  type DigitalSignature,
+  type VerificationResult,
+} from "./signing/digital-signature.js";
+
 // Version
-export const ENGINE_VERSION = "0.4.0";
+export const ENGINE_VERSION = "0.5.0";
