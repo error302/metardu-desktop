@@ -836,3 +836,37 @@ Stage Summary:
 - 700 total tests passing (was 692 + 8 new property tests).
 - Vite build succeeds. Electron smoke test PASSED.
 - 1 commit pushed: b96f686.
+
+---
+Task ID: premium-icons-codesplit
+Agent: Recovery agent (main session, 19 Jul 2026)
+Task: Real SVG icons (lucide-react) + working code-splitting + UI polish.
+
+Work Log:
+- Installed lucide-react (Cursor/Linear/shadcn standard icon library).
+  MIT, tree-shakeable, 13KB after tree-shaking.
+- Rewrote AppShell to use real SVG icons instead of unicode symbols:
+  Map, Crosshair, Radar, Plane, Mountain, Layers, ScanLine, TrendingUp,
+  Compass, Calculator, FileText, Settings, Building2. Active nav item
+  icon turns orange.
+- Replaced ✓/✗/⚠ symbols in views with text labels (PASS/FAIL/OK/
+  Mismatch/DRAFT). Zero emojis or unicode symbols in the UI.
+- Fixed code-splitting: Vite's rolldown requires manualChunks as a
+  FUNCTION, not an object. Configured 6 vendor chunks (react, ol, dxf,
+  engine, country-config, icons).
+- Fixed critical bug: Vite outDir was 'apps/desktop/src/renderer' which
+  DELETED source files on every build. Changed to 'apps/desktop/
+  renderer-build' — source files are now safe.
+- Updated dev frontend/main.tsx to use lazy loading matching production.
+- Added lucide-react as dependency of @metardu/desktop.
+
+Bundle size improvements:
+- Before: single 731KB chunk
+- After: initial load ~248KB (66% reduction) + lazy-loaded per-view
+  chunks (4-5KB each) + shared vendor-engine (442KB, loaded once)
+
+Stage Summary:
+- 700 tests still passing (no regressions).
+- Vite build: 12 separate chunks, proper code-splitting.
+- Electron smoke test PASSED.
+- 1 commit pushed: 7c2f18c.
