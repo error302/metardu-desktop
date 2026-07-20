@@ -240,6 +240,17 @@ export {
   type DroneProcessingInput,
 } from "./workflows/index.js";
 
+// Instrument import — THE killer feature (Leica GSI, Trimble DC, Sokkia SDR, RINEX)
+export {
+  importFieldData,
+  parseLeicaGSI,
+  parseSokkiaSDR,
+  parseTrimbleDC,
+  parseRinexHeader,
+  type FieldObservation,
+  type ImportResult,
+} from "./import/instrument-import.js";
+
 // Sync with metardu web
 export {
   SyncClient,
