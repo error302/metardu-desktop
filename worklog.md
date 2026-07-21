@@ -1039,3 +1039,23 @@ Stage Summary:
 - 736 tests still passing (no regressions)
 - Electron smoke test PASSED
 - 1 commit pushed: 856e67c
+
+---
+Task ID: lidar-classification
+Agent: Recovery agent (main session, 20 Jul 2026)
+Task: LiDAR point cloud classification (Post 3) + complete status document.
+
+Built: packages/engine/src/workflows/lidar-classification.ts (574 lines)
+- Progressive Morphological Filter (PMF, Zhang et al. 2003)
+- Classifies: ground, vegetation, building, noise
+- Generates DTM (bare earth) + DSM (all points)
+- Building identification via connected-component analysis
+- Bilinear grid sampling + marching squares contour generation
+
+Also wrote: docs/STATUS-AND-REMAINING.md — complete inventory of
+what's done and what's remaining, with priorities.
+
+Stage Summary:
+- 736 tests still passing (no regressions)
+- Electron smoke test PASSED
+- 1 commit pushed: cfe1283
