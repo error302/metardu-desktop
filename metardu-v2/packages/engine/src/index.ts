@@ -268,6 +268,18 @@ export {
   type StockpileResult,
 } from "./workflows/surface-comparison.js";
 
+// LiDAR point cloud classification (DSM → DTM ground extraction)
+export {
+  classifyLidarPoints,
+  sampleGridElevation,
+  generateContoursFromGrid,
+  type LidarPoint,
+  type LidarClass,
+  type ClassificationResult,
+  type GridSurface,
+  type ClassificationParams,
+} from "./workflows/lidar-classification.js";
+
 // Sync with metardu web
 export {
   SyncClient,
