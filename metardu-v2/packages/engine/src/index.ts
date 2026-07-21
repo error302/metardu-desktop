@@ -290,6 +290,44 @@ export {
   type SyncStatus,
 } from "./sync/sync-client.js";
 
+// Multi-user collaboration
+export {
+  TeamManager,
+  type TeamRole,
+  type TeamMember,
+  type Team,
+  type ProjectVisibility,
+  type SharedProject,
+  type ActivityEvent,
+  type ProjectComment,
+} from "./sync/team-collaboration.js";
+
+// Corridor/alignment design
+export {
+  generateCorridor,
+  STANDARD_TEMPLATES,
+  type HorizontalElement,
+  type VerticalElement,
+  type CrossSectionTemplate,
+  type CorridorDesign,
+  type DesignCrossSection,
+  type CorridorResult,
+} from "./workflows/corridor-design.js";
+
+// GPR/utility mapping
+export {
+  importGprData,
+  generateUtilitySurveyPlan,
+  UTILITY_COLORS,
+  UTILITY_LABELS,
+  type UtilityType,
+  type GprDetection,
+  type GprImportResult,
+  type UtilitySurveyPlan,
+  type UtilityRun,
+  type UtilityCrossing,
+} from "./workflows/utility-mapping.js";
+
 // Digital signature + seal
 export {
   generateKeyPair,
