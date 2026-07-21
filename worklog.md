@@ -1014,3 +1014,28 @@ Stage Summary:
 - 736 tests passing (was 716 + 20 new)
 - Electron smoke test PASSED
 - 1 commit pushed: 51aa735
+
+---
+Task ID: uk-survey-surfaces-progress
+Agent: Recovery agent (main session, 20 Jul 2026)
+Task: UK measured survey renderer + surface comparison + stockpile volumes + construction progress + reduced DRAFT watermark.
+
+Research: 4 LinkedIn posts analyzed:
+1. Civil3D surface model + earthwork volumes → built compareSurfaces()
+2. Drone orthomosaic + construction progress → built computeConstructionProgress()
+3. GIS + LiDAR + point cloud classification → future (needs Rust sidecar)
+4. Civil3D corridor modeling → already have engineering workflow
+
+Built:
+- UK Measured Survey Plan renderer (220 lines): RICS-compliant A3 PDF
+  with title block, plan area (points + contours), coordinate schedule,
+  compliance statement
+- Surface comparison module (260 lines): compareSurfaces() for cut/fill,
+  computeStockpileVolume() for stockpile measurement,
+  computeConstructionProgress() for time-series drone survey comparison
+- Reduced DRAFT watermark from 0.15 to 0.08 (Act is filed)
+
+Stage Summary:
+- 736 tests still passing (no regressions)
+- Electron smoke test PASSED
+- 1 commit pushed: 856e67c
