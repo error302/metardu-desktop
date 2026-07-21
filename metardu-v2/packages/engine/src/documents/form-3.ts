@@ -738,7 +738,7 @@ function drawDraftWatermark(page: PDFPage, font: PDFFont) {
     size,
     font,
     color: DRAFT_RED,
-    opacity: 0.15, // reduced from 0.25 — less obtrusive now that the Act is filed
+    opacity: 0.08, // Survey Act Cap. 299 is now filed — watermark is minimal
     rotate: { type: RotationTypes.Degrees, angle: 45 },
   });
 }

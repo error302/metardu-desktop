@@ -251,6 +251,23 @@ export {
   type ImportResult,
 } from "./import/instrument-import.js";
 
+// UK Measured Survey Plan renderer (RICS-compliant)
+export {
+  generateUkMeasuredSurveyPdf,
+  type UkSurveyPoint,
+  type UkMeasuredSurveyInput,
+  type UkMeasuredSurveyOutput,
+} from "./documents/uk-measured-survey.js";
+
+// Surface comparison + stockpile volumes + construction progress
+export {
+  compareSurfaces,
+  computeStockpileVolume,
+  computeConstructionProgress,
+  type SurfaceComparisonResult,
+  type StockpileResult,
+} from "./workflows/surface-comparison.js";
+
 // Sync with metardu web
 export {
   SyncClient,
