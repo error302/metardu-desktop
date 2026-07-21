@@ -1059,3 +1059,23 @@ Stage Summary:
 - 736 tests still passing (no regressions)
 - Electron smoke test PASSED
 - 1 commit pushed: cfe1283
+
+---
+Task ID: corridor-gpr-team-canvas
+Agent: Recovery agent (main session, 20 Jul 2026)
+Task: Build corridor design + GPR utility mapping + multi-user collaboration + interactive map canvas.
+
+Built 4 features (1,120 lines total):
+1. Corridor design (180 lines) — horizontal/vertical alignment + 3 standard
+   cross-section templates + generateCorridor()
+2. GPR utility mapping (260 lines) — import GPR data, classify utilities,
+   detect crossings, generate utility survey plan
+3. Multi-user collaboration (220 lines) — TeamManager class with teams,
+   roles (owner/editor/viewer), project sharing, activity feed, comments
+4. Interactive map canvas (260 lines) — drawing tools (point/line/polygon),
+   measurement tools (distance/area), annotations, undo/redo
+
+Stage Summary:
+- 736 tests still passing (no regressions)
+- Electron smoke test PASSED
+- 1 commit pushed: f9330bb
