@@ -40,16 +40,31 @@
  */
 
 import type { CadastralWorkflowOutput } from "../workflows/cadastral.js";
+import type { TopoWorkflowOutput } from "../workflows/topographic.js";
+import type { EngineeringWorkflowOutput } from "../workflows/engineering.js";
 
 /**
  * Survey output that an integration exporter can consume.
  *
- * Currently scoped to cadastral (the first integration target per ADR-0005).
- * Topographic and engineering outputs are added as the corresponding
- * workflow modules gain the same `uncertainty` field that the cadastral
- * workflow now exposes.
+ * Union of the three workflow outputs that currently surface an
+ * `uncertainty` (or `pointUncertainty`) field per invariant C1:
+ *   - CadastralWorkflowOutput  (cadastral — beacons carry ellipses)
+ *   - TopoWorkflowOutput       (topographic — TIN vertices, "field-data" reason)
+ *   - EngineeringWorkflowOutput (engineering — TIN vertices + volumes)
+ *
+ * Setting-out, sectional, drone-processing, lidar-classification,
+ * corridor-design, surface-comparison, utility-mapping will be added
+ * as they gain the same `uncertainty` field per Brief 02's pattern.
+ *
+ * Discriminator: each member has a unique shape that the GeoJSON
+ * exporter detects via `('form3' in input)` (cadastral),
+ * `('tin' in input && !('sections' in input))` (topo),
+ * `('sections' in input)` (engineering).
  */
-export type SurveyOutput = CadastralWorkflowOutput;
+export type SurveyOutput =
+  | CadastralWorkflowOutput
+  | TopoWorkflowOutput
+  | EngineeringWorkflowOutput;
 
 /**
  * Project-level metadata embedded in every export for traceability.

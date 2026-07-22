@@ -20,6 +20,12 @@
 
 import type { Form3Input, Form3Parcel, Form3Beacon } from "../documents/form-3.js";
 import { generateForm3Pdf, type Form3Output } from "../documents/form-3.js";
+import type { PointUncertainty } from "../survey-types.js";
+
+// Re-export for backwards compatibility — BeaconUncertainty was the
+// original cadastral-only name; PointUncertainty is the survey-domain
+// name now shared with topo + engineering workflows. Same shape.
+export type BeaconUncertainty = PointUncertainty;
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -83,21 +89,11 @@ export interface CadastralWorkflowOutput {
  * Per-beacon uncertainty. Known (fixed) beacons have `adjusted: false`
  * and the ellipse fields are undefined. New (adjusted) beacons carry
  * the full 2D error ellipse at the stated confidence level.
+ *
+ * Type alias for `PointUncertainty` (see `survey-types.ts`) — kept under
+ * the cadastral-specific name for backwards compatibility.
  */
-export interface BeaconUncertainty {
-  /** True if this beacon's coordinates were adjusted by the LS fit. */
-  adjusted: boolean;
-  /** Semi-major axis of the error ellipse, in metres. */
-  semiMajorAxis?: number;
-  /** Semi-minor axis of the error ellipse, in metres. */
-  semiMinorAxis?: number;
-  /** Orientation of the semi-major axis, degrees clockwise from north. */
-  orientation?: number;
-  /** Confidence level (0–1). Default 0.95 (95% confidence ellipse). */
-  confidenceLevel?: number;
-  /** A posteriori variance factor the ellipse was scaled by. */
-  sigma_0_sq?: number;
-}
+// (BeaconUncertainty alias declared at the top of this file.)
 
 // ─── The workflow ────────────────────────────────────────────────
 

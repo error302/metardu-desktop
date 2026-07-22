@@ -36,6 +36,7 @@
  */
 
 import type { CountrySurveyConfig } from "@metardu/country-config";
+import type { PointUncertainty } from "../survey-types.js";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -119,6 +120,22 @@ export interface TopoWorkflowOutput {
   topographicToleranceM: number;
   /** QC: max point-to-TIN residual (should be 0 since the TIN passes through all points). */
   maxResidualM: number;
+  /**
+   * Per-point uncertainty, keyed by point ID. Per master plan Section
+   * 5.3 invariant C1: every survey point must carry its propagated
+   * uncertainty.
+   *
+   * The current topographic workflow does NOT run an LS adjustment —
+   * it triangulates raw field points directly. So every point gets
+   * `{ adjusted: false, reason: "field-data" }` by default. When a
+   * future task brief wires the topo control points through the
+   * sidecar's LS adjustment, this field gets the real error ellipses.
+   *
+   * Downstream consumers (GeoJSON exporter, plan renderer) MUST
+   * surface this honestly — a topo point with no LS adjustment is a
+   * field reading, not a statutory coordinate.
+   */
+  pointUncertainty: Record<string, PointUncertainty>;
 }
 
 // ─── TIN generation (Delaunay triangulation) ─────────────────────
@@ -387,6 +404,17 @@ export function runTopographicWorkflow(input: TopoWorkflowInput): TopoWorkflowOu
   // Max residual = 0 (TIN passes through all input points by construction).
   const maxResidualM = 0;
 
+  // Per-point uncertainty: the current topographic workflow does NOT run
+  // an LS adjustment — it triangulates raw field points directly. So every
+  // point gets { adjusted: false, reason: "field-data" } by default. When
+  // a future task brief wires topo control points through the sidecar's
+  // LS adjustment, this gets the real error ellipses. Per invariant C1,
+  // we surface the gap honestly rather than hiding it.
+  const pointUncertainty: Record<string, PointUncertainty> = {};
+  for (const p of input.points) {
+    pointUncertainty[p.id] = { adjusted: false, reason: "field-data" };
+  }
+
   return {
     tin,
     contours,
@@ -397,5 +425,6 @@ export function runTopographicWorkflow(input: TopoWorkflowInput): TopoWorkflowOu
     triangleCount: tin.triangles.length,
     topographicToleranceM,
     maxResidualM,
+    pointUncertainty,
   };
 }

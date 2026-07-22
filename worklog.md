@@ -1167,3 +1167,84 @@ Stage Summary:
   * Brief 04: PyQGIS helper script generator (the differentiator for the GIS Analyst role).
   * Brief 06: GCP file exporter for Pix4D/Metashape/Agisoft (the Spatial Data Editor drone side).
   * Windows cross-compile smoke test (queued from prior session — still pending; CI workflows at .github/workflows/ci.yml and release.yml need review).
+
+---
+Task ID: 3
+Agent: main (session 4 — Brief 02: GeoJSON for topo + engineering)
+Task: Extend the GeoJSON integration exporter to consume TopoWorkflowOutput and EngineeringWorkflowOutput, with per-point uncertainty attribution per invariant C1.
+
+Work Log:
+- Re-cloned repo (workdir got wiped between sessions). Confirmed commit adcd207 (Brief 01) was on top of main.
+- Audited topo + engineering workflow output shapes. Found: neither workflow runs an LS adjustment (topo triangulates raw field points; engineering consumes an existing-ground TIN directly). Honest pattern: surface per-point uncertainty as { adjusted: false, reason: "field-data" } by default. When a future task brief wires these workflows through the sidecar's LS adjustment, this field gets the real ellipses. Per invariant C1, we surface the gap rather than hiding it.
+- Promoted BeaconUncertainty (cadastral-only name) to PointUncertainty (survey-domain name) in a new shared module packages/engine/src/survey-types.ts. BeaconUncertainty re-exported as a type alias for backwards compatibility — all existing cadastral code + tests unchanged.
+- Brief 02 step 1 (topographic.ts): added pointUncertainty: Record<string, PointUncertainty> to TopoWorkflowOutput. Populated in runTopographicWorkflow with { adjusted: false, reason: "field-data" } for every input point.
+- Brief 02 step 2 (engineering.ts): added pointUncertainty + optional volumeUncertaintyM3 to EngineeringWorkflowOutput. pointUncertainty keyed by vertex index (as string) for every existing-ground TIN vertex. volumeUncertaintyM3 left undefined for now (no input point sigmas available — flagged for future task brief).
+- Brief 02 step 3 (geojson-export.ts): generalized SurveyOutput to a union type (CadastralWorkflowOutput | TopoWorkflowOutput | EngineeringWorkflowOutput). Added detectSurveyType() discriminator (uses 'form3' in input → cadastral, 'sections' → engineering, 'tin'+'contours' → topographic). Added per-type feature builders:
+  * Cadastral: beacons (Points) + parcel polygon (Polygon) — unchanged from Brief 01.
+  * Topo: TIN vertices (Points with featureType="topo-point") + contours (LineStrings with derived=true) + spot heights (Points with derived=true + uncertaintyNote).
+  * Engineering: section centerline points (Points with featureType="section-centerline") + cross-section profiles (LineStrings in offset-vs-cut-fill-depth space, flagged with coordinateSpace="offset-vs-cut-fill-depth" + derived=true).
+  * Top-level metadata.metardu.surveyType field added. Topographic summary block (triangleCount, contourCount, minElevation, etc.) and engineering summary block (sectionCount, cutVolume, fillVolume, netVolume, etc.) embedded in metadata.
+  * Refactored buildBeaconProperties to call generic buildPointProperties(featureType, surveyType, ...) so the same uncertainty-attribution logic serves all point feature types.
+- Brief 02 step 4: 14 new tests in geojson-export-topo-eng.test.ts — covers topo happy path, per-point uncertainty (all adjusted=false with reason="field-data"), contours as LineStrings with derived=true, spot heights as Points with derived=true, topo round-trip, engineering happy path, section centerline points, cross-section profiles as LineStrings in offset-vs-depth space, engineering round-trip, unknown survey type rejection (validate() fails), Brief 01 cadastral regression check (cadastral still works after refactor), + 3 fixture-loading tests.
+- Brief 02 step 5: 2 new golden fixtures generated:
+  * kenya-topographic-5x5-grid.json — 92 features (25 TIN vertices + 64 contours + 3 spot heights), CRS urn:ogc:def:crs:EPSG::21037, meanSlope=26.57°, minElev=100m, maxElev=120m.
+  * kenya-engineering-cut-fill.json — 6 features (3 section centerlines + 3 cross-section profiles), CRS urn:ogc:def:crs:EPSG::21037, cut=100m³ (1m depth over 100m²), fill=0m³, net=100m³.
+
+Verification — verbatim terminal output:
+
+=== cargo build --release (last 5 lines) ===
+warning: `metardu-sidecar` (bin "metardu-sidecar") generated 39 warnings (run `cargo fix --bin "metardu-sidecar" -p metardu-sidecar` to apply 20 suggestions)
+    Finished `release` profile [optimized] target(s) in 38.54s
+(exit 0)
+
+=== cargo test --release (last 5 lines) ===
+test protocol::tests::test_request_deserialize_with_object_params ... ok
+test protocol::tests::test_round_trip_err_response ... ok
+test protocol::tests::test_round_trip_ok_response ... ok
+
+test result: ok. 91 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+(exit 0)
+
+=== tsc --noEmit in packages/engine (filtered to my files: integration, survey-types, topographic, engineering, cadastral) ===
+(no output — zero errors in my new/modified files)
+(exit 0)
+
+=== tsc --noEmit in apps/desktop (full output) ===
+apps/desktop/src/main/index.ts(29,31): error TS2307: Cannot find module '@metardu/electron-integration' or its corresponding type declarations.
+apps/desktop/src/tests/ipc-roundtrip.test.ts(26,50): error TS2307: Cannot find module '@metardu/electron-integration' or its corresponding type declarations.
+(2 pre-existing errors — same workspace resolution noise present before this task; my changes added zero new errors)
+
+=== npm test in packages/engine (last 8 lines) ===
+ ✓ src/workflows/tests/cadastral.test.ts (9 tests) 90ms
+ ✓ src/import/tests/instrument-import.test.ts (20 tests) 8ms
+
+ Test Files  23 passed (23)
+      Tests  522 passed (522)
+   Start at  20:58:34
+   Duration  6.76s
+(exit 0 — 522/522 tests pass; was 508 baseline + 14 new tests)
+
+Files created:
+- packages/engine/src/survey-types.ts (PointUncertainty shared type, 51 lines)
+- packages/engine/src/integration/tests/geojson-export-topo-eng.test.ts (510 lines, 14 tests)
+- packages/engine/src/integration/tests/fixtures/kenya-topographic-5x5-grid.json (92-feature topo fixture)
+- packages/engine/src/integration/tests/fixtures/kenya-engineering-cut-fill.json (6-feature engineering fixture)
+
+Files modified:
+- packages/engine/src/workflows/cadastral.ts — BeaconUncertainty now a type alias for PointUncertainty (no behavior change).
+- packages/engine/src/workflows/topographic.ts — added pointUncertainty field to TopoWorkflowOutput + populated in runTopographicWorkflow.
+- packages/engine/src/workflows/engineering.ts — added pointUncertainty + volumeUncertaintyM3 fields to EngineeringWorkflowOutput + populated in runEngineeringWorkflow.
+- packages/engine/src/integration/types.ts — SurveyOutput generalized to a union of 3 workflow output types.
+- packages/engine/src/integration/geojson-export.ts — generalized exporter accepts the union; added detectSurveyType discriminator + per-type feature builders (topo + engineering); added surveyType field to MetarduMetadata; added LineString geometry type; refactored buildBeaconProperties to use generic buildPointProperties.
+
+Stage Summary:
+- 522/522 engine tests pass (was 508 + 14 new). 91/91 sidecar tests pass (unchanged). Sidecar build clean. Zero tsc errors in my code.
+- Brief 02 complete. GeoJSON exporter now handles all 3 survey types that surface per-point uncertainty (cadastral, topographic, engineering). Other workflow types (setting-out, sectional, drone-processing, lidar-classification, corridor-design, surface-comparison, utility-mapping) will be added as they gain the same uncertainty field per this pattern.
+- Honest uncertainty attribution: topo and engineering points are marked adjusted=false with reason="field-data" by default — invariant C1 in action. Downstream GIS tools see the gap explicitly, not hidden.
+- Engineering cross-section profiles are emitted as LineStrings in (offset, cut-fill-depth) space — NOT map (E, N) space. This is flagged in properties.coordinateSpace so downstream tools (QGIS, AutoCAD) don't mistake them for map features.
+- What's next:
+  * Brief 03: GeoPackage exporter (binary format, @ngageoint/geopackage dependency — approved by ADR-0005).
+  * Brief 04: PyQGIS helper script generator (the differentiator for the GIS Analyst role).
+  * Brief 06: GCP file exporter for Pix4D/Metashape/Agisoft (drone side of the Spatial Data Editor role).
+  * Setting-out, sectional, drone-processing, lidar, corridor, surface-comparison, utility-mapping workflows — each needs the same pointUncertainty field added per this Brief 02 pattern, then the GeoJSON exporter auto-handles them once detectSurveyType is extended.
+  * Windows cross-compile smoke test — still queued from prior session.

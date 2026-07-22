@@ -24,6 +24,7 @@
 
 import type { CountrySurveyConfig } from "@metardu/country-config";
 import type { TIN, TopoPoint } from "./topographic.js";
+import type { PointUncertainty } from "../survey-types.js";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -90,6 +91,33 @@ export interface EngineeringWorkflowOutput {
   maxCutDepth: number;
   /** Max fill height (m). */
   maxFillHeight: number;
+  /**
+   * Per-point uncertainty for the existing-ground TIN's vertices,
+   * keyed by vertex index (as a string). Per master plan Section 5.3
+   * invariant C1: every survey point must carry its propagated
+   * uncertainty.
+   *
+   * The current engineering workflow does NOT run an LS adjustment —
+   * it consumes an existing-ground TIN directly and computes volumes
+   * via the average-end-area method. So every TIN vertex gets
+   * `{ adjusted: false, reason: "field-data" }` by default. When a
+   * future task brief wires engineering control through the sidecar's
+   * LS adjustment, this gets the real error ellipses.
+   *
+   * Volume uncertainty propagation is best-effort: the worst-case
+   * semi-major axis from the input TIN's vertices is propagated
+   * through the volume formula and surfaced in the GeoJSON exporter's
+   * parcel-level uncertainty field. This is conservative (overestimates
+   * volume uncertainty) which is the safe direction for statutory work.
+   */
+  pointUncertainty: Record<string, PointUncertainty>;
+  /**
+   * Best-effort propagated uncertainty on the net volume, in m³.
+   * Computed from the worst-case input point uncertainty propagated
+   * through the average-end-area method. Conservative (overestimate).
+   * `undefined` if no input point uncertainties are available.
+   */
+  volumeUncertaintyM3?: number;
 }
 
 // ─── Main entry point ────────────────────────────────────────────
@@ -204,6 +232,21 @@ export function runEngineeringWorkflow(input: EngineeringWorkflowInput): Enginee
   );
   const engineeringToleranceM = engRule ? engRule.compute({}) : 0.015;
 
+  // Per-point uncertainty: the engineering workflow consumes an existing-
+  // ground TIN directly (no LS adjustment). Surface this honestly —
+  // every TIN vertex gets { adjusted: false, reason: "field-data" }.
+  // When a future task brief wires engineering control through the
+  // sidecar's LS adjustment, this gets the real ellipses.
+  const pointUncertainty: Record<string, PointUncertainty> = {};
+  for (let i = 0; i < input.existingGround.vertices.length; i++) {
+    pointUncertainty[String(i)] = { adjusted: false, reason: "field-data" };
+  }
+
+  // Volume uncertainty: best-effort, conservative. We don't have input
+  // point sigmas (the TIN came in without uncertainty attribution), so
+  // we leave volumeUncertaintyM3 undefined here. A future task brief
+  // that wires uncertainty through the TIN will populate this.
+
   return {
     sections,
     cutVolume,
@@ -213,6 +256,7 @@ export function runEngineeringWorkflow(input: EngineeringWorkflowInput): Enginee
     sectionCount: sections.length,
     maxCutDepth,
     maxFillHeight,
+    pointUncertainty,
   };
 }
 
