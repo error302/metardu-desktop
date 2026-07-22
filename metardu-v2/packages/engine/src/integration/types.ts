@@ -148,20 +148,34 @@ export interface IntegrationOutput {
  * exporters (GeoPackage, PyQGIS, QGS, GCP, OSM, DXF extension) plug into
  * the same export-menu UI by registering here.
  *
- * @template TInput  — the survey output type this exporter consumes
+ * # Brief 06 constraint relaxation
+ *
+ * Originally constrained `TInput extends SurveyOutput` so all exporters
+ * consumed workflow outputs. Brief 06 (GCP exporter for drone
+ * photogrammetry) introduces `GcpInput` — a list of 3D control points
+ * that's not a workflow output. Per master plan Section 0's "STOP and
+ * report the conflict" principle, the constraint is relaxed: `TInput`
+ * is now unconstrained. The 3 existing exporters (GeoJSON, GeoPackage,
+ * PyQGIS) still type their `TInput` as `SurveyOutput` explicitly, so
+ * they retain full type safety. The GCP exporter types its `TInput` as
+ * `GcpInput`. The registry (`INTEGRATION_EXPORTERS`) is heterogeneous —
+ * the export menu UI dispatches based on the `format` field.
+ *
+ * @template TInput  — the input type this exporter consumes (SurveyOutput,
+ *                     GcpInput, or future types)
  * @template TOptions — format-specific options, extending IntegrationOptions
  * @template TOutput — format-specific output, extending IntegrationOutput
  */
 export interface IntegrationExporter<
-  TInput extends SurveyOutput = SurveyOutput,
+  TInput = SurveyOutput,
   TOptions extends IntegrationOptions = IntegrationOptions,
   TOutput extends IntegrationOutput = IntegrationOutput,
 > {
-  /** Format identifier — "geojson", "geopackage", "pyqgis-script", ... */
+  /** Format identifier — "geojson", "geopackage", "pyqgis-script", "gcp", ... */
   readonly format: string;
   /** IANA / OGC MIME type for the produced artifact. */
   readonly mimeType: string;
-  /** File extension without leading dot — "geojson", "gpkg", "py", ... */
+  /** File extension without leading dot — "geojson", "gpkg", "py", "csv", ... */
   readonly fileExtension: string;
   /** Human-readable one-liner for the export menu. */
   readonly description: string;

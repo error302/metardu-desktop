@@ -42,19 +42,38 @@ export {
   type PyQgisOutput,
 } from "./pyqgis-script-generator.js";
 
+export {
+  gcpExporter,
+  type GcpFormat,
+  type GcpInput,
+  type GcpOptions,
+  type GcpOutput,
+  type GcpPoint,
+} from "./gcp-export.js";
+
 /**
  * Registry of all currently-registered integration exporters.
  *
- * The export-menu UI iterates over this list to build its options. To
- * add a new format: implement IntegrationExporter, add an entry here.
+ * Heterogeneous — each exporter may consume a different input type
+ * (SurveyOutput for GeoJSON/GeoPackage/PyQGIS, GcpInput for the GCP
+ * exporter). The export menu UI dispatches based on the `format` field.
+ * `IntegrationExporter<any, any, any>` is the registry's element type —
+ * type safety is preserved at each exporter's own declaration site.
  */
 import { geoJsonExporter } from "./geojson-export.js";
 import { geoPackageExporter } from "./geopackage-export.js";
 import { pyQgisScriptExporter } from "./pyqgis-script-generator.js";
+import { gcpExporter } from "./gcp-export.js";
 import type { IntegrationExporter } from "./types.js";
 
-export const INTEGRATION_EXPORTERS: ReadonlyArray<IntegrationExporter> = [
+// Use `any` for the registry element type so heterogeneous exporters
+// (SurveyOutput consumers + GcpInput consumer) can coexist. Type safety
+// is preserved at each exporter's own declaration site, not at the
+// registry level.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const INTEGRATION_EXPORTERS: ReadonlyArray<IntegrationExporter<any, any, any>> = [
   geoJsonExporter,
   geoPackageExporter,
   pyQgisScriptExporter,
+  gcpExporter,
 ];

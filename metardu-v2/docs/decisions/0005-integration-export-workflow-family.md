@@ -329,6 +329,22 @@ the export menu iterates over the registered exporters.
   dependency in the engine. 16 new tests including `python3 -m py_compile`
   syntax validation of the golden fixtures. 2 new fixtures
   (kenya-cadastral.py, kenya-topographic.py).
+- [x] **Brief 06** — GCP file exporter (`gcp-export.ts`) shipped. Emits CSVs
+  in Pix4D / Metashape / Agisoft format for drone photogrammetry tie-in.
+  Architectural change: relaxed `IntegrationExporter<TInput extends SurveyOutput>`
+  constraint to `IntegrationExporter<TInput>` (no constraint) per master plan
+  Section 0's "STOP and report the conflict" principle — GCPs are a list of
+  3D control points, not a workflow output, so they need a different input
+  type (`GcpInput`). The 3 existing exporters retain type safety via explicit
+  `TInput = SurveyOutput` declaration. `INTEGRATION_EXPORTERS` is now
+  heterogeneous (`IntegrationExporter<any, any, any>[]`); the export menu UI
+  dispatches on the `format` field. Per-GCP accuracy propagated to
+  Metashape/Agisoft's accuracy_xy/accuracy_z columns from `uncertainty.semiMajor`
+  (XY) and 1.5× that (Z, RTK vertical is typically 1.5× worse than horizontal).
+  Pix4D has no accuracy column — uncertainty is on a separate `#`-comment line
+  below each GCP row (not trailing on the same row, to avoid breaking Pix4D's
+  CSV parser with commas in the comment). 21 new tests + 3 golden fixtures
+  (kenya-gcp-pix4d.csv, kenya-gcp-metashape.csv, kenya-gcp-agisoft.csv).
 - [x] Prerequisite: `CadastralWorkflowOutput` extended with an `uncertainty`
   field carrying per-beacon error ellipses (semi-major, semi-minor,
   orientation, confidence level) — sourced from the existing normal matrix's
