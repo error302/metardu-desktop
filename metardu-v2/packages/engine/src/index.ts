@@ -348,12 +348,15 @@ export {
 // feeds downstream GIS/CAD/photogrammetry tools.
 export {
   geoJsonExporter,
+  geoPackageExporter,
   INTEGRATION_EXPORTERS,
   type IntegrationExporter,
   type IntegrationOptions,
   type IntegrationOutput,
   type GeoJsonOptions,
   type GeoJsonOutput,
+  type GeoPackageOptions,
+  type GeoPackageOutput,
   type ProjectMetadata,
   type SurveyOutput,
   type ValidationResult,

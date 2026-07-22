@@ -30,6 +30,12 @@ export {
   type GeoJsonOutput,
 } from "./geojson-export.js";
 
+export {
+  geoPackageExporter,
+  type GeoPackageOptions,
+  type GeoPackageOutput,
+} from "./geopackage-export.js";
+
 /**
  * Registry of all currently-registered integration exporters.
  *
@@ -37,8 +43,10 @@ export {
  * add a new format: implement IntegrationExporter, add an entry here.
  */
 import { geoJsonExporter } from "./geojson-export.js";
+import { geoPackageExporter } from "./geopackage-export.js";
 import type { IntegrationExporter } from "./types.js";
 
 export const INTEGRATION_EXPORTERS: ReadonlyArray<IntegrationExporter> = [
   geoJsonExporter,
+  geoPackageExporter,
 ];

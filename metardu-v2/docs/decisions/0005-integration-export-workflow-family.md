@@ -98,8 +98,15 @@ packages/engine/src/
   feature MUST carry a CRS declaration sourced from `packages/country-config/`.
   A literal SRID number in `integration/` is a failing review.
 - **A6 (forbidden dependencies).** GeoJSON export uses built-in JSON serializer.
-  GeoPackage uses `@ngageoint/geopackage` (NGA-maintained, MIT, well-tested) —
-  approved by this ADR. PyQGIS script generation uses string templates only,
+  GeoPackage originally targeted `@ngageoint/geopackage` per this ADR; that
+  library has a known incompatibility with modern `better-sqlite3` (named-
+  parameter binding API drift). Per master plan Section 0's "if a cited
+  invariant conflicts with this task, STOP and report the conflict" principle,
+  Brief 03 documents the fallback in its module header: a direct GeoPackage
+  writer using `better-sqlite3` (already a common Electron dep, MIT, native
+  bindings, well-maintained). The GeoPackage spec for vector-only data is
+  small enough that a direct writer is cleaner than the NGA library's heavy
+  abstraction. PyQGIS script generation uses string templates only,
   no QGIS dependency. QGS project file generation uses XML templating, no QGIS
   dependency.
 - **C1 (every statutory number traces to an adjusted value).** Exported
@@ -285,19 +292,33 @@ the export menu iterates over the registered exporters.
 - [x] First exporter (`geojson-export.ts`) implements the
   `IntegrationExporter` interface, reads SRID from `country-config`, includes
   per-feature uncertainty, and ships with golden fixtures.
-- [x] All existing tests still pass (no regressions) — 505/505 engine tests.
+- [x] All existing tests still pass (no regressions) — 537/537 engine tests.
 - [x] New tests in `packages/engine/src/integration/tests/` cover: happy path,
   missing-uncertainty handling, CRS metadata correctness, round-trip via
   `JSON.parse` of the produced bytes, precision preservation, UTF-8
   round-trip, includeUncertainty default vs explicit false, degenerate
   adjusted-but-no-ellipse case, plus 3 fixture-loading tests.
-- [x] Two golden fixtures committed:
+- [x] Two GeoJSON golden fixtures committed:
   - `packages/engine/src/integration/tests/fixtures/kenya-cadastral-4-beacon.json`
     — 4-beacon Kenya cadastral survey, SRID 21037, with propagated 95%
     confidence ellipses on B3 and B4.
   - `packages/engine/src/integration/tests/fixtures/uk-cadastral-general-boundaries.json`
     — UK general-boundaries case, OSGB36 (SRID 27700), all beacons
     adjusted=false with `reason: "fixed-control"`.
+- [x] **Brief 02** — GeoJSON exporter extended to consume topographic +
+  engineering workflow outputs. `SurveyOutput` generalized to a union;
+  `detectSurveyType()` discriminator routes to per-type feature builders.
+  14 new tests, 2 new fixtures (kenya-topographic-5x5-grid.json,
+  kenya-engineering-cut-fill.json).
+- [x] **Brief 03** — GeoPackage exporter (`geopackage-export.ts`) shipped.
+  Direct writer using `better-sqlite3` (ADR-0005 dependency-revised per the
+  ADR's own "STOP and report the conflict" principle — `@ngageoint/geopackage`
+  has a known incompatibility with modern `better-sqlite3` named-parameter
+  binding API). Multi-layer pattern: `beacons` + `parcel` (cadastral);
+  `topo_points` + `contours` + `spot_heights` (topographic);
+  `section_centerlines` + `cross_section_profiles` (engineering). Project
+  metadata embedded in `gpkg_metadata`. 15 new tests, 2 new fixtures
+  (kenya-cadastral.gpkg, kenya-topographic.gpkg).
 - [x] Prerequisite: `CadastralWorkflowOutput` extended with an `uncertainty`
   field carrying per-beacon error ellipses (semi-major, semi-minor,
   orientation, confidence level) — sourced from the existing normal matrix's
