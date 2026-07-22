@@ -36,6 +36,12 @@ export {
   type GeoPackageOutput,
 } from "./geopackage-export.js";
 
+export {
+  pyQgisScriptExporter,
+  type PyQgisOptions,
+  type PyQgisOutput,
+} from "./pyqgis-script-generator.js";
+
 /**
  * Registry of all currently-registered integration exporters.
  *
@@ -44,9 +50,11 @@ export {
  */
 import { geoJsonExporter } from "./geojson-export.js";
 import { geoPackageExporter } from "./geopackage-export.js";
+import { pyQgisScriptExporter } from "./pyqgis-script-generator.js";
 import type { IntegrationExporter } from "./types.js";
 
 export const INTEGRATION_EXPORTERS: ReadonlyArray<IntegrationExporter> = [
   geoJsonExporter,
   geoPackageExporter,
+  pyQgisScriptExporter,
 ];

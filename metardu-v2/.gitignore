@@ -49,3 +49,7 @@ scripts/demo-output/
 
 # Rust
 **/*.rs.bk
+
+# Python bytecode cache (from py_compile tests)
+__pycache__/
+*.pyc

@@ -319,6 +319,16 @@ the export menu iterates over the registered exporters.
   `section_centerlines` + `cross_section_profiles` (engineering). Project
   metadata embedded in `gpkg_metadata`. 15 new tests, 2 new fixtures
   (kenya-cadastral.gpkg, kenya-topographic.gpkg).
+- [x] **Brief 04** — PyQGIS helper script generator (`pyqgis-script-generator.ts`)
+  shipped. Emits a `.py` script the GIS analyst runs inside QGIS to load
+  metardu-desktop's GeoPackage with country-correct symbology (Kenya cadastral:
+  red beacon crosses + yellow parcel fill; UK general-boundaries: blue dashed
+  lines; topographic: brown contours + green spot heights; engineering:
+  orange centerlines + magenta-flagged cross-section profiles that are
+  explicitly NOT map features). Per ADR-0005: pure string templates, no QGIS
+  dependency in the engine. 16 new tests including `python3 -m py_compile`
+  syntax validation of the golden fixtures. 2 new fixtures
+  (kenya-cadastral.py, kenya-topographic.py).
 - [x] Prerequisite: `CadastralWorkflowOutput` extended with an `uncertainty`
   field carrying per-beacon error ellipses (semi-major, semi-minor,
   orientation, confidence level) — sourced from the existing normal matrix's

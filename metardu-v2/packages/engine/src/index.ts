@@ -349,6 +349,7 @@ export {
 export {
   geoJsonExporter,
   geoPackageExporter,
+  pyQgisScriptExporter,
   INTEGRATION_EXPORTERS,
   type IntegrationExporter,
   type IntegrationOptions,
@@ -357,6 +358,8 @@ export {
   type GeoJsonOutput,
   type GeoPackageOptions,
   type GeoPackageOutput,
+  type PyQgisOptions,
+  type PyQgisOutput,
   type ProjectMetadata,
   type SurveyOutput,
   type ValidationResult,

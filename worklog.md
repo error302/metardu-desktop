@@ -1331,3 +1331,82 @@ Stage Summary:
   * Brief 06: GCP file exporter for Pix4D/Metashape/Agisoft (drone side of the Spatial Data Editor role).
   * Setting-out, sectional, drone-processing, lidar, corridor, surface-comparison, utility-mapping workflows — each needs the same pointUncertainty field added per the Brief 02 pattern, then both exporters auto-handle them once detectSurveyType is extended.
   * Windows cross-compile smoke test — still queued from prior session.
+
+---
+Task ID: 5
+Agent: main (session 6 — Brief 04: PyQGIS script generator)
+Task: Build the PyQGIS helper script generator — the GIS Analyst differentiator per ADR-0005. Emits a .py script the analyst runs inside QGIS to load metardu-desktop's GeoPackage with country-correct symbology. Third concrete exporter in ADR-0005's Integration & Export family.
+
+Work Log:
+- Brief 04 design: two-artifact output. The .py script REFERENCES a .gpkg file (path next to the script). The .gpkg itself comes from the existing GeoPackage exporter (Brief 03). The script generator's job is purely: emit Python text that loads the .gpkg, applies symbology, groups layers, sets canvas CRS, zooms to extent. No QGIS dependency in the engine (per ADR-0005 A6 — pure string templates).
+- Built packages/engine/src/integration/pyqgis-script-generator.ts (~620 lines). Implements IntegrationExporter<SurveyOutput, PyQgisOptions, PyQgisOutput>.
+  * detectSurveyType discriminator (shared logic with GeoJSON + GeoPackage exporters).
+  * getLayerSpecs(countryCode, surveyType) — per-country + per-survey-type symbology. Kenya cadastral: red beacon crosses (size data-defined by semi_major uncertainty), yellow parcel fill. UK general-boundaries: blue dashed lines, no fixed beacons. Topographic: brown contours with elevation labels, green spot heights. Engineering: orange section centerlines + magenta cross-section profiles flagged as NOT map features (offset-vs-cut-fill-depth coordinate space).
+  * generateScript() pure function: emits Python 3 / QGIS 3.34+ script. Sets canvas CRS to EPSG:<srid>, creates layer-tree group, loads each layer from the GeoPackage, applies country-correct symbology + labeling, zooms to combined extent.
+  * Project metadata embedded in the script's docstring header (projectName, surveyor, license, surveyDate, adjustmentRunId, countryCode, surveyType, CRS URN, generation timestamp, survey-type-specific summary JSON).
+  * Per-feature uncertainty columns (semi_major, semi_minor, orientation) referenced by name in symbology code so analyst can data-define symbol size by uncertainty.
+  * Cross-section profiles (engineering) explicitly flagged with WARNING comment about non-map coordinate space, plus magenta symbology — unusual color signals 'not a normal layer'.
+- Two implementation bugs found and fixed during fixture generation:
+  1. Symbology/labeling multi-line strings weren't being indented into the else: block — fixed with an indentBlock(text, spaces) helper that pads every line.
+  2. f-string with `{varName}.featureCount()` caused Python SyntaxError (single `}` not allowed in f-string). Fixed by switching to string concatenation: `"..." + str(varName.featureCount()) + "..."`.
+- Both golden fixtures verified via `python3 -m py_compile` — they're valid Python syntax. Test suite asserts this on every run (catches future regressions in the template).
+
+Verification — verbatim terminal output:
+
+=== cargo build --release (last 3 lines) ===
+warning: `metardu-sidecar` (bin "metardu-sidecar") generated 39 warnings (run `cargo fix --bin "metardu-sidecar" -p metardu-sidecar` to apply 20 suggestions)
+    Finished `release` profile [optimized] target(s) in 0.05s
+(exit 0 — sidecar unchanged, regression gate)
+
+=== cargo test --release (last 3 lines) ===
+test result: ok. 91 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+(exit 0)
+
+=== tsc --noEmit in packages/engine (filtered to my files: integration, pyqgis, survey-types) ===
+(no output — zero errors in my new/modified files)
+(exit 0)
+
+=== tsc --noEmit in apps/desktop (full output) ===
+apps/desktop/src/main/index.ts(29,31): error TS2307: Cannot find module '@metardu/electron-integration' or its corresponding type declarations.
+apps/desktop/src/tests/ipc-roundtrip.test.ts(26,50): error TS2307: Cannot find module '@metardu/electron-integration' or its corresponding type declarations.
+(2 pre-existing errors — same workspace resolution noise present before this task; my changes added zero new errors)
+
+=== npm test in packages/engine (last 8 lines) ===
+ ✓ src/workflows/tests/cadastral.test.ts (9 tests) 82ms
+ ✓ src/import/tests/instrument-import.test.ts (20 tests) 7ms
+
+ Test Files  25 passed (25)
+      Tests  553 passed (553)
+   Start at  22:40:03
+   Duration  7.94s
+(exit 0 — 553/553 tests pass; was 537 + 16 new tests)
+
+=== python3 -m py_compile (golden fixture syntax validation) ===
+KENYA-CADASTRAL.PY: VALID PYTHON
+KENYA-TOPOGRAPHIC.PY: VALID PYTHON
+
+Files created:
+- packages/engine/src/integration/pyqgis-script-generator.ts (622 lines)
+- packages/engine/src/integration/tests/pyqgis-script-generator.test.ts (467 lines, 16 tests)
+- packages/engine/src/integration/tests/fixtures/kenya-cadastral.py (8.8KB Python script, 2 layers)
+- packages/engine/src/integration/tests/fixtures/kenya-topographic.py (9.8KB Python script, 3 layers)
+
+Files modified:
+- packages/engine/src/integration/index.ts — added pyQgisScriptExporter to INTEGRATION_EXPORTERS (now [geoJsonExporter, geoPackageExporter, pyQgisScriptExporter]).
+- packages/engine/src/index.ts — added PyQgisOptions + PyQgisOutput to the public API exports.
+- metardu-v2/docs/decisions/0005-integration-export-workflow-family.md — Verification checklist updated with Brief 04 entry.
+
+Stage Summary:
+- 553/553 engine tests pass (was 537 + 16 new). 91/91 sidecar tests pass (unchanged). Sidecar build clean. Zero tsc errors in my code.
+- Brief 04 complete. Three integration exporters now ship:
+  1. GeoJSON (text, single FeatureCollection) — Brief 01 + 02
+  2. GeoPackage (binary, multi-layer) — Brief 03
+  3. PyQGIS loader script (Python text, references .gpkg) — Brief 04
+- The ADR-0005 GIS Analyst claim is now backed by code: "metardu-desktop generates a PyQGIS loader script — open the .py file in QGIS and your adjusted survey layers load with country-correct symbology." The analyst's workflow is: export GeoPackage + PyQGIS script from metardu-desktop → drop both files in the same folder → run the .py in QGIS Python console → layers appear, grouped, styled, with the canvas in the right CRS.
+- Country-correct symbology is real: Kenya cadastral uses red crosses (Survey of Kenya Form 3 convention), UK uses blue dashed lines (RICS general-boundaries convention). Other countries fall back to generic styling with a warning.
+- Engineering cross-section profiles are explicitly flagged as NOT map features (offset-vs-cut-fill-depth coordinate space) with magenta symbology + a WARNING comment — so the analyst doesn't mistakenly render them on a map canvas.
+- What's next:
+  * Brief 05: QGIS project file (.qgs) generator — open the project directly in QGIS, no Python console needed. (Higher effort — XML templating, layer style files.)
+  * Brief 06: GCP file exporter for Pix4D/Metashape/Agisoft (drone side of the Spatial Data Editor role).
+  * Setting-out, sectional, drone-processing, lidar, corridor, surface-comparison, utility-mapping workflows — each needs the same pointUncertainty field added per Brief 02 pattern, then all three exporters auto-handle them once detectSurveyType is extended.
+  * Windows cross-compile smoke test — still queued from prior session.
