@@ -51,19 +51,27 @@ export {
   type GcpPoint,
 } from "./gcp-export.js";
 
+export {
+  qgsProjectExporter,
+  type QgsOptions,
+  type QgsOutput,
+} from "./qgs-project-generator.js";
+
 /**
  * Registry of all currently-registered integration exporters.
  *
  * Heterogeneous — each exporter may consume a different input type
- * (SurveyOutput for GeoJSON/GeoPackage/PyQGIS, GcpInput for the GCP
- * exporter). The export menu UI dispatches based on the `format` field.
- * `IntegrationExporter<any, any, any>` is the registry's element type —
- * type safety is preserved at each exporter's own declaration site.
+ * (SurveyOutput for GeoJSON/GeoPackage/PyQGIS/QGS, GcpInput for the
+ * GCP exporter). The export menu UI dispatches based on the `format`
+ * field. `IntegrationExporter<any, any, any>` is the registry's
+ * element type — type safety is preserved at each exporter's own
+ * declaration site.
  */
 import { geoJsonExporter } from "./geojson-export.js";
 import { geoPackageExporter } from "./geopackage-export.js";
 import { pyQgisScriptExporter } from "./pyqgis-script-generator.js";
 import { gcpExporter } from "./gcp-export.js";
+import { qgsProjectExporter } from "./qgs-project-generator.js";
 import type { IntegrationExporter } from "./types.js";
 
 // Use `any` for the registry element type so heterogeneous exporters
@@ -76,4 +84,5 @@ export const INTEGRATION_EXPORTERS: ReadonlyArray<IntegrationExporter<any, any, 
   geoPackageExporter,
   pyQgisScriptExporter,
   gcpExporter,
+  qgsProjectExporter,
 ];

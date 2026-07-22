@@ -345,6 +345,18 @@ the export menu iterates over the registered exporters.
   below each GCP row (not trailing on the same row, to avoid breaking Pix4D's
   CSV parser with commas in the comment). 21 new tests + 3 golden fixtures
   (kenya-gcp-pix4d.csv, kenya-gcp-metashape.csv, kenya-gcp-agisoft.csv).
+- [x] **Brief 05** — QGIS project file (.qgs) generator (`qgs-project-generator.ts`)
+  shipped. Emits a self-contained `.qgs` file the GIS analyst opens directly in
+  QGIS (no Python console needed — complementary to Brief 04's .py script).
+  Targets QGIS 3.34 LTR. Embeds `<renderer-v2>` + `<labeling>` directly in each
+  `<maplayer>` element (no separate .qml style files). Country-correct symbology
+  parallel to Brief 04's `getLayerSpecs()` — Kenya cadastral: red crosses +
+  yellow parcel fill; UK general-boundaries: blue dashed lines; topographic:
+  brown contours + green spot heights; engineering: orange centerlines + magenta
+  cross-section profiles flagged as NOT map features. Project metadata embedded
+  in `<projectMetadata>` per QGIS 3.34 schema. 16 new tests + 2 golden fixtures
+  (kenya-cadastral.qgs, kenya-topographic.qgs). Both fixtures pass XML
+  well-formedness checks (root tag balance, single root element).
 - [x] Prerequisite: `CadastralWorkflowOutput` extended with an `uncertainty`
   field carrying per-beacon error ellipses (semi-major, semi-minor,
   orientation, confidence level) — sourced from the existing normal matrix's

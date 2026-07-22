@@ -1491,3 +1491,86 @@ Stage Summary:
   * Setting-out, sectional, drone-processing, lidar, corridor, surface-comparison, utility-mapping workflows — each needs the same pointUncertainty field added per Brief 02 pattern, then exporters auto-handle them once detectSurveyType is extended.
   * Sidecar lat/lon conversion for the Pix4D lat/lon columns (currently blank) — needs the sidecar's Helmert + projection inverse wired through IPC. Future task brief.
   * Windows cross-compile smoke test — still queued from prior session.
+
+---
+Task ID: 7
+Agent: main (session 8 — Brief 05: QGIS project file (.qgs) generator)
+Task: Build the QGIS project file generator. Emits a self-contained .qgs file the GIS analyst opens directly in QGIS (no Python console needed). Fifth concrete exporter in ADR-0005's Integration & Export family — complementary to Brief 04's .py script approach.
+
+Work Log:
+- Brief 05 design: complementary to Brief 04. Brief 04 (.py script) requires opening the QGIS Python console; Brief 05 (.qgs file) is zero-friction "just double-click it". Both are offered — surveyors pick based on workflow preference. Same two-artifact pattern (the .qgs references a .gpkg file placed next to it).
+- Built packages/engine/src/integration/qgs-project-generator.ts (~530 lines). Implements IntegrationExporter<SurveyOutput, QgsOptions, QgsOutput>.
+  * Target: QGIS 3.34 LTR (Long Term Release). .qgs is XML, stable across QGIS 3.x.
+  * Layer definitions: each <maplayer> element references the GeoPackage via <datasource>./basename.gpkg|layername=table_name</datasource>. Embeds <renderer-v2> + <labeling> directly (no separate .qml style files — single self-contained .qgs + .gpkg).
+  * Country-correct symbology (parallel to Brief 04's getLayerSpecs but emitting QGIS XML renderer-v2 + labeling elements):
+    - Kenya cadastral: red cross markers (data-defined size by semi_major uncertainty), yellow parcel fill with red outline (Survey of Kenya Form 3 convention).
+    - UK general-boundaries: blue dashed lines, no fill (RICS convention).
+    - Topographic: brown contour lines (139,69,19 = saddle brown), green spot heights (0,128,0), gray topo points (120,120,120).
+    - Engineering: orange section centerlines (255,165,0), magenta cross-section profiles (255,0,255) explicitly flagged as NOT map features in the display name.
+  * Project-level <projectCrs> + per-layer <srs> all reference EPSG:<srid> from country-config (invariant A2).
+  * Layer-tree-group: all metardu layers under a single <layer-tree-group> named after the project, mirroring Brief 04's behavior.
+  * Project metadata embedded in <projectMetadata> per QGIS 3.34 schema: <identifier>, <title>, <abstract>, <keywords>, <contacts>, <history>, <creationDate>. Abstract block includes projectName, surveyor, license, surveyDate, adjustmentRunId, country, surveyType, CRS, generation timestamp, and survey-type-specific summary JSON.
+  * Pure XML string templates, no QGIS dependency in the engine (per ADR-0005 A6).
+  * XML escape helper (escapeXml) for all dynamic text — &, <, >, ", ' per XML spec.
+  * WKB type code mapping: Point=1, LineString=2, Polygon=3 (per OGC 06-103r4) for the <maplayer wkbType="..."> attribute.
+- 16 new tests in qgs-project-generator.test.ts: format metadata, cadastral/topo/engineering happy paths, UK symbology divergence, project metadata embedding, custom geoPackageBaseName, missing project metadata, unknown country code, unknown survey type, INTEGRATION_EXPORTERS registry, layer-tree-group content, cross-survey-type consistency, plus 3 fixture-loading tests.
+- 2 golden fixtures generated: kenya-cadastral.qgs (11.7KB, 2 layers) and kenya-topographic.qgs (15.9KB, 3 layers). Both pass XML well-formedness checks (root tag balance, single root element). Test suite includes an optional xmllint validation that silently skips if xmllint isn't installed.
+- One implementation issue caught during fixture generation: unused variable `escapedLicense` (lint warning). Cleaned up before commit.
+
+Verification — verbatim terminal output:
+
+=== cargo build --release (last 3 lines) ===
+warning: `metardu-sidecar` (bin "metardu-sidecar") generated 39 warnings (run `cargo fix --bin "metardu-sidecar" -p metardu-sidecar` to apply 20 suggestions)
+    Finished `release` profile [optimized] target(s) in 0.05s
+(exit 0 — sidecar unchanged, regression gate)
+
+=== cargo test --release (last 3 lines) ===
+test result: ok. 91 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+(exit 0)
+
+=== tsc --noEmit in packages/engine (filtered to my files: integration, qgs) ===
+(no output — zero errors in my new/modified files)
+(exit 0)
+
+=== tsc --noEmit in apps/desktop (full output) ===
+apps/desktop/src/main/index.ts(29,31): error TS2307: Cannot find module '@metardu/electron-integration' or its corresponding type declarations.
+apps/desktop/src/tests/ipc-roundtrip.test.ts(26,50): error TS2307: Cannot find module '@metardu/electron-integration' or its corresponding type declarations.
+(2 pre-existing errors — same workspace resolution noise present before this task; my changes added zero new errors)
+
+=== npm test in packages/engine (last 8 lines) ===
+ ✓ src/workflows/tests/cadastral.test.ts (9 tests) 112ms
+ ✓ src/import/tests/instrument-import.test.ts (20 tests) 15ms
+
+ Test Files  27 passed (27)
+      Tests  590 passed (590)
+   Start at  23:44:13
+   Duration  8.56s
+(exit 0 — 590/590 tests pass; was 574 + 16 new tests)
+
+Files created:
+- packages/engine/src/integration/qgs-project-generator.ts (533 lines)
+- packages/engine/src/integration/tests/qgs-project-generator.test.ts (524 lines, 16 tests)
+- packages/engine/src/integration/tests/fixtures/kenya-cadastral.qgs (11.7KB XML project file, 2 layers)
+- packages/engine/src/integration/tests/fixtures/kenya-topographic.qgs (15.9KB XML project file, 3 layers)
+
+Files modified:
+- packages/engine/src/integration/index.ts — added qgsProjectExporter to INTEGRATION_EXPORTERS (now [geoJsonExporter, geoPackageExporter, pyQgisScriptExporter, gcpExporter, qgsProjectExporter]).
+- packages/engine/src/index.ts — added QgsOptions + QgsOutput to the public API exports.
+- metardu-v2/docs/decisions/0005-integration-export-workflow-family.md — Verification checklist updated with Brief 05 entry.
+
+Stage Summary:
+- 590/590 engine tests pass (was 574 + 16 new). 91/91 sidecar tests pass (unchanged). Sidecar build clean. Zero tsc errors in my code.
+- Brief 05 complete. Five integration exporters now ship:
+  1. GeoJSON (text, single FeatureCollection) — Briefs 01 + 02
+  2. GeoPackage (binary, multi-layer) — Brief 03
+  3. PyQGIS loader script (Python text, references .gpkg) — Brief 04
+  4. GCP file (CSV, Pix4D/Metashape/Agisoft format) — Brief 06
+  5. QGIS project file (.qgs XML, references .gpkg) — Brief 05
+- Briefs 04 and 05 solve the same problem (load survey data into QGIS with country-correct symbology) two ways: .py script (run from Python console, easy to read/modify) vs .qgs file (just double-click, zero-friction). Both offered — surveyors pick based on workflow preference.
+- ADR-0005 deliverable #4 (QGIS project file generator) is now DONE. Remaining ADR-0005 deliverables: #6 OSM changeset XML (Brief 07) + #7 DXF extension (extend existing dxf-output.ts).
+- What's next:
+  * Brief 07: OSM changeset XML export for surveyed basemap features (last ADR-0005 deliverable that's not yet built).
+  * DXF extension (Brief 08 or similar) — extend the existing dxf-output.ts with country-correct layer naming per ADR-0005 deliverable #7.
+  * Setting-out, sectional, drone-processing, lidar, corridor, surface-comparison, utility-mapping workflows — each needs the same pointUncertainty field added per Brief 02 pattern, then all 5 exporters auto-handle them once detectSurveyType is extended.
+  * Sidecar lat/lon conversion for the Pix4D lat/lon columns (currently blank).
+  * Windows cross-compile smoke test — still queued from prior session.
