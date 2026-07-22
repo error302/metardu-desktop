@@ -1,0 +1,152 @@
+{
+  "type": "FeatureCollection",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:EPSG::27700"
+    }
+  },
+  "metadata": {
+    "metardu": {
+      "softwareVersion": "0.2.0",
+      "projectName": "Golden Fixture — UK General Boundaries",
+      "surveyorName": "Jane Wanjiru",
+      "licenseNumber": "LS/1234",
+      "surveyDate": "2026-07-23",
+      "adjustmentRunId": "golden-gb-001",
+      "countryCode": "GB",
+      "crsUrn": "urn:ogc:def:crs:EPSG::27700",
+      "exportedAt": "<DETERMINISTIC_PLACEHOLDER>"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": "beacon-P1",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          525000,
+          181000
+        ]
+      },
+      "properties": {
+        "featureType": "beacon",
+        "label": "P1",
+        "surveyType": "cadastral",
+        "adjusted": false,
+        "uncertainty": {
+          "reason": "fixed-control"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "beacon-P2",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          525050,
+          181000
+        ]
+      },
+      "properties": {
+        "featureType": "beacon",
+        "label": "P2",
+        "surveyType": "cadastral",
+        "adjusted": false,
+        "uncertainty": {
+          "reason": "fixed-control"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "beacon-P3",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          525050,
+          181040
+        ]
+      },
+      "properties": {
+        "featureType": "beacon",
+        "label": "P3",
+        "surveyType": "cadastral",
+        "adjusted": false,
+        "uncertainty": {
+          "reason": "fixed-control"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "beacon-P4",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          525000,
+          181040
+        ]
+      },
+      "properties": {
+        "featureType": "beacon",
+        "label": "P4",
+        "surveyType": "cadastral",
+        "adjusted": false,
+        "uncertainty": {
+          "reason": "fixed-control"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "parcel-4beacons",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              525000,
+              181000
+            ],
+            [
+              525050,
+              181000
+            ],
+            [
+              525050,
+              181040
+            ],
+            [
+              525000,
+              181040
+            ],
+            [
+              525000,
+              181000
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "featureType": "parcel",
+        "surveyType": "cadastral",
+        "beaconIds": [
+          "beacon-P1",
+          "beacon-P2",
+          "beacon-P3",
+          "beacon-P4"
+        ],
+        "beaconCount": 4,
+        "adjusted": true,
+        "areaSqm": 2000,
+        "areaHa": 0.2,
+        "uncertainty": {
+          "reason": "no-adjusted-beacons"
+        }
+      }
+    }
+  ]
+}

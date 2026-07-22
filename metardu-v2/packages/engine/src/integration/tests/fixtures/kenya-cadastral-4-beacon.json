@@ -1,0 +1,160 @@
+{
+  "type": "FeatureCollection",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:EPSG::21037"
+    }
+  },
+  "metadata": {
+    "metardu": {
+      "softwareVersion": "0.2.0",
+      "projectName": "Golden Fixture — Kasarani 4-Beacon",
+      "surveyorName": "Jane Wanjiru",
+      "licenseNumber": "LS/1234",
+      "surveyDate": "2026-07-23",
+      "adjustmentRunId": "golden-ke-001",
+      "countryCode": "KE",
+      "crsUrn": "urn:ogc:def:crs:EPSG::21037",
+      "exportedAt": "<DETERMINISTIC_PLACEHOLDER>"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": "beacon-B1",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          257100,
+          9857700
+        ]
+      },
+      "properties": {
+        "featureType": "beacon",
+        "label": "B1",
+        "surveyType": "cadastral",
+        "adjusted": false,
+        "uncertainty": {
+          "reason": "fixed-control"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "beacon-B2",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          257150,
+          9857700
+        ]
+      },
+      "properties": {
+        "featureType": "beacon",
+        "label": "B2",
+        "surveyType": "cadastral",
+        "adjusted": false,
+        "uncertainty": {
+          "reason": "fixed-control"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "beacon-B3",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          257116.7253201176,
+          9857657.003747731
+        ]
+      },
+      "properties": {
+        "featureType": "beacon",
+        "label": "B3",
+        "surveyType": "cadastral",
+        "adjusted": true,
+        "uncertainty": {
+          "semiMajorAxis": 29.021008070858457,
+          "semiMinorAxis": 20.059733468176855,
+          "orientation": 100.12616000811634,
+          "confidenceLevel": 0.95
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "beacon-B4",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          257162.61777806215,
+          9857655.33775225
+        ]
+      },
+      "properties": {
+        "featureType": "beacon",
+        "label": "B4",
+        "surveyType": "cadastral",
+        "adjusted": true,
+        "uncertainty": {
+          "semiMajorAxis": 38.55114520846037,
+          "semiMinorAxis": 17.855253602790494,
+          "orientation": 48.80005582673145,
+          "confidenceLevel": 0.95
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "parcel-4beacons",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              257100,
+              9857700
+            ],
+            [
+              257150,
+              9857700
+            ],
+            [
+              257116.7253201176,
+              9857657.003747731
+            ],
+            [
+              257162.61777806215,
+              9857655.33775225
+            ],
+            [
+              257100,
+              9857700
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "featureType": "parcel",
+        "surveyType": "cadastral",
+        "beaconIds": [
+          "beacon-B1",
+          "beacon-B2",
+          "beacon-B3",
+          "beacon-B4"
+        ],
+        "beaconCount": 4,
+        "adjusted": true,
+        "areaSqm": 102.236572265625,
+        "areaHa": 0.0102236572265625,
+        "uncertainty": {
+          "worstCaseSemiMajorAxis": 38.55114520846037,
+          "basis": "max-of-beacon-semi-major-axes",
+          "confidenceLevel": 0.95
+        }
+      }
+    }
+  ]
+}

@@ -344,5 +344,20 @@ export {
   type VerificationResult,
 } from "./signing/digital-signature.js";
 
+// Integration & Export (ADR-0005) — survey-grade source of truth that
+// feeds downstream GIS/CAD/photogrammetry tools.
+export {
+  geoJsonExporter,
+  INTEGRATION_EXPORTERS,
+  type IntegrationExporter,
+  type IntegrationOptions,
+  type IntegrationOutput,
+  type GeoJsonOptions,
+  type GeoJsonOutput,
+  type ProjectMetadata,
+  type SurveyOutput,
+  type ValidationResult,
+} from "./integration/index.js";
+
 // Version
 export const ENGINE_VERSION = "0.5.0";

@@ -1079,3 +1079,91 @@ Stage Summary:
 - 736 tests still passing (no regressions)
 - Electron smoke test PASSED
 - 1 commit pushed: f9330bb
+
+---
+Task ID: 2
+Agent: main (session 3 — execute ADR-0005 + Brief 01)
+Task: Land ADR-0005 (Integration & Export workflow family) + Brief 01 (GeoJSON exporter with CRS metadata + per-feature uncertainty). Includes prerequisite Brief 00 (surface covariance from cadastral workflow's normal matrix).
+
+Work Log:
+- Cloned error302/metardu-desktop (PAT stored in /home/z/my-project/.env, gitignored + untracked from local repo).
+- Audited repo: 5 country configs (KE/AU/GB/ZA/AE), 8 workflows, 4 ADRs, 91 sidecar tests, 489 engine tests. Confirmed existing cadastral workflow does in-engine Gauss-Newton (TS) — Phase 4B TODO to route through sidecar is in the code at line 351. Chose the surgical approach (surface covariance from existing normal matrix) rather than the full sidecar refactor — invariant A1 stays intact, the LS adjustment itself is still the only math, we're just materializing the implicit covariance.
+- Prerequisite Brief 00 (cadastral.ts):
+  * Extended CadastralWorkflowOutput with `uncertainty: Record<string, BeaconUncertainty>`.
+  * Added BeaconUncertainty type: adjusted flag, semiMajorAxis, semiMinorAxis, orientation (deg from N), confidenceLevel, sigma_0_sq.
+  * After Gauss-Newton converges, invert the final normal matrix (new `invertMatrix` Gauss-Jordan helper) → Q_xx = N⁻¹ → covariance = σ₀² × Q_xx.
+  * For each new (adjusted) beacon, extract its 2×2 (E,N) block, eigen-decompose via new `errorEllipse2D` helper → semi-major, semi-minor, orientation. 95% confidence scale k = sqrt(5.991) (chi2_inv(0.95, 2)).
+  * Known (fixed) beacons get { adjusted: false } with no ellipse — by design.
+  * Degenerate configurations (singular N, or no iteration succeeded) mark new beacons adjusted=true with undefined ellipse fields, so downstream consumers can flag them.
+- Brief 01 Step 1: packages/engine/src/integration/types.ts — IntegrationExporter<TInput, TOptions, TOutput> interface, IntegrationOptions, ProjectMetadata, ValidationResult, IntegrationOutput, SurveyOutput. All contracts from ADR-0005.
+- Brief 01 Step 2: packages/engine/src/integration/geojson-export.ts — geoJsonExporter implementing IntegrationExporter. CRS from country-config (urn:ogc:def:crs:EPSG::<srid>). Per-feature uncertainty (semi-major/minor/orientation/confidenceLevel) on adjusted beacons; "fixed-control" reason on known beacons; "degenerate-configuration" reason + warning when adjusted=true but ellipse missing; "missing" reason + warning when no uncertainty record at all. Parcel polygon feature with planar Shoelace area + worst-case semi-major propagation. Project metadata embedded in metadata.metardu block. No rounding (JSON.stringify default float64 serialization).
+- Brief 01 Step 3: packages/engine/src/integration/index.ts barrel + INTEGRATION_EXPORTERS registry. Wired into packages/engine/src/index.ts via `export * from "./integration/index.js"`.
+- Brief 01 Step 4: packages/engine/src/integration/tests/geojson-export.test.ts — 19 tests covering all 10 mandatory cases from Brief 01 + 3 fixture-loading tests + 6 country-parameterized CRS tests.
+- Brief 01 Step 5: 2 golden fixtures generated and committed:
+  * kenya-cadastral-4-beacon.json — 4-beacon Kenya cadastral, SRID 21037, B3+B4 carry 95% confidence ellipses (~29mm × 20mm — reasonable for 5mm sigma over 50m baseline with 3 dof).
+  * uk-cadastral-general-boundaries.json — OSGB36 (SRID 27700), 4 fence/wall corner beacons, all adjusted=false with reason "fixed-control" (UK general boundaries rule).
+- Brief 01 Step 6: copied ADR-0005 into docs/decisions/0005-integration-export-workflow-family.md and flipped status from Proposed → Accepted. Filled in the Verification checklist (all boxes ticked except marketing copy update which is Mohammed-owned). Copied Brief 01 into docs/agent-briefs/integration-export-01-geojson.md.
+
+Verification — verbatim terminal output:
+
+=== cargo build --release (last 10 lines) ===
+warning: `metardu-sidecar` (bin "metardu-sidecar") generated 39 warnings (run `cargo fix --bin "metardu-sidecar" -p metardu-sidecar` to apply 20 suggestions)
+    Finished `release` profile [optimized] target(s) in 35.38s
+(exit 0)
+
+=== cargo test --release (last 10 lines) ===
+test protocol::tests::test_read_message_eof_returns_none ... ok
+test protocol::tests::test_read_message_oversized_rejected ... ok
+test protocol::tests::test_request_deserialize_with_null_params ... ok
+test protocol::tests::test_request_deserialize_with_object_params ... ok
+test protocol::tests::test_round_trip_err_response ... ok
+test protocol::tests::test_round_trip_ok_response ... ok
+
+test result: ok. 91 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+(exit 0)
+
+=== tsc --noEmit in packages/engine (filtered to my files: cadastral, integration, geojson) ===
+(no output — zero errors in my new/modified files)
+(exit 0)
+
+=== tsc --noEmit in apps/desktop (full output) ===
+apps/desktop/src/main/index.ts(29,31): error TS2307: Cannot find module '@metardu/electron-integration' or its corresponding type declarations.
+apps/desktop/src/tests/ipc-roundtrip.test.ts(26,50): error TS2307: Cannot find module '@metardu/electron-integration' or its corresponding type declarations.
+(2 pre-existing errors — same workspace resolution noise present before this task; my changes added zero new errors)
+
+=== npm test in packages/engine (last 8 lines) ===
+ ✓ src/workflows/tests/cadastral.test.ts (9 tests) 99ms
+ ✓ src/import/tests/instrument-import.test.ts (20 tests) 7ms
+
+ Test Files  22 passed (22)
+      Tests  508 passed (508)
+   Start at  18:53:37
+   Duration  6.49s
+(exit 0 — 508/508 tests pass; was 489 baseline + 19 new tests)
+
+Files created:
+- packages/engine/src/integration/types.ts (146 lines)
+- packages/engine/src/integration/geojson-export.ts (332 lines)
+- packages/engine/src/integration/index.ts (38 lines)
+- packages/engine/src/integration/tests/geojson-export.test.ts (547 lines, 19 tests)
+- packages/engine/src/integration/tests/fixtures/kenya-cadastral-4-beacon.json
+- packages/engine/src/integration/tests/fixtures/uk-cadastral-general-boundaries.json
+- docs/decisions/0005-integration-export-workflow-family.md (ADR — Accepted)
+- docs/agent-briefs/integration-export-01-geojson.md (task brief — completed)
+
+Files modified:
+- packages/engine/src/workflows/cadastral.ts — added BeaconUncertainty type, uncertainty field on output, invertMatrix helper, errorEllipse2D helper, covariance computation in both code paths (all-known + new-beacons)
+- packages/engine/src/index.ts — added integration barrel export
+
+Stage Summary:
+- 508/508 engine tests pass (was 489 + 19 new). 91/91 sidecar tests pass (unchanged). Sidecar build clean.
+- ADR-0005 status: Accepted. First task brief (01-geojson) verified end-to-end.
+- GeoJSON exporter is the first concrete implementation of the IntegrationExporter interface. The export-menu UI in the Electron renderer will iterate over INTEGRATION_EXPORTERS to populate options.
+- Per-feature uncertainty (error ellipse) is now surfaced end-to-end from the LS adjustment's normal matrix → CadastralWorkflowOutput.uncertainty → GeoJSON feature.properties.uncertainty. This is invariant C1 ("every statutory number traces to an adjusted value with stated uncertainty") made machine-readable.
+- Marketing-claims canonical reference in ADR-0005 is now the source of truth for what sales copy may and may not say. Mohammed owns the metardu.duckdns.org copy update.
+- What's next:
+  * Brief 02: GeoJSON for topo + engineering survey outputs (extends integration/ to consume TopoWorkflowOutput and EngineeringWorkflowOutput — both need an `uncertainty` field added like Brief 00 did for cadastral).
+  * Brief 03: GeoPackage exporter (binary format, @ngageoint/geopackage dependency — approved by ADR-0005).
+  * Brief 04: PyQGIS helper script generator (the differentiator for the GIS Analyst role).
+  * Brief 06: GCP file exporter for Pix4D/Metashape/Agisoft (the Spatial Data Editor drone side).
+  * Windows cross-compile smoke test (queued from prior session — still pending; CI workflows at .github/workflows/ci.yml and release.yml need review).

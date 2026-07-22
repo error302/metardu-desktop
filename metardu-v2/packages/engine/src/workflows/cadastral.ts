@@ -59,6 +59,44 @@ export interface CadastralWorkflowOutput {
   sigma_0_sq: number;
   /** Whether the survey passes the Kenya cadastral 1:5000 tolerance. */
   passesCadastralTolerance: boolean;
+  /**
+   * Per-beacon propagated uncertainty (error ellipse) from the LS
+   * adjustment. Keys are beacon labels. Known (fixed) beacons have
+   * `adjusted: false` and no ellipse. New (adjusted) beacons carry
+   * the full 2D error ellipse at the stated confidence level.
+   *
+   * Per master plan Section 5.3 invariant C1: every statutory number
+   * must trace to an adjusted value with a stated uncertainty. This
+   * field is the canonical source of that uncertainty for downstream
+   * consumers (Form 3 renderer, GeoJSON/GeoPackage exporters, etc.).
+   *
+   * Computed from the same normal matrix the Gauss-Newton iteration
+   * builds — covariance = σ₀² × N⁻¹, then eigen-decomposed per
+   * beacon's 2×2 (E, N) block. Phase 4B will replace the in-engine
+   * Gauss-Newton with a sidecar call; the uncertainty contract on
+   * this field stays the same.
+   */
+  uncertainty: Record<string, BeaconUncertainty>;
+}
+
+/**
+ * Per-beacon uncertainty. Known (fixed) beacons have `adjusted: false`
+ * and the ellipse fields are undefined. New (adjusted) beacons carry
+ * the full 2D error ellipse at the stated confidence level.
+ */
+export interface BeaconUncertainty {
+  /** True if this beacon's coordinates were adjusted by the LS fit. */
+  adjusted: boolean;
+  /** Semi-major axis of the error ellipse, in metres. */
+  semiMajorAxis?: number;
+  /** Semi-minor axis of the error ellipse, in metres. */
+  semiMinorAxis?: number;
+  /** Orientation of the semi-major axis, degrees clockwise from north. */
+  orientation?: number;
+  /** Confidence level (0–1). Default 0.95 (95% confidence ellipse). */
+  confidenceLevel?: number;
+  /** A posteriori variance factor the ellipse was scaled by. */
+  sigma_0_sq?: number;
 }
 
 // ─── The workflow ────────────────────────────────────────────────
@@ -140,6 +178,12 @@ export async function runCadastralWorkflow(
     // σ₀² for the all-known case: dof = observations (no unknowns).
     const sigma_0_sq = dof > 0 ? vvSum / dof : 0.0;
 
+    // All beacons are known (fixed) — no adjusted uncertainty to propagate.
+    const uncertainty: Record<string, BeaconUncertainty> = {};
+    for (const b of allBeacons) {
+      uncertainty[b.label] = { adjusted: false };
+    }
+
     // Form 3 requires ≥ 3 beacons. If the user passed only 2 known
     // beacons (a "check survey" between 2 control points), we can't
     // generate a Form 3 — return the residuals only.
@@ -157,6 +201,7 @@ export async function runCadastralWorkflow(
         residuals,
         sigma_0_sq,
         passesCadastralTolerance: Math.max(...Object.values(residuals).map(Math.abs)) < 0.020,
+        uncertainty,
       };
     }
 
@@ -171,6 +216,7 @@ export async function runCadastralWorkflow(
       residuals,
       sigma_0_sq,
       passesCadastralTolerance: Math.max(...Object.values(residuals).map(Math.abs)) < 0.020,
+      uncertainty,
     };
   }
 
@@ -220,8 +266,12 @@ export async function runCadastralWorkflow(
     newLabelIdx.set(newLabels[i]!, i);
   }
 
+  // Track the normal matrix from the final iteration — needed for
+  // covariance propagation (covariance = σ₀² × N⁻¹).
+  let finalNormal: number[] | null = null;
+  const n = 2 * newLabels.length; // 2 unknowns per beacon
+
   for (let iter = 0; iter < maxIter; iter++) {
-    const n = 2 * newLabels.length; // 2 unknowns per beacon
     const normal = new Array(n * n).fill(0); // n×n row-major
     const rhs = new Array(n).fill(0);
 
@@ -276,6 +326,7 @@ export async function runCadastralWorkflow(
     // Solve normal Δx = N⁻¹ b via Gaussian elimination.
     const dx = solveLinearSystem(normal, rhs, n);
     if (!dx) break;
+    finalNormal = normal; // keep the last successful normal matrix
 
     let maxDelta = 0;
     for (let i = 0; i < newLabels.length; i++) {
@@ -324,6 +375,61 @@ export async function runCadastralWorkflow(
   dof = Math.max(1, dof - 2 * newLabels.length);
   const sigma_0_sq = vvSum / dof;
 
+  // Compute per-beacon uncertainty from the final normal matrix.
+  // Per master plan Section 5.3 invariant C1: every adjusted coordinate
+  // carries its own error ellipse. Covariance = σ₀² × N⁻¹.
+  //
+  // NOTE: This is downstream data reduction (extracting error-ellipse
+  // parameters from a known covariance), NOT geodetic math. The
+  // underlying LS adjustment is a known Phase-4B TODO to route through
+  // the sidecar; the uncertainty contract on the output is stable.
+  const uncertainty: Record<string, BeaconUncertainty> = {};
+  // Known beacons are fixed — no propagated uncertainty.
+  for (const b of input.knownBeacons) {
+    uncertainty[b.label] = { adjusted: false };
+  }
+  // New beacons get the full 2D error ellipse.
+  if (finalNormal) {
+    const qXX = invertMatrix(finalNormal, n); // Q_xx = N⁻¹
+    if (qXX) {
+      // 95% confidence ellipse scale factor for 2D: sqrt(chi2_inv(0.95, 2))
+      // = sqrt(5.991) ≈ 2.4477. Reference: any surveying adjustment text.
+      const k95 = Math.sqrt(5.991);
+      for (let i = 0; i < newLabels.length; i++) {
+        const label = newLabels[i]!;
+        const eIdx = 2 * i;
+        const nIdx = 2 * i + 1;
+        // 2×2 block: [[σ_EE, σ_EN], [σ_NE, σ_NN]] = σ₀² × Q_xx[block]
+        const sEE = sigma_0_sq * (qXX[eIdx * n + eIdx] ?? 0);
+        const sEN = sigma_0_sq * (qXX[eIdx * n + nIdx] ?? 0);
+        const sNN = sigma_0_sq * (qXX[nIdx * n + nIdx] ?? 0);
+        const ellipse = errorEllipse2D(sEE, sEN, sNN, k95);
+        uncertainty[label] = {
+          adjusted: true,
+          semiMajorAxis: ellipse.semiMajorAxis,
+          semiMinorAxis: ellipse.semiMinorAxis,
+          orientation: ellipse.orientation,
+          confidenceLevel: 0.95,
+          sigma_0_sq,
+        };
+      }
+    } else {
+      // Normal matrix is singular — mark new beacons as adjusted but
+      // without an ellipse. This is a degenerate configuration (e.g.
+      // all observations to one beacon); emit adjusted=true with
+      // undefined ellipse fields so the GeoJSON exporter can flag it.
+      for (const label of newLabels) {
+        uncertainty[label] = { adjusted: true, sigma_0_sq };
+      }
+    }
+  } else {
+    // No iteration succeeded — degenerate. Mark new beacons as
+    // adjusted with no ellipse, so downstream consumers know.
+    for (const label of newLabels) {
+      uncertainty[label] = { adjusted: true, sigma_0_sq };
+    }
+  }
+
   // Generate Form 3.
   const form3Input: Form3Input = {
     parcel: { ...input.parcel, beacons: allBeacons, srid: input.srid },
@@ -343,10 +449,11 @@ export async function runCadastralWorkflow(
     residuals,
     sigma_0_sq,
     passesCadastralTolerance,
+    uncertainty,
   };
 }
 
-// ─── Linear algebra helper ───────────────────────────────────────
+// ─── Linear algebra helpers ──────────────────────────────────────
 
 /**
  * Solve a linear system M x = b via Gaussian elimination with partial pivoting.
@@ -398,4 +505,107 @@ function solveLinearSystem(m: number[], b: number[], n: number): number[] | null
     x[i] = sum / (aug[i * (n + 1) + i] ?? 1);
   }
   return x;
+}
+
+/**
+ * Invert an n×n row-major matrix via Gauss-Jordan elimination with
+ * partial pivoting. Returns null if singular.
+ *
+ * Used to compute Q_xx = N⁻¹ from the normal matrix for covariance
+ * propagation. This is linear algebra, not geodetic math — the
+ * sidecar owns the LS adjustment itself; we're just materializing the
+ * covariance that's already implicit in the normal matrix the
+ * Gauss-Newton iteration built.
+ */
+function invertMatrix(m: number[], n: number): number[] | null {
+  if (m.length !== n * n) return null;
+  // Build augmented [m | I].
+  const aug: number[] = new Array(n * 2 * n);
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) aug[i * 2 * n + j] = m[i * n + j] ?? 0;
+    for (let j = 0; j < n; j++) aug[i * 2 * n + (n + j)] = i === j ? 1 : 0;
+  }
+  // Forward elimination with partial pivoting.
+  for (let k = 0; k < n; k++) {
+    let maxRow = k;
+    let maxVal = Math.abs(aug[k * 2 * n + k]!);
+    for (let i = k + 1; i < n; i++) {
+      const v = Math.abs(aug[i * 2 * n + k]!);
+      if (v > maxVal) { maxVal = v; maxRow = i; }
+    }
+    if (maxVal < 1e-15) return null; // singular
+    if (maxRow !== k) {
+      for (let j = 0; j < 2 * n; j++) {
+        const tmp = aug[k * 2 * n + j]!;
+        aug[k * 2 * n + j] = aug[maxRow * 2 * n + j]!;
+        aug[maxRow * 2 * n + j] = tmp;
+      }
+    }
+    // Normalize pivot row.
+    const pivot = aug[k * 2 * n + k]!;
+    for (let j = 0; j < 2 * n; j++) aug[k * 2 * n + j] = (aug[k * 2 * n + j] ?? 0) / pivot;
+    // Eliminate column k from all other rows.
+    for (let i = 0; i < n; i++) {
+      if (i === k) continue;
+      const factor = aug[i * 2 * n + k] ?? 0;
+      if (factor === 0) continue;
+      for (let j = 0; j < 2 * n; j++) {
+        aug[i * 2 * n + j] = (aug[i * 2 * n + j] ?? 0) - factor * (aug[k * 2 * n + j] ?? 0);
+      }
+    }
+  }
+  // Extract the right half (the inverse).
+  const inv: number[] = new Array(n * n);
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) inv[i * n + j] = aug[i * 2 * n + (n + j)] ?? 0;
+  }
+  return inv;
+}
+
+/**
+ * Compute the 2D error ellipse parameters from a 2×2 covariance block.
+ *
+ * Input: variance in E (sEE), covariance E-N (sEN), variance in N (sNN).
+ * These are the diagonal and off-diagonal of the 2×2 block of the
+ * parameter covariance matrix for one beacon's (E, N) unknowns.
+ *
+ * Output: semi-major axis, semi-minor axis (in metres, at the given
+ * confidence scale factor k), and orientation of the semi-major axis
+ * in degrees clockwise from north.
+ *
+ * Math: eigen-decomposition of the 2×2 symmetric matrix.
+ *   λ_max = (sEE + sNN)/2 + sqrt(((sEE - sNN)/2)² + sEN²)
+ *   λ_min = (sEE + sNN)/2 - sqrt(((sEE - sNN)/2)² + sEN²)
+ *   semi-major = k × sqrt(λ_max)
+ *   semi-minor = k × sqrt(λ_min)
+ *   orientation (from north) = degrees(0.5 × atan2(2 × sEN, sNN - sEE))
+ *
+ * The orientation formula gives 0° when the major axis aligns with
+ * north, 90° when it aligns with east — the surveying convention.
+ *
+ * Reference: Mikhail & Ackermann (1976), "Observations and Least
+ * Squares," §4-5 (Error Ellipses).
+ */
+function errorEllipse2D(
+  sEE: number,
+  sEN: number,
+  sNN: number,
+  k: number,
+): { semiMajorAxis: number; semiMinorAxis: number; orientation: number } {
+  const trace = sEE + sNN;
+  const det = sEE * sNN - sEN * sEN;
+  // Eigenvalues (guaranteed ≥ 0 for a valid covariance matrix).
+  const disc = Math.sqrt(Math.max(0, (trace * trace) / 4 - det));
+  const lambdaMax = trace / 2 + disc;
+  const lambdaMin = trace / 2 - disc;
+  const semiMajorAxis = k * Math.sqrt(Math.max(0, lambdaMax));
+  const semiMinorAxis = k * Math.sqrt(Math.max(0, lambdaMin));
+  // Orientation of the major axis from NORTH (surveying convention):
+  //   θ = 0.5 × atan2(2 × sEN, sNN - sEE)
+  // Result is in radians, convert to degrees, normalize to [0, 180).
+  let orientationRad = 0.5 * Math.atan2(2 * sEN, sNN - sEE);
+  let orientationDeg = (orientationRad * 180) / Math.PI;
+  if (orientationDeg < 0) orientationDeg += 180;
+  if (orientationDeg >= 180) orientationDeg -= 180;
+  return { semiMajorAxis, semiMinorAxis, orientation: orientationDeg };
 }
