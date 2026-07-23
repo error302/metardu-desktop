@@ -32,6 +32,10 @@ export interface SurfaceComparisonResult {
   avgCutDepth: number;
   avgFillHeight: number;
   gridResolution: number;
+  /**
+   * Per-point uncertainty. Surface comparison deals with volumes, not points.
+   */
+  pointUncertainty: Record<string, PointUncertainty>;
 }
 
 export interface StockpileResult {
@@ -131,6 +135,7 @@ export function compareSurfaces(
     avgCutDepth: cutCount > 0 ? cutVolume / (cutCount * cellArea) : 0,
     avgFillHeight: fillCount > 0 ? fillVolume / (fillCount * cellArea) : 0,
     gridResolution,
+    pointUncertainty: {},
   };
 }
 

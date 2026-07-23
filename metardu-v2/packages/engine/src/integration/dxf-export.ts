@@ -103,6 +103,7 @@ import type {
   SurveyOutput,
   ValidationResult,
 } from "./types.js";
+import { detectSurveyType, type SurveyType } from "../survey-type-detection.js";
 
 // ─── DXF-specific types ──────────────────────────────────────────
 
@@ -129,7 +130,7 @@ export interface DxfOutput extends IntegrationOutput {
   /** Layer names written to the DXF (country-correct). */
   layers: string[];
   /** Survey type that produced the input. */
-  surveyType: "cadastral" | "topographic" | "engineering";
+  surveyType: SurveyType;
 }
 
 // ─── Per-country layer spec ──────────────────────────────────────
@@ -170,7 +171,7 @@ export interface DxfLayerSpec {
  */
 export function getCountryDxfLayerSpecs(
   countryCode: string,
-  surveyType: "cadastral" | "topographic" | "engineering",
+  surveyType: SurveyType,
 ): DxfLayerSpec[] {
   // ─── Kenya (matches existing SURVEY_LAYERS — reference impl) ───
   if (countryCode === "KE") {
@@ -282,22 +283,6 @@ function layerNameFor(
   category: DxfLayerSpec["category"],
 ): string {
   return specs.find((s) => s.category === category)?.name ?? "BOUNDARY";
-}
-
-// ─── Survey type discriminator (shared logic) ────────────────────
-
-function detectSurveyType(
-  input: SurveyOutput,
-): "cadastral" | "topographic" | "engineering" {
-  if (typeof input === "object" && input !== null) {
-    if ("form3" in input) return "cadastral";
-    if ("sections" in input) return "engineering";
-    if ("tin" in input && "contours" in input) return "topographic";
-  }
-  throw new Error(
-    "Cannot detect survey type from input shape. The DXF exporter " +
-      "currently supports cadastral, topographic, and engineering outputs.",
-  );
 }
 
 // ─── Per-survey-type DXF generators ──────────────────────────────
@@ -589,7 +574,7 @@ export const dxfExporter: IntegrationExporter<SurveyOutput, DxfOptions, DxfOutpu
       }
     }
 
-    let surveyType: "cadastral" | "topographic" | "engineering";
+    let surveyType: SurveyType;
     try {
       surveyType = detectSurveyType(input);
     } catch (e) {
@@ -637,6 +622,13 @@ export const dxfExporter: IntegrationExporter<SurveyOutput, DxfOptions, DxfOutpu
 
     const warnings: string[] = [...validation.warnings];
     const surveyType = detectSurveyType(input);
+    if (!["cadastral", "topographic", "engineering"].includes(surveyType)) {
+      throw new Error(
+        `The ${this.format} exporter does not yet support survey type '${surveyType}'. ` +
+          `Supported: cadastral, topographic, engineering. Use the GeoJSON exporter ` +
+          `for ${surveyType} — it handles all 10 survey types.`
+      );
+    }
 
     const config = getCountryConfig(options.countryCode as CountryCode);
     const srid = config.geodeticFramework.primarySRID;

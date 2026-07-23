@@ -16,6 +16,7 @@
  */
 
 import type { CountrySurveyConfig } from "@metardu/country-config";
+import type { PointUncertainty } from "../survey-types.js";
 
 export interface DronePhoto {
   filename: string;
@@ -53,6 +54,10 @@ export interface ProcessingResult {
   quality: ProcessingQuality;
   processingTimeSec: number;
   log: string[];
+  /**
+   * Per-point uncertainty for drone GCPs. Empty if no GCPs.
+   */
+  pointUncertainty: Record<string, PointUncertainty>;
 }
 
 export interface DroneProcessingInput {

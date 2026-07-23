@@ -85,6 +85,10 @@ export interface CorridorResult {
   fillVolume: number;
   netVolume: number;
   template: CrossSectionTemplate;
+  /**
+   * Per-point uncertainty for corridor alignment + cross-section points.
+   */
+  pointUncertainty: Record<string, PointUncertainty>;
 }
 
 // ─── Standard templates ──────────────────────────────────────────
@@ -170,6 +174,7 @@ export function generateCorridor(design: CorridorDesign): CorridorResult {
     fillVolume: 0,
     netVolume: 0,
     template: design.template,
+    pointUncertainty: {},
   };
 }
 

@@ -60,6 +60,10 @@ export interface UtilitySurveyPlan {
     minDepth: number;
     avgConfidence: number;
   };
+  /**
+   * Per-point uncertainty for GPR detections, keyed by index (as string).
+   */
+  pointUncertainty: Record<string, PointUncertainty>;
 }
 
 export interface UtilityRun {
@@ -243,6 +247,9 @@ export function generateUtilitySurveyPlan(detections: GprDetection[]): UtilitySu
       minDepth,
       avgConfidence: confSum / detections.length,
     },
+    pointUncertainty: Object.fromEntries(
+      detections.map((d, i) => [String(i), { adjusted: false, reason: "field-data" } as const])
+    ),
   };
 }
 

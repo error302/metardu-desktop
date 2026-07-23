@@ -42,29 +42,35 @@
 import type { CadastralWorkflowOutput } from "../workflows/cadastral.js";
 import type { TopoWorkflowOutput } from "../workflows/topographic.js";
 import type { EngineeringWorkflowOutput } from "../workflows/engineering.js";
+import type { SectionalWorkflowOutput } from "../workflows/sectional.js";
+import type { SettingOutWorkflowOutput } from "../workflows/setting-out.js";
+import type { CorridorResult } from "../workflows/corridor-design.js";
+import type { ProcessingResult } from "../workflows/drone-processing.js";
+import type { ClassificationResult } from "../workflows/lidar-classification.js";
+import type { SurfaceComparisonResult } from "../workflows/surface-comparison.js";
+import type { UtilitySurveyPlan } from "../workflows/utility-mapping.js";
 
 /**
  * Survey output that an integration exporter can consume.
  *
- * Union of the three workflow outputs that currently surface an
- * `uncertainty` (or `pointUncertainty`) field per invariant C1:
- *   - CadastralWorkflowOutput  (cadastral — beacons carry ellipses)
- *   - TopoWorkflowOutput       (topographic — TIN vertices, "field-data" reason)
- *   - EngineeringWorkflowOutput (engineering — TIN vertices + volumes)
+ * Union of all workflow outputs that surface a `pointUncertainty`
+ * (or `uncertainty`) field per invariant C1. Extended from 3 types
+ * (Briefs 01-02) to all 10 types (this task) per the Brief 02 pattern.
  *
- * Setting-out, sectional, drone-processing, lidar-classification,
- * corridor-design, surface-comparison, utility-mapping will be added
- * as they gain the same `uncertainty` field per Brief 02's pattern.
- *
- * Discriminator: each member has a unique shape that the GeoJSON
- * exporter detects via `('form3' in input)` (cadastral),
- * `('tin' in input && !('sections' in input))` (topo),
- * `('sections' in input)` (engineering).
+ * Discriminator: `detectSurveyType()` in `survey-type-detection.ts`
+ * uses duck-typing via characteristic fields unique to each type.
  */
 export type SurveyOutput =
   | CadastralWorkflowOutput
   | TopoWorkflowOutput
-  | EngineeringWorkflowOutput;
+  | EngineeringWorkflowOutput
+  | SectionalWorkflowOutput
+  | SettingOutWorkflowOutput
+  | CorridorResult
+  | ProcessingResult
+  | ClassificationResult
+  | SurfaceComparisonResult
+  | UtilitySurveyPlan;
 
 /**
  * Project-level metadata embedded in every export for traceability.

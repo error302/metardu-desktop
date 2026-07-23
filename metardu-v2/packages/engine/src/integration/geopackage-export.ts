@@ -85,6 +85,7 @@ import type {
   SurveyOutput,
   ValidationResult,
 } from "./types.js";
+import { detectSurveyType, type SurveyType } from "../survey-type-detection.js";
 
 // ─── GeoPackage-specific types ───────────────────────────────────
 
@@ -191,22 +192,6 @@ function wrapGeoPackageBinary(wkb: Buffer, srsId: number, littleEndian = true): 
   header.writeUInt8(flags, 3);
   header.writeUInt32LE(srsId, 4);
   return Buffer.concat([header, wkb]);
-}
-
-// ─── Survey type discriminator (shared logic with geojson-export) ──
-
-function detectSurveyType(
-  input: SurveyOutput,
-): "cadastral" | "topographic" | "engineering" {
-  if (typeof input === "object" && input !== null) {
-    if ("form3" in input) return "cadastral";
-    if ("sections" in input) return "engineering";
-    if ("tin" in input && "contours" in input) return "topographic";
-  }
-  throw new Error(
-    "Cannot detect survey type from input shape. The GeoPackage exporter " +
-      "currently supports cadastral, topographic, and engineering outputs.",
-  );
 }
 
 // ─── Per-point uncertainty → column values ────────────────────────
@@ -838,7 +823,7 @@ export const geoPackageExporter: IntegrationExporter<
       }
     }
 
-    let surveyType: "cadastral" | "topographic" | "engineering";
+    let surveyType: SurveyType;
     try {
       surveyType = detectSurveyType(input);
     } catch (e) {

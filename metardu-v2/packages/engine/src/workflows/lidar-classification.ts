@@ -83,6 +83,10 @@ export interface ClassificationResult {
   processingTimeMs: number;
   /** Warnings. */
   warnings: string[];
+  /**
+   * Per-point uncertainty for LiDAR points, keyed by index (as string).
+   */
+  pointUncertainty: Record<string, PointUncertainty>;
 }
 
 /** A regular grid surface (rasterized elevation model). */
@@ -293,6 +297,7 @@ export function classifyLidarPoints(
     dsm,
     processingTimeMs: Date.now() - startTime,
     warnings,
+    pointUncertainty: {},
   };
 }
 

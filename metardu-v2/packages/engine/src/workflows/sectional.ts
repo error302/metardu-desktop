@@ -37,6 +37,7 @@
  */
 
 import type { CountrySurveyConfig } from "@metardu/country-config";
+import type { PointUncertainty } from "../survey-types.js";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -123,6 +124,13 @@ export interface SectionalWorkflowOutput {
   totalCommonArea: number;
   /** True if the building area = unit area + common area (sanity check). */
   areaBalanceOk: boolean;
+  /**
+   * Per-point uncertainty. Sectional properties deals with unit areas
+   * and participation quotas, not surveyed points — so this is empty
+   * by default. When a future task brief ties sectional unit boundaries
+   * to surveyed coordinates, this field gets the real ellipses.
+   */
+  pointUncertainty: Record<string, PointUncertainty>;
   /** Sectional property regime from the country config. */
   regime: {
     legislation: string;
@@ -216,6 +224,7 @@ export function runSectionalWorkflow(input: SectionalWorkflowInput): SectionalWo
     totalUnitArea,
     totalCommonArea,
     areaBalanceOk,
+    pointUncertainty: {},
     regime,
     sourceFiled,
   };

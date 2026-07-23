@@ -83,6 +83,7 @@ import type {
   SurveyOutput,
   ValidationResult,
 } from "./types.js";
+import { detectSurveyType, type SurveyType } from "../survey-type-detection.js";
 
 // ─── QGS-specific types ──────────────────────────────────────────
 
@@ -107,22 +108,6 @@ export interface QgsOutput extends IntegrationOutput {
   layers: string[];
   /** QGIS project name (used as <qgis projectname="..."> + layer tree group). */
   projectName: string;
-}
-
-// ─── Survey type discriminator (shared logic) ────────────────────
-
-function detectSurveyType(
-  input: SurveyOutput,
-): "cadastral" | "topographic" | "engineering" {
-  if (typeof input === "object" && input !== null) {
-    if ("form3" in input) return "cadastral";
-    if ("sections" in input) return "engineering";
-    if ("tin" in input && "contours" in input) return "topographic";
-  }
-  throw new Error(
-    "Cannot detect survey type from input shape. The .qgs project generator " +
-      "currently supports cadastral, topographic, and engineering outputs.",
-  );
 }
 
 // ─── Per-layer XML spec ──────────────────────────────────────────
@@ -163,7 +148,7 @@ function escapeXml(s: string): string {
  */
 function getQgsLayerSpecs(
   countryCode: string,
-  surveyType: "cadastral" | "topographic" | "engineering",
+  surveyType: SurveyType,
 ): QgsLayerSpec[] {
   // Common renderer building blocks. QGIS XML uses <renderer-v2> with
   // attributes for type ("singleSymbol" for one symbol per layer),
@@ -623,7 +608,7 @@ export const qgsProjectExporter: IntegrationExporter<
       }
     }
 
-    let surveyType: "cadastral" | "topographic" | "engineering";
+    let surveyType: SurveyType;
     try {
       surveyType = detectSurveyType(input);
     } catch (e) {
@@ -656,6 +641,13 @@ export const qgsProjectExporter: IntegrationExporter<
 
     const warnings: string[] = [...validation.warnings];
     const surveyType = detectSurveyType(input);
+    if (!["cadastral", "topographic", "engineering"].includes(surveyType)) {
+      throw new Error(
+        `The ${this.format} exporter does not yet support survey type '${surveyType}'. ` +
+          `Supported: cadastral, topographic, engineering. Use the GeoJSON exporter ` +
+          `for ${surveyType} — it handles all 10 survey types.`
+      );
+    }
 
     const config = getCountryConfig(options.countryCode as CountryCode);
     const srid = config.geodeticFramework.primarySRID;

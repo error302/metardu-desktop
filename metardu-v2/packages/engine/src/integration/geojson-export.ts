@@ -53,6 +53,13 @@ import { getCountryConfig, type CountryCode } from "@metardu/country-config";
 import type { CadastralWorkflowOutput, BeaconUncertainty } from "../workflows/cadastral.js";
 import type { TopoWorkflowOutput } from "../workflows/topographic.js";
 import type { EngineeringWorkflowOutput } from "../workflows/engineering.js";
+import type { SectionalWorkflowOutput } from "../workflows/sectional.js";
+import type { SettingOutWorkflowOutput } from "../workflows/setting-out.js";
+import type { CorridorResult } from "../workflows/corridor-design.js";
+import type { ProcessingResult } from "../workflows/drone-processing.js";
+import type { ClassificationResult } from "../workflows/lidar-classification.js";
+import type { SurfaceComparisonResult } from "../workflows/surface-comparison.js";
+import type { UtilitySurveyPlan } from "../workflows/utility-mapping.js";
 import type { PointUncertainty } from "../survey-types.js";
 import type {
   IntegrationExporter,
@@ -62,6 +69,7 @@ import type {
   SurveyOutput,
   ValidationResult,
 } from "./types.js";
+import { detectSurveyType, type SurveyType } from "../survey-type-detection.js";
 
 // ─── GeoJSON-specific types ──────────────────────────────────────
 
@@ -537,7 +545,6 @@ function buildEngineeringFeatures(
   ];
 }
 
-// ─── Survey type discriminator + feature dispatcher ──────────────
 
 /**
  * Discriminate which workflow produced the input by its shape:
@@ -549,20 +556,6 @@ function buildEngineeringFeatures(
  * If none match, throws — invariant C1 says we don't export what we
  * can't attribute.
  */
-function detectSurveyType(
-  input: SurveyOutput,
-): "cadastral" | "topographic" | "engineering" {
-  if (typeof input === "object" && input !== null) {
-    if ("form3" in input) return "cadastral";
-    if ("sections" in input) return "engineering";
-    if ("tin" in input && "contours" in input) return "topographic";
-  }
-  throw new Error(
-    "Cannot detect survey type from input shape. The GeoJSON exporter " +
-      "currently supports cadastral, topographic, and engineering outputs. " +
-      "Other workflow types will be added per ADR-0005's task brief list.",
-  );
-}
 
 /**
  * Dispatch to the correct feature builder based on survey type.
@@ -641,6 +634,227 @@ function buildFeaturesForSurvey(
         },
       };
     }
+    case "sectional": {
+      const output = input as SectionalWorkflowOutput;
+      // Sectional is area-based, not point-based — no spatial features.
+      return {
+        features: [],
+        surveyType,
+        extraMetadata: {
+          sectional: {
+            levelCount: output.levels.length,
+            totalBuildingArea: output.totalBuildingArea,
+            totalUnitArea: output.totalUnitArea,
+            totalCommonArea: output.totalCommonArea,
+            areaBalanceOk: output.areaBalanceOk,
+          },
+        },
+      };
+    }
+    case "setting-out": {
+      const output = input as SettingOutWorkflowOutput;
+      const features: GeoJsonFeature[] = output.instructions.map((inst) => ({
+        type: "Feature" as const,
+        id: `setting-out-${inst.designPointId}`,
+        geometry: {
+          type: "Point" as const,
+          coordinates: [inst.designEasting, inst.designNorthing],
+        },
+        properties: {
+          ...buildPointProperties(
+            inst.designPointId,
+            output.pointUncertainty?.[inst.designPointId],
+            "design-point",
+            "setting-out",
+            includeUncertainty,
+            warnings,
+          ),
+          method: inst.method,
+          bearingDeg: inst.bearingDeg,
+          distanceM: inst.distanceM,
+        },
+      }));
+      return {
+        features,
+        surveyType,
+        extraMetadata: {
+          "setting-out": {
+            instructionCount: output.instructions.length,
+            allPass: output.allPass,
+            failCount: output.failCount,
+            horizontalToleranceM: output.horizontalToleranceM,
+            maxHorizontalResidual: output.maxHorizontalResidual,
+          },
+        },
+      };
+    }
+    case "corridor": {
+      const output = input as CorridorResult;
+      const features: GeoJsonFeature[] = [];
+      for (const cs of output.crossSections) {
+        for (const pt of cs.points) {
+          features.push({
+            type: "Feature" as const,
+            id: `corridor-${pt.label}`,
+            geometry: {
+              type: "Point" as const,
+              coordinates: [pt.easting, pt.northing],
+            },
+            properties: {
+              ...buildPointProperties(
+                pt.label,
+                output.pointUncertainty?.[pt.label],
+                "corridor-point",
+                "corridor",
+                includeUncertainty,
+                warnings,
+              ),
+              elevation: pt.elevation,
+              offset: pt.offset,
+            },
+          });
+        }
+      }
+      return {
+        features,
+        surveyType,
+        extraMetadata: {
+          corridor: {
+            crossSectionCount: output.crossSections.length,
+            totalLength: output.totalLength,
+            cutVolume: output.cutVolume,
+            fillVolume: output.fillVolume,
+            netVolume: output.netVolume,
+          },
+        },
+      };
+    }
+    case "drone-processing": {
+      const output = input as ProcessingResult;
+      // Drone processing result has file paths + quality, no point coords.
+      return {
+        features: [],
+        surveyType,
+        extraMetadata: {
+          "drone-processing": {
+            asprsClass: output.quality.asprsClass,
+            processingTimeSec: output.processingTimeSec,
+            contourCount: output.contours.length,
+          },
+        },
+      };
+    }
+    case "lidar": {
+      const output = input as ClassificationResult;
+      const features: GeoJsonFeature[] = output.points.map((pt, idx) => ({
+        type: "Feature" as const,
+        id: `lidar-point-${idx}`,
+        geometry: {
+          type: "Point" as const,
+          coordinates: [pt.easting, pt.northing],
+        },
+        properties: {
+          ...buildPointProperties(
+            String(idx),
+            output.pointUncertainty?.[String(idx)],
+            "lidar-point",
+            "lidar",
+            includeUncertainty,
+            warnings,
+          ),
+          elevation: pt.elevation,
+          classification: pt.classification,
+          intensity: pt.intensity,
+        },
+      }));
+      return {
+        features,
+        surveyType,
+        extraMetadata: {
+          lidar: {
+            pointCount: output.points.length,
+            counts: output.counts,
+            processingTimeMs: output.processingTimeMs,
+          },
+        },
+      };
+    }
+    case "surface-comparison": {
+      const output = input as SurfaceComparisonResult;
+      // Surface comparison result has volumes, no point coords.
+      return {
+        features: [],
+        surveyType,
+        extraMetadata: {
+          "surface-comparison": {
+            cutVolume: output.cutVolume,
+            fillVolume: output.fillVolume,
+            netVolume: output.netVolume,
+            cutArea: output.cutArea,
+            fillArea: output.fillArea,
+            maxCutDepth: output.maxCutDepth,
+            maxFillHeight: output.maxFillHeight,
+          },
+        },
+      };
+    }
+    case "utility-mapping": {
+      const output = input as UtilitySurveyPlan;
+      const features: GeoJsonFeature[] = output.detections.map((det, idx) => ({
+        type: "Feature" as const,
+        id: `utility-detection-${idx}`,
+        geometry: {
+          type: "Point" as const,
+          coordinates: [det.easting, det.northing],
+        },
+        properties: {
+          ...buildPointProperties(
+            String(idx),
+            output.pointUncertainty?.[String(idx)],
+            "utility-detection",
+            "utility-mapping",
+            includeUncertainty,
+            warnings,
+          ),
+          depth: det.depth,
+          utilityType: det.utilityType,
+          signalStrength: det.signalStrength,
+          confidence: det.confidence,
+        },
+      }));
+      // Also emit LineString features for utility runs
+      for (const run of output.runs) {
+        if (run.points.length >= 2) {
+          features.push({
+            type: "Feature" as const,
+            id: `utility-run-${run.type}`,
+            geometry: {
+              type: "LineString" as const,
+              coordinates: run.points.map((p) => [p.easting, p.northing] as [number, number]),
+            },
+            properties: {
+              featureType: "utility-run",
+              surveyType: "utility-mapping",
+              utilityType: run.type,
+              totalLength: run.totalLength,
+              avgDepth: run.avgDepth,
+              derived: true,
+            },
+          });
+        }
+      }
+      return {
+        features,
+        surveyType,
+        extraMetadata: {
+          "utility-mapping": {
+            detectionCount: output.detections.length,
+            runCount: output.runs.length,
+            crossingCount: output.crossings.length,
+          },
+        },
+      };
+    }
     default: {
       // Unreachable — detectSurveyType throws first.
       throw new Error(`Unknown survey type: ${surveyType}`);
@@ -710,7 +924,7 @@ export const geoJsonExporter: IntegrationExporter<
     }
 
     // Detect survey type — refuses to export unknown shapes.
-    let surveyType: "cadastral" | "topographic" | "engineering";
+    let surveyType: SurveyType;
     try {
       surveyType = detectSurveyType(input);
     } catch (e) {

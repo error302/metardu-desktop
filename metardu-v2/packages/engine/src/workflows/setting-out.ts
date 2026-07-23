@@ -34,6 +34,7 @@
  */
 
 import type { CountrySurveyConfig } from "@metardu/country-config";
+import type { PointUncertainty } from "../survey-types.js";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -135,6 +136,15 @@ export interface SettingOutWorkflowOutput {
   maxHorizontalResidual: number;
   /** Mean horizontal residual (metres). */
   meanHorizontalResidual: number;
+  /**
+   * Per-point uncertainty for design + control points, keyed by label.
+   * Design points default to `{ adjusted: false, reason: "field-data" }` —
+   * they’re design coordinates, not adjusted survey points. Control
+   * points default to `{ adjusted: false, reason: "fixed-control" }`.
+   * When a future task brief wires setting-out through the sidecar’s
+   * LS adjustment, this field gets the real ellipses.
+   */
+  pointUncertainty: Record<string, PointUncertainty>;
 }
 
 // ─── Main entry point ────────────────────────────────────────────
@@ -216,6 +226,16 @@ export function runSettingOutWorkflow(input: SettingOutWorkflowInput): SettingOu
     ? results.reduce((s, r) => s + r.horizontalResidual, 0) / results.length
     : 0;
 
+  // Per-point uncertainty: design points are field-data (design coordinates,
+  // not adjusted survey points). Control points are fixed-control.
+  const pointUncertainty: Record<string, PointUncertainty> = {};
+  for (const dp of input.designPoints) {
+    pointUncertainty[dp.id] = { adjusted: false, reason: "field-data" };
+  }
+  for (const cp of input.controlPoints) {
+    pointUncertainty[cp.id] = { adjusted: false, reason: "fixed-control" };
+  }
+
   return {
     instructions,
     results,
@@ -224,6 +244,7 @@ export function runSettingOutWorkflow(input: SettingOutWorkflowInput): SettingOu
     horizontalToleranceM: horizontalTolerance,
     maxHorizontalResidual,
     meanHorizontalResidual,
+    pointUncertainty,
   };
 }
 
