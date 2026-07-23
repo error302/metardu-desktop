@@ -390,3 +390,16 @@ the export menu iterates over the registered exporters.
 - GeoPackage spec: OGC 12-128r14
 - PyQGIS: https://docs.qgis.org/3.34/en/docs/pyqgis_developer_cookbook/
 - OSM changeset XML: https://wiki.openstreetmap.org/wiki/Osmapi#Editing
+
+- [x] **Brief 08** — DXF extension (`dxf-export.ts`) shipped. Extends the existing
+  `dxf-output.ts` low-level helpers with country-correct layer naming per ADR-0005
+  deliverable #7. New `getCountryDxfLayerSpecs(countryCode, surveyType)` function
+  returns per-country layer name + category specs: Kenya (Survey of Kenya Form 3
+  convention — BOUNDARY, BEACON, TEXT-DEEDPLAN, etc.), UK (RICS/AIA discipline-
+  prefix convention — SURV-BOUNDARY, SURV-POINT, SURV-CONTOURS, etc.), and generic
+  fallback (Kenya names + warning for AU/ZA/AE). The DXF exporter implements
+  `IntegrationExporter<SurveyOutput, DxfOptions, DxfOutput>`, consuming the same
+  workflow outputs as the other exporters. Per-beacon uncertainty surfaced in the
+  beacon label (e.g. "B3 (±29mm)") so CAD technicians see the accuracy at a glance.
+  13 new tests + 2 golden fixtures (kenya-cadastral.dxf, kenya-topographic.dxf).
+  **ADR-0005 is now 7/7 deliverables complete.**

@@ -1666,3 +1666,49 @@ Stage Summary:
   * Sidecar lat/lon conversion for the Pix4D lat/lon columns (currently blank) + OSM exporter's automatic projected→WGS84 conversion (currently requires manual pre-conversion).
   * Setting-out, sectional, drone-processing, lidar, corridor, surface-comparison, utility-mapping workflows — each needs the same pointUncertainty field added per Brief 02 pattern, then all 6 exporters auto-handle them once detectSurveyType is extended.
   * Windows cross-compile smoke test — still queued from prior session.
+
+---
+Task ID: 9
+Agent: main (session 10 — Brief 08: DXF extension, country-correct layer naming)
+Task: Build the country-correct DXF integration exporter — extends existing dxf-output.ts with per-country layer naming per ADR-0005 deliverable #7. Seventh and final concrete exporter — completes ADR-0005.
+
+Work Log:
+- Re-cloned repo (workdir wiped between sessions). Confirmed commit 3201621 (Brief 07) on top.
+- Audited existing dxf-output.ts: 574 lines, ships a single SURVEY_LAYERS constant with Kenya-style names (BOUNDARY, BEACON, TEXT-DEEDPLAN, etc.) + four generate* functions (Form3, Topo, Engineering, Sectional). The gap per ADR-0005 #7: layer naming is Kenya-only, not country-correct.
+- Design: wrap the existing low-level helpers rather than rip apart the stable + tested generate* functions. New dxf-export.ts implements IntegrationExporter<SurveyOutput, DxfOptions, DxfOutput>, calls the existing addPolygon/addBeacon/addTIN/addContours/etc. with country-correct layer names from getCountryDxfLayerSpecs().
+- Built packages/engine/src/integration/dxf-export.ts (~480 lines).
+  * getCountryDxfLayerSpecs(countryCode, surveyType): Kenya (matches existing SURVEY_LAYERS — reference impl), UK (RICS/AIA discipline-prefix — SURV-BOUNDARY, SURV-POINT, SURV-CONTOURS, etc.), generic fallback (Kenya names + warning for AU/ZA/AE).
+  * Per-survey-type DXF generators: cadastral (boundary polygon + beacons with uncertainty labels ±Nmm + bearing/distance labels + coord schedule), topographic (TIN edges + contours + spot heights + coord schedule), engineering (section centerline beacons + volume summary text).
+  * Per-beacon uncertainty in label: "B3 (±29mm)" for adjusted beacons, "B1 (fixed)" for known control — CAD technician sees accuracy at a glance (invariant C1 traceability).
+  * CRS URN + SRID referenced in coordinate schedule text layer.
+  * Warning for countries without documented DXF layer-naming convention (AU, ZA, AE) per master plan Section 3 — don't guess at regulatory formats, surface the gap.
+- 13 new tests: format metadata, Kenya cadastral happy path, UK SURV-* prefix divergence, topographic, engineering, country fallback warning, per-beacon uncertainty in label, validation failures (missing metadata, unknown country, unknown survey type), INTEGRATION_EXPORTERS registry, getCountryDxfLayerSpecs country divergence, DXF structure round-trip.
+- 2 golden fixtures: kenya-cadastral.dxf (10.8KB, 7 layers) and kenya-topographic.dxf (33.6KB, 4 layers).
+
+Verification:
+- npm test (engine): 624/624 pass (was 611 + 13 new)
+- tsc --noEmit (engine): 0 errors in my files
+- ADR-0005 updated: Brief 08 entry added, "ADR-0005 is now 7/7 deliverables complete"
+
+Files created:
+- packages/engine/src/integration/dxf-export.ts
+- packages/engine/src/integration/tests/dxf-export.test.ts
+- packages/engine/src/integration/tests/fixtures/kenya-cadastral.dxf
+- packages/engine/src/integration/tests/fixtures/kenya-topographic.dxf
+
+Files modified:
+- packages/engine/src/integration/index.ts (registered dxfExporter)
+- packages/engine/src/index.ts (added DXF exports)
+- docs/decisions/0005-integration-export-workflow-family.md (Brief 08 entry)
+
+Stage Summary:
+- 624/624 engine tests pass. Zero tsc errors in my code.
+- Brief 08 complete. SEVEN integration exporters now ship:
+  1. GeoJSON — Briefs 01+02
+  2. GeoPackage — Brief 03
+  3. PyQGIS loader script — Brief 04
+  4. GCP file — Brief 06
+  5. QGIS project file (.qgs) — Brief 05
+  6. OSM changeset XML — Brief 07
+  7. DXF (country-correct layer naming) — Brief 08
+- ADR-0005 IS NOW 7/7 DELIVERABLES COMPLETE. All seven integration exporters specified in ADR-0005 are built, tested, and shipped with golden fixtures.

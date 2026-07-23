@@ -66,6 +66,14 @@ export {
   type OsmWay,
 } from "./osm-changeset-export.js";
 
+export {
+  dxfExporter,
+  type DxfLayerSpec,
+  type DxfOptions,
+  type DxfOutput,
+} from "./dxf-export.js";
+export { getCountryDxfLayerSpecs } from "./dxf-export.js";
+
 /**
  * Registry of all currently-registered integration exporters.
  *
@@ -82,6 +90,7 @@ import { pyQgisScriptExporter } from "./pyqgis-script-generator.js";
 import { gcpExporter } from "./gcp-export.js";
 import { qgsProjectExporter } from "./qgs-project-generator.js";
 import { osmChangesetExporter } from "./osm-changeset-export.js";
+import { dxfExporter } from "./dxf-export.js";
 import type { IntegrationExporter } from "./types.js";
 
 // Use `any` for the registry element type so heterogeneous exporters
@@ -96,4 +105,5 @@ export const INTEGRATION_EXPORTERS: ReadonlyArray<IntegrationExporter<any, any, 
   gcpExporter,
   qgsProjectExporter,
   osmChangesetExporter,
+  dxfExporter,
 ];
