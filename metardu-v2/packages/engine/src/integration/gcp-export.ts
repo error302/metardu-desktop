@@ -216,6 +216,11 @@ function fmt(n: number): string {
   return n.toFixed(6);
 }
 
+/** Format a lat/lon value with 7 decimal places (~11mm precision at equator). */
+function fmtLatLon(n: number): string {
+  return n.toFixed(7);
+}
+
 /**
  * Pix4D GCP CSV format.
  *
@@ -223,18 +228,21 @@ function fmt(n: number): string {
  * Geodetic X (Lon), Geodetic Y (Lat), Geodetic Z (Ellipsoidal H),
  * Coordinate System
  *
- * Lat/lon columns are left blank — Pix4D can use a projected-only CRS.
- * A header comment explains this and points to the sidecar lat/lon
- * conversion TODO.
+ * When `projectToWgs84` callback is provided, lat/lon columns are
+ * auto-filled from the sidecar's projection-inverse. When not
+ * provided, lat/lon are left blank — Pix4D accepts projected-only CRS.
  */
-function writePix4D(
+async function writePix4D(
   points: GcpPoint[],
   crsDisplayName: string,
   crsUrn: string,
+  srid: number,
   metadata: ProjectMetadata,
   warnings: string[],
-): string {
+  projectToWgs84?: (easting: number, northing: number, srid: number) => Promise<{ lat: number; lon: number }>,
+): Promise<string> {
   const lines: string[] = [];
+  const hasCallback = !!projectToWgs84;
 
   // Header comment (Pix4D supports `#` comments).
   lines.push(`# Pix4D Ground Control Points file`);
@@ -243,9 +251,12 @@ function writePix4D(
   lines.push(`# Survey date: ${metadata.surveyDate} | Adjustment run: ${metadata.adjustmentRunId}`);
   lines.push(`# CRS: ${crsUrn} (${crsDisplayName})`);
   lines.push(`#`);
-  lines.push(`# Lat/lon columns are blank — Pix4D accepts projected-only CRS.`);
-  lines.push(`# To fill them in: re-export after sidecar lat/lon conversion is wired`);
-  lines.push(`# (Brief 06 future work), or enter manually via Pix4D's GCP editor.`);
+  if (hasCallback) {
+    lines.push(`# Lat/lon columns auto-filled via sidecar projection-inverse.`);
+  } else {
+    lines.push(`# Lat/lon columns are blank — Pix4D accepts projected-only CRS.`);
+    lines.push(`# To auto-fill: pass projectToWgs84 callback (wired to sidecar geodesy.utm_inverse).`);
+  }
   lines.push(`#`);
   lines.push(`# Per-GCP uncertainty is in the trailing comment on each row.`);
   lines.push(`#`);
@@ -257,18 +268,28 @@ function writePix4D(
       "Coordinate System",
   );
 
-  // Per-GCP rows. Pix4D's GCP file is strict 8-column CSV — we emit
-  // each GCP on its own row, followed by a `#`-prefixed comment line
-  // with the uncertainty info. (Trailing comments on the same row
-  // break Pix4D's parser because the commas in the comment would be
-  // treated as column separators.)
+  // Per-GCP rows.
   for (const p of points) {
     const accXY = deriveAccuracyXY(p, warnings);
     const accZ = deriveAccuracyZ(p, accXY);
-    // Lat/lon blank — Pix4D accepts this for projected-only CRS.
-    const lat = "";
-    const lon = "";
-    const ellH = ""; // Ellipsoidal height — needs geoid model (sidecar TODO).
+
+    // Lat/lon: auto-convert if callback provided, else blank.
+    let lat = "";
+    let lon = "";
+    const ellH = ""; // Ellipsoidal height — needs geoid model (future work).
+    if (hasCallback && projectToWgs84) {
+      try {
+        const wgs84 = await projectToWgs84(p.easting, p.northing, srid);
+        lat = fmtLatLon(wgs84.lat);
+        lon = fmtLatLon(wgs84.lon);
+      } catch (e) {
+        warnings.push(
+          `GCP '${p.label}' lat/lon conversion failed: ${(e as Error).message}. ` +
+            `Exported with blank lat/lon.`,
+        );
+      }
+    }
+
     // GCP row (8 columns).
     lines.push(
       `${p.label}, ${fmt(p.easting)}, ${fmt(p.northing)}, ${fmt(p.elevation)}, ` +
@@ -454,7 +475,7 @@ export const gcpExporter: IntegrationExporter<GcpInput, GcpOptions, GcpOutput> =
 
     switch (options.format) {
       case "pix4d":
-        csv = writePix4D(input.points, crsDisplayName, crsUrn, m, warnings);
+        csv = await writePix4D(input.points, crsDisplayName, crsUrn, srid, m, warnings, options.projectToWgs84);
         break;
       case "metashape":
         csv = writeMetashape(

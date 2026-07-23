@@ -660,3 +660,77 @@ describe("gcpExporter — golden CSV fixtures", () => {
     expect(fixtRaw).toContain("# acc_xy=0.012000m");
   });
 });
+
+// ─── projectToWgs84 callback tests (sidecar lat/lon bridge) ─────
+
+describe("gcpExporter — projectToWgs84 callback auto-fills Pix4D lat/lon", () => {
+  it("fills lat/lon columns when callback provided", async () => {
+    const input: GcpInput = {
+      points: [
+        { label: "GCP01", easting: 257100.0, northing: 9857700.0, elevation: 1795.0 },
+      ],
+    };
+    const result = await gcpExporter.export(input, {
+      countryCode: "KE",
+      format: "pix4d",
+      projectMetadata: baseMetadata,
+      projectToWgs84: async (e, n, _srid) => {
+        // Mock callback — simulates sidecar's geodesy.utm_inverse
+        return { lat: -1.2200000, lon: 36.9000000 };
+      },
+    });
+
+    const csv = decodeCsv(result.bytes);
+    // Header should say "auto-filled"
+    expect(csv).toContain("# Lat/lon columns auto-filled via sidecar projection-inverse.");
+    // GCP01 row should have non-blank lat/lon
+    const gcp01Line = csv.split("\n").find((l) => l.startsWith("GCP01,"));
+    expect(gcp01Line).toBeDefined();
+    // Column 5 (lon) and 6 (lat) should NOT be empty
+    const cols = gcp01Line!.split(",").map((c) => c.trim());
+    expect(cols[4]).not.toBe(""); // lon
+    expect(cols[5]).not.toBe(""); // lat
+    expect(cols[4]).toBe("36.9000000"); // lon
+    expect(cols[5]).toBe("-1.2200000"); // lat
+  });
+
+  it("leaves lat/lon blank when no callback (backward compat)", async () => {
+    const input: GcpInput = {
+      points: [
+        { label: "GCP01", easting: 257100.0, northing: 9857700.0, elevation: 1795.0 },
+      ],
+    };
+    const result = await gcpExporter.export(input, {
+      countryCode: "KE",
+      format: "pix4d",
+      projectMetadata: baseMetadata,
+      // No projectToWgs84 callback
+    });
+
+    const csv = decodeCsv(result.bytes);
+    expect(csv).toContain("# Lat/lon columns are blank");
+    const gcp01Line = csv.split("\n").find((l) => l.startsWith("GCP01,"));
+    const cols = gcp01Line!.split(",").map((c) => c.trim());
+    expect(cols[4]).toBe(""); // lon blank
+    expect(cols[5]).toBe(""); // lat blank
+  });
+
+  it("surfaces warning when callback throws", async () => {
+    const input: GcpInput = {
+      points: [
+        { label: "GCP01", easting: 257100.0, northing: 9857700.0, elevation: 1795.0 },
+      ],
+    };
+    const result = await gcpExporter.export(input, {
+      countryCode: "KE",
+      format: "pix4d",
+      projectMetadata: baseMetadata,
+      projectToWgs84: async () => {
+        throw new Error("sidecar IPC timeout");
+      },
+    });
+
+    expect(result.warnings.some((w) => w.includes("lat/lon conversion failed"))).toBe(true);
+    expect(result.warnings.some((w) => w.includes("sidecar IPC timeout"))).toBe(true);
+  });
+});

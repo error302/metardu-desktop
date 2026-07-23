@@ -112,10 +112,26 @@ import type {
 export interface OsmNode {
   /** Negative ID (OSM convention for new objects). Must be unique within input. */
   id: number;
-  /** WGS84 latitude in decimal degrees. */
-  lat: number;
-  /** WGS84 longitude in decimal degrees. */
-  lon: number;
+  /**
+   * WGS84 latitude in decimal degrees. Required when `projectedCoords`
+   * is not set. When `projectedCoords` IS set, this is optional — the
+   * exporter auto-converts from projected via the `projectToWgs84`
+   * callback (if provided).
+   */
+  lat?: number;
+  /** WGS84 longitude in decimal degrees. Same rules as `lat`. */
+  lon?: number;
+  /**
+   * Optional: projected coordinates (easting, northing, srid). When set
+   * AND the `projectToWgs84` callback is provided in options, the
+   * exporter auto-converts to WGS84 lat/lon. When set but no callback,
+   * validation fails (can't convert without the sidecar bridge).
+   */
+  projectedCoords?: {
+    easting: number;
+    northing: number;
+    srid: number;
+  };
   /** OSM tags as key/value pairs. */
   tags?: Record<string, string>;
 }
@@ -273,7 +289,7 @@ function generateOsmXml(
       .map(([k, v]) => `    <tag k="${escapeXml(k)}" v="${escapeXml(v)}"/>`)
       .join("\n");
     const tagsBlock = tagXml.length > 0 ? `\n${tagXml}` : "";
-    return `  <node id="${node.id}" lat="${fmtLatLon(node.lat)}" lon="${fmtLatLon(node.lon)}" version="0" timestamp="${now}">${tagsBlock}\n  </node>`;
+    return `  <node id="${node.id}" lat="${fmtLatLon(node.lat!)}" lon="${fmtLatLon(node.lon!)}" version="0" timestamp="${now}">${tagsBlock}\n  </node>`;
   }).join("\n");
 
   // Per-way XML.
@@ -341,16 +357,18 @@ export const osmChangesetExporter: IntegrationExporter<
         } else {
           // WGS84 check — OSM uses EPSG:4326 exclusively.
           // If the country's primary SRID isn't 4326 AND the input doesn't
-          // explicitly say it's already 4326, emit a warning.
+          // explicitly say it's already 4326, emit a warning — UNLESS the
+          // projectToWgs84 callback is provided (in which case auto-conversion
+          // handles it).
           const countrySrid = config.geodeticFramework.primarySRID;
-          if (countrySrid !== 4326 && input.inputSrid !== 4326) {
+          const hasCallback = !!options.projectToWgs84;
+          if (countrySrid !== 4326 && input.inputSrid !== 4326 && !hasCallback) {
             warnings.push(
               `Country '${options.countryCode}' primarySRID is ${countrySrid} ` +
                 `(projected CRS), but OSM requires WGS84 (EPSG:4326) lat/lon. ` +
-                `The input coordinates must already be in WGS84 — if they ` +
-                `aren't, convert them first via the sidecar's projection-inverse ` +
-                `handler (future task brief) or an external tool like cs2cs. ` +
-                `metardu-desktop will NOT silently reproject.`,
+                `Provide the projectToWgs84 callback (wired to sidecar ` +
+                `geodesy.utm_inverse) for automatic conversion, or pass ` +
+                `inputSrid=4326 if coordinates are already in WGS84.`,
             );
           }
         }
@@ -396,15 +414,36 @@ export const osmChangesetExporter: IntegrationExporter<
           );
         }
 
-        // Validate lat/lon range.
-        if (node.lat < -90 || node.lat > 90) {
-          errors.push(`OSM node ${node.id} has invalid lat '${node.lat}' (must be -90..90).`);
-        }
-        if (node.lon < -180 || node.lon > 180) {
-          errors.push(`OSM node ${node.id} has invalid lon '${node.lon}' (must be -180..180).`);
-        }
-        if (!Number.isFinite(node.lat) || !Number.isFinite(node.lon)) {
-          errors.push(`OSM node ${node.id} has non-finite lat/lon.`);
+        // Validate coordinates: either lat/lon (WGS84) or projectedCoords.
+        if (node.projectedCoords) {
+          // Projected coordinates — need callback for auto-conversion.
+          if (!options.projectToWgs84) {
+            errors.push(
+              `OSM node ${node.id} has projectedCoords but no projectToWgs84 ` +
+                `callback provided. Either provide the callback (wired to sidecar ` +
+                `geodesy.utm_inverse) or convert to WGS84 lat/lon before calling.`,
+            );
+          }
+          if (!Number.isFinite(node.projectedCoords.easting) ||
+              !Number.isFinite(node.projectedCoords.northing)) {
+            errors.push(`OSM node ${node.id} has non-finite projectedCoords.`);
+          }
+        } else if (node.lat !== undefined && node.lon !== undefined) {
+          // WGS84 coordinates — validate range.
+          if (node.lat < -90 || node.lat > 90) {
+            errors.push(`OSM node ${node.id} has invalid lat '${node.lat}' (must be -90..90).`);
+          }
+          if (node.lon < -180 || node.lon > 180) {
+            errors.push(`OSM node ${node.id} has invalid lon '${node.lon}' (must be -180..180).`);
+          }
+          if (!Number.isFinite(node.lat) || !Number.isFinite(node.lon)) {
+            errors.push(`OSM node ${node.id} has non-finite lat/lon.`);
+          }
+        } else {
+          errors.push(
+            `OSM node ${node.id} has neither lat/lon nor projectedCoords. ` +
+              `Provide one or the other.`,
+          );
         }
       }
 
@@ -447,8 +486,42 @@ export const osmChangesetExporter: IntegrationExporter<
     // to its source adjustment (invariant C1 traceability).
     const sourceTags = buildSourceTags(m, undefined, undefined, m.adjustmentRunId);
 
+    // Auto-convert projected coordinates to WGS84 if the callback is provided.
+    // Per ADR-0005 invariant A1: the actual projection math lives in the
+    // sidecar (Rust). The callback is the bridge — the Electron main
+    // process wires it to the sidecar's geodesy.utm_inverse IPC handler.
+    let nodesForXml: OsmNode[] = input.nodes;
+    if (options.projectToWgs84) {
+      const convertedNodes: OsmNode[] = [];
+      for (const node of input.nodes) {
+        if (node.projectedCoords) {
+          try {
+            const wgs84 = await options.projectToWgs84(
+              node.projectedCoords.easting,
+              node.projectedCoords.northing,
+              node.projectedCoords.srid,
+            );
+            convertedNodes.push({
+              ...node,
+              lat: wgs84.lat,
+              lon: wgs84.lon,
+              projectedCoords: undefined, // consumed
+            });
+          } catch (e) {
+            warnings.push(
+              `OSM node ${node.id} projection-inverse failed: ${(e as Error).message}. ` +
+                `Node skipped.`,
+            );
+          }
+        } else {
+          convertedNodes.push(node);
+        }
+      }
+      nodesForXml = convertedNodes;
+    }
+
     // Apply source tags to every node (merge with existing tags, source wins).
-    const nodesWithSource: OsmNode[] = input.nodes.map((node) => ({
+    const nodesWithSource: OsmNode[] = nodesForXml.map((node) => ({
       ...node,
       tags: mergeTagsWithSource(node.tags, sourceTags),
     }));

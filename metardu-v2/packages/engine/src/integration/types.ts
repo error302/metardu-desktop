@@ -104,6 +104,47 @@ export interface IntegrationOptions {
   includeUncertainty?: boolean;
   /** Project metadata — embedded in the export for traceability. */
   projectMetadata?: ProjectMetadata;
+  /**
+   * Optional: async function that converts projected coordinates to
+   * WGS84 (EPSG:4326) lat/lon. When provided, exporters that need WGS84
+   * (GCP Pix4D lat/lon columns, OSM exporter) will call it automatically.
+   * When not provided, those exporters emit warnings and leave the WGS84
+   * fields blank or require manual pre-conversion.
+   *
+   * The callback takes (easting, northing, srid) and returns
+   * { lat, lon } in WGS84 decimal degrees.
+   *
+   * Per ADR-0005 invariant A1: the actual projection math lives in
+   * the sidecar (Rust). This callback is the bridge — the Electron
+   * main process wires it to the sidecar's `geodesy.utm_inverse` (or
+   * `geodesy.tm_inverse`) IPC handler, resolving SRID → UTM zone +
+   * ellipsoid via country-config. The engine never does projection
+   * math itself.
+   *
+   * @example
+   * // Electron main process wiring:
+   * const options = {
+   *   countryCode: "KE",
+   *   projectMetadata,
+   *   projectToWgs84: async (easting, northing, srid) => {
+   *     const config = getCountryConfig("KE");
+   *     const zone = config.geodeticFramework.projectionZones
+   *       .find(z => z.srid === srid);
+   *     const result = await sidecarClient.call("geodesy.utm_inverse", {
+   *       easting, northing,
+   *       zone: zone.utmZone,
+   *       is_southern: zone.hemisphere === "S",
+   *       ellipsoid: zone.ellipsoid,
+   *     });
+   *     return { lat: result.lat, lon: result.lon };
+   *   }
+   * };
+   */
+  projectToWgs84?: (
+    easting: number,
+    northing: number,
+    srid: number,
+  ) => Promise<{ lat: number; lon: number }>;
 }
 
 /**

@@ -644,3 +644,121 @@ describe("osmChangesetExporter — golden .osm fixtures", () => {
     expect(fixtureXml).toContain("golden-osm-ke-001");
   });
 });
+
+// ─── projectToWgs84 callback tests (sidecar lat/lon bridge) ─────
+
+describe("osmChangesetExporter — projectToWgs84 callback auto-converts projected coords", () => {
+  it("auto-converts projectedCoords to WGS84 when callback provided", async () => {
+    const input: OsmInput = {
+      nodes: [
+        {
+          id: -1,
+          projectedCoords: { easting: 257100.0, northing: 9857700.0, srid: 21037 },
+          tags: { man_made: "survey_point", name: "B1" },
+        },
+      ],
+      inputSrid: 21037,
+    };
+    const result = await osmChangesetExporter.export(input, {
+      countryCode: "KE",
+      projectMetadata: baseMetadata,
+      projectToWgs84: async (_e, _n, _srid) => {
+        return { lat: -1.2200000, lon: 36.9000000 };
+      },
+    });
+
+    expect(result.nodeCount).toBe(1);
+    expect(result.warnedAboutProjection).toBe(false);
+
+    const xml = decodeXml(result.bytes);
+    // The node should have WGS84 lat/lon (not blank, not the projected coords)
+    expect(xml).toContain('lat="-1.2200000"');
+    expect(xml).toContain('lon="36.9000000"');
+    // Source tags still present
+    expect(xml).toContain('k="source" v="metardu-desktop"');
+  });
+
+  it("validation fails when projectedCoords present but no callback", () => {
+    const input: OsmInput = {
+      nodes: [
+        {
+          id: -1,
+          projectedCoords: { easting: 257100.0, northing: 9857700.0, srid: 21037 },
+        },
+      ],
+      inputSrid: 21037,
+    };
+    const validation = osmChangesetExporter.validate(input, {
+      countryCode: "KE",
+      projectMetadata: baseMetadata,
+      // No projectToWgs84 callback
+    });
+    expect(validation.ok).toBe(false);
+    expect(validation.errors.some((e) => e.includes("projectedCoords but no projectToWgs84"))).toBe(true);
+  });
+
+  it("no WGS84 warning when callback is provided", () => {
+    const input: OsmInput = {
+      nodes: [
+        { id: -1, lat: -1.22, lon: 36.90, tags: {} },
+      ],
+      inputSrid: 4326,
+    };
+    const validation = osmChangesetExporter.validate(input, {
+      countryCode: "KE",
+      projectMetadata: baseMetadata,
+      projectToWgs84: async () => ({ lat: 0, lon: 0 }),
+    });
+    expect(validation.ok).toBe(true);
+    expect(validation.warnings.filter((w) => w.includes("WGS84"))).toHaveLength(0);
+  });
+
+  it("surfaces warning when callback throws for a projected node", async () => {
+    const input: OsmInput = {
+      nodes: [
+        {
+          id: -1,
+          projectedCoords: { easting: 257100.0, northing: 9857700.0, srid: 21037 },
+          tags: {},
+        },
+      ],
+      inputSrid: 21037,
+    };
+    const result = await osmChangesetExporter.export(input, {
+      countryCode: "KE",
+      projectMetadata: baseMetadata,
+      projectToWgs84: async () => {
+        throw new Error("sidecar IPC error");
+      },
+    });
+
+    expect(result.warnings.some((w) => w.includes("projection-inverse failed"))).toBe(true);
+    // Node was skipped (not in output)
+    expect(result.nodeCount).toBe(0);
+  });
+
+  it("accepts mixed input: some WGS84, some projected", async () => {
+    const input: OsmInput = {
+      nodes: [
+        { id: -1, lat: -1.22, lon: 36.90, tags: { name: "WGS84 node" } },
+        {
+          id: -2,
+          projectedCoords: { easting: 257200.0, northing: 9857800.0, srid: 21037 },
+          tags: { name: "projected node" },
+        },
+      ],
+      inputSrid: 21037,
+    };
+    const result = await osmChangesetExporter.export(input, {
+      countryCode: "KE",
+      projectMetadata: baseMetadata,
+      projectToWgs84: async () => ({ lat: -1.23, lon: 36.91 }),
+    });
+
+    expect(result.nodeCount).toBe(2);
+    const xml = decodeXml(result.bytes);
+    // Both nodes present with WGS84 coords
+    expect(xml).toContain('lat="-1.2200000"');
+    expect(xml).toContain('lat="-1.2300000"');
+  });
+});
