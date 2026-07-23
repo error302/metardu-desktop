@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6" generator="metardu-desktop OSM exporter v1.0.0">
+<!--
+  OSM changeset export from metardu-desktop.
+  Open this file in JOSM (https://josm.openstreetmap.de/) to review
+  and upload to OSM via the standard OSM API 0.6 changeset flow.
+
+  Changeset tags (JOSM will prompt for these on upload):
+  # created_by=metardu-desktop OSM exporter v1.0.0
+  # comment=Adding surveyed parcel boundary in Kasarani, Nairobi
+  # source=metardu-desktop
+  # source:surveyor=Jane Wanjiru
+  # source:license_number=LS/1234
+  # source:survey_date=2026-07-23
+  # source:adjustment_run_id=golden-osm-ke-001
+  # imagery_used=Bing
+
+  Project: Golden Fixture — Kenya Cadastral OSM
+  Surveyor: Jane Wanjiru (LS/1234)
+  Survey date: 2026-07-23
+  Adjustment run: golden-osm-ke-001
+  Generated: 2026-07-23T00:49:06.839Z
+  Generator: metardu-desktop OSM exporter v1.0.0
+-->
+  <node id="-1" lat="-1.2200000" lon="36.9000000" version="0" timestamp="2026-07-23T00:49:06.839Z">
+    <tag k="man_made" v="survey_point"/>
+    <tag k="name" v="B1"/>
+    <tag k="survey:accuracy" v="0.0120"/>
+    <tag k="survey:confidence" v="0.95"/>
+    <tag k="source" v="metardu-desktop"/>
+    <tag k="source:surveyor" v="Jane Wanjiru"/>
+    <tag k="source:license_number" v="LS/1234"/>
+    <tag k="source:survey_date" v="2026-07-23"/>
+    <tag k="survey:adjustment_run_id" v="golden-osm-ke-001"/>
+  </node>
+  <node id="-2" lat="-1.2200000" lon="36.9005000" version="0" timestamp="2026-07-23T00:49:06.839Z">
+    <tag k="man_made" v="survey_point"/>
+    <tag k="name" v="B2"/>
+    <tag k="survey:accuracy" v="0.0120"/>
+    <tag k="survey:confidence" v="0.95"/>
+    <tag k="source" v="metardu-desktop"/>
+    <tag k="source:surveyor" v="Jane Wanjiru"/>
+    <tag k="source:license_number" v="LS/1234"/>
+    <tag k="source:survey_date" v="2026-07-23"/>
+    <tag k="survey:adjustment_run_id" v="golden-osm-ke-001"/>
+  </node>
+  <node id="-3" lat="-1.2205000" lon="36.9005000" version="0" timestamp="2026-07-23T00:49:06.839Z">
+    <tag k="man_made" v="survey_point"/>
+    <tag k="name" v="B3"/>
+    <tag k="survey:accuracy" v="0.0150"/>
+    <tag k="survey:confidence" v="0.95"/>
+    <tag k="source" v="metardu-desktop"/>
+    <tag k="source:surveyor" v="Jane Wanjiru"/>
+    <tag k="source:license_number" v="LS/1234"/>
+    <tag k="source:survey_date" v="2026-07-23"/>
+    <tag k="survey:adjustment_run_id" v="golden-osm-ke-001"/>
+  </node>
+  <node id="-4" lat="-1.2205000" lon="36.9000000" version="0" timestamp="2026-07-23T00:49:06.839Z">
+    <tag k="man_made" v="survey_point"/>
+    <tag k="name" v="B4"/>
+    <tag k="survey:accuracy" v="0.0150"/>
+    <tag k="survey:confidence" v="0.95"/>
+    <tag k="source" v="metardu-desktop"/>
+    <tag k="source:surveyor" v="Jane Wanjiru"/>
+    <tag k="source:license_number" v="LS/1234"/>
+    <tag k="source:survey_date" v="2026-07-23"/>
+    <tag k="survey:adjustment_run_id" v="golden-osm-ke-001"/>
+  </node>
+  <way id="-101" version="0" timestamp="2026-07-23T00:49:06.839Z">
+    <nd ref="-1"/>
+    <nd ref="-2"/>
+    <nd ref="-3"/>
+    <nd ref="-4"/>
+    <nd ref="-1"/>
+    <tag k="boundary" v="administrative"/>
+    <tag k="admin_level" v="8"/>
+    <tag k="name" v="S/12345"/>
+    <tag k="area" v="yes"/>
+    <tag k="source" v="metardu-desktop"/>
+    <tag k="source:surveyor" v="Jane Wanjiru"/>
+    <tag k="source:license_number" v="LS/1234"/>
+    <tag k="source:survey_date" v="2026-07-23"/>
+    <tag k="survey:adjustment_run_id" v="golden-osm-ke-001"/>
+  </way>
+</osm>

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6" generator="metardu-desktop OSM exporter v1.0.0">
+<!--
+  OSM changeset export from metardu-desktop.
+  Open this file in JOSM (https://josm.openstreetmap.de/) to review
+  and upload to OSM via the standard OSM API 0.6 changeset flow.
+
+  Changeset tags (JOSM will prompt for these on upload):
+  # created_by=metardu-desktop OSM exporter v1.0.0
+  # comment=Adding surveyed building footprints from topo survey
+  # source=metardu-desktop
+  # source:surveyor=Jane Wanjiru
+  # source:license_number=LS/1234
+  # source:survey_date=2026-07-23
+  # source:adjustment_run_id=golden-osm-topo-ke-001
+
+  Project: Golden Fixture — Kenya Topographic OSM
+  Surveyor: Jane Wanjiru (LS/1234)
+  Survey date: 2026-07-23
+  Adjustment run: golden-osm-topo-ke-001
+  Generated: 2026-07-23T00:49:06.841Z
+  Generator: metardu-desktop OSM exporter v1.0.0
+-->
+  <node id="-10" lat="-1.2300000" lon="36.9100000" version="0" timestamp="2026-07-23T00:49:06.841Z">
+    <tag k="building" v="yes"/>
+    <tag k="name" v="Building A"/>
+    <tag k="source" v="metardu-desktop"/>
+    <tag k="source:surveyor" v="Jane Wanjiru"/>
+    <tag k="source:license_number" v="LS/1234"/>
+    <tag k="source:survey_date" v="2026-07-23"/>
+    <tag k="survey:adjustment_run_id" v="golden-osm-topo-ke-001"/>
+  </node>
+  <node id="-11" lat="-1.2300000" lon="36.9100500" version="0" timestamp="2026-07-23T00:49:06.841Z">
+    <tag k="building" v="yes"/>
+    <tag k="source" v="metardu-desktop"/>
+    <tag k="source:surveyor" v="Jane Wanjiru"/>
+    <tag k="source:license_number" v="LS/1234"/>
+    <tag k="source:survey_date" v="2026-07-23"/>
+    <tag k="survey:adjustment_run_id" v="golden-osm-topo-ke-001"/>
+  </node>
+  <node id="-12" lat="-1.2300500" lon="36.9100500" version="0" timestamp="2026-07-23T00:49:06.841Z">
+    <tag k="building" v="yes"/>
+    <tag k="source" v="metardu-desktop"/>
+    <tag k="source:surveyor" v="Jane Wanjiru"/>
+    <tag k="source:license_number" v="LS/1234"/>
+    <tag k="source:survey_date" v="2026-07-23"/>
+    <tag k="survey:adjustment_run_id" v="golden-osm-topo-ke-001"/>
+  </node>
+  <node id="-13" lat="-1.2300500" lon="36.9100000" version="0" timestamp="2026-07-23T00:49:06.841Z">
+    <tag k="building" v="yes"/>
+    <tag k="source" v="metardu-desktop"/>
+    <tag k="source:surveyor" v="Jane Wanjiru"/>
+    <tag k="source:license_number" v="LS/1234"/>
+    <tag k="source:survey_date" v="2026-07-23"/>
+    <tag k="survey:adjustment_run_id" v="golden-osm-topo-ke-001"/>
+  </node>
+  <way id="-201" version="0" timestamp="2026-07-23T00:49:06.841Z">
+    <nd ref="-10"/>
+    <nd ref="-11"/>
+    <nd ref="-12"/>
+    <nd ref="-13"/>
+    <nd ref="-10"/>
+    <tag k="building" v="yes"/>
+    <tag k="area" v="yes"/>
+    <tag k="name" v="Building A"/>
+    <tag k="source" v="metardu-desktop"/>
+    <tag k="source:surveyor" v="Jane Wanjiru"/>
+    <tag k="source:license_number" v="LS/1234"/>
+    <tag k="source:survey_date" v="2026-07-23"/>
+    <tag k="survey:adjustment_run_id" v="golden-osm-topo-ke-001"/>
+  </way>
+</osm>

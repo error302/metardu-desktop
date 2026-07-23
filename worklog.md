@@ -1574,3 +1574,95 @@ Stage Summary:
   * Setting-out, sectional, drone-processing, lidar, corridor, surface-comparison, utility-mapping workflows — each needs the same pointUncertainty field added per Brief 02 pattern, then all 5 exporters auto-handle them once detectSurveyType is extended.
   * Sidecar lat/lon conversion for the Pix4D lat/lon columns (currently blank).
   * Windows cross-compile smoke test — still queued from prior session.
+
+---
+Task ID: 8
+Agent: main (session 9 — Brief 07: OSM changeset XML exporter)
+Task: Build the OSM changeset XML exporter for surveyed basemap features. Last ADR-0005 deliverable that wasn't yet built. Sixth concrete exporter in the Integration & Export family.
+
+Work Log:
+- Re-cloned repo (workdir got wiped between sessions). Confirmed commit f3893fb (Brief 05) was on top of main.
+- Brief 07 design: OSM API 0.6 XML for surveyed features the surveyor wants to contribute back to OSM. Standalone <osm> document (not <osmChange>) — surveyor opens in JOSM, reviews, uploads via standard OSM API 0.6 changeset flow. We don't open a changeset ourselves (requires authentication, out of scope for desktop exporter).
+- WGS84 boundary (invariant A1): OSM uses EPSG:4326 exclusively. metardu-desktop's surveys are in projected CRS (UTM 37S for Kenya, OSGB36 for UK). Per ADR-0005 invariant A1 ("Sidecar owns the math. Integration modules do NOT recompute coordinates"), this exporter REQUIRES the surveyor to pass WGS84 coordinates in OsmInput. Emits a clear warning when country-config's primary SRID is not 4326 AND input doesn't explicitly declare WGS84 via inputSrid=4326. Sidecar projection-inverse wiring is documented as a future task brief — keeps Brief 07 scoped to "emit OSM XML" without coupling to the sidecar.
+- Built packages/engine/src/integration/osm-changeset-export.ts (~480 lines). Implements IntegrationExporter<OsmInput, OsmOptions, OsmOutput>.
+  * OsmInput type: nodes (OsmNode[]) + optional ways (OsmWay[]) + optional inputSrid (for WGS84 verification).
+  * OsmNode: id (negative per OSM convention for new objects), lat, lon, tags. OsmWay: id, nodeRefs (references to node IDs), tags.
+  * XML generation: standalone <osm version="0.6" generator="metardu-desktop OSM exporter v1.0.0"> document with <node> and <way> elements. XML declaration, comment header with changeset tags (created_by, comment, source, source:surveyor, source:license_number, source:survey_date, source:adjustment_run_id, imagery_used) for JOSM's upload dialog.
+  * Source attribution tags auto-added to EVERY node + way per OSM community norms (every contributor must be traceable): source=metardu-desktop, source:surveyor, source:license_number, source:survey_date, survey:adjustment_run_id. Source tags win on conflict (surveyor can't accidentally strip attribution).
+  * OSM tag conventions: documented in module header — man_made=survey_point for surveyed beacons, boundary=administrative + admin_level=8 for cadastral parcels, building=yes for topo building footprints, highway=road for roads. Surveyor provides these tags via OsmNode.tags/OsmWay.tags.
+  * XML escape: &, <, >, ", ' per XML spec.
+  * Coordinate formatting: 7 decimal places (~11mm precision at equator, well below RTK noise floor).
+  * Validation: country code, project metadata, duplicate node IDs, way nodeRefs reference existing nodes, lat/lon range (-90..90 / -180..180), non-finite coordinates, way with <2 nodeRefs, non-negative ID warning (OSM convention is negative for new objects).
+- One implementation issue caught during fixture generation: unused import `PointUncertainty` (lint warning). Cleaned up. Also caught that buildSourceTags() wasn't being passed the adjustmentRunId parameter from the export() method — fixed so every emitted feature carries the survey:adjustment_run_id tag per invariant C1 traceability.
+- 21 new tests in osm-changeset-export.test.ts: format metadata, happy path (nodes + ways + tags), WGS84 projection warning, no warning when inputSrid=4326, source attribution on every node + way, custom changeset tags, missing project metadata, unknown country code, duplicate node IDs, way references non-existent node, invalid lat/lon range, INTEGRATION_EXPORTERS registry, negative ID warning, empty nodes list, XML escape in tag values, round-trip XML parse, way with <2 nodeRefs, non-finite coordinates. Plus 3 fixture-loading tests.
+- 2 golden fixtures generated: kenya-cadastral.osm (4 nodes + 1 way, 3.5KB, parcel boundary as closed way with man_made=survey_point beacons + boundary=administrative + admin_level=8) and kenya-topographic.osm (4 nodes + 1 way, 3.0KB, building footprint as closed way with building=yes + area=yes). Both fixtures validated as well-formed XML via Python's xml.etree.ElementTree.
+
+Verification — verbatim terminal output:
+
+=== cargo build --release (last 3 lines) ===
+warning: `metardu-sidecar` (bin "metardu-sidecar") generated 39 warnings (run `cargo fix --bin "metardu-sidecar" -p metardu-sidecar` to apply 20 suggestions)
+    Finished `release` profile [optimized] target(s) in 39.06s
+(exit 0 — sidecar unchanged, regression gate)
+
+=== cargo test --release (last 3 lines) ===
+test result: ok. 91 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+(exit 0)
+
+=== tsc --noEmit in packages/engine (filtered to my files: integration, osm) ===
+(no output — zero errors in my new/modified files)
+(exit 0)
+
+=== tsc --noEmit in apps/desktop (full output) ===
+apps/desktop/src/main/index.ts(29,31): error TS2307: Cannot find module '@metardu/electron-integration' or its corresponding type declarations.
+apps/desktop/src/tests/ipc-roundtrip.test.ts(26,50): error TS2307: Cannot find module '@metardu/electron-integration' or its corresponding type declarations.
+(2 pre-existing errors — same workspace resolution noise present before this task; my changes added zero new errors)
+
+=== npm test in packages/engine (last 8 lines) ===
+ ✓ src/workflows/tests/cadastral.test.ts (9 tests) 92ms
+ ✓ src/import/tests/instrument-import.test.ts (20 tests) 10ms
+
+ Test Files  28 passed (28)
+      Tests  611 passed (611)
+   Start at  00:49:36
+   Duration  8.98s
+(exit 0 — 611/611 tests pass; was 590 + 21 new tests)
+
+=== python3 -c "import xml.etree.ElementTree as ET; ET.parse('kenya-cadastral.osm'); ET.parse('kenya-topographic.osm')" ===
+Both fixtures: WELL-FORMED XML
+
+Files created:
+- packages/engine/src/integration/osm-changeset-export.ts (482 lines)
+- packages/engine/src/integration/tests/osm-changeset-export.test.ts (647 lines, 21 tests)
+- packages/engine/src/integration/tests/fixtures/kenya-cadastral.osm (3.5KB XML, 4 nodes + 1 way)
+- packages/engine/src/integration/tests/fixtures/kenya-topographic.osm (3.0KB XML, 4 nodes + 1 way)
+
+Files modified:
+- packages/engine/src/integration/index.ts — added osmChangesetExporter to INTEGRATION_EXPORTERS (now [geoJsonExporter, geoPackageExporter, pyQgisScriptExporter, gcpExporter, qgsProjectExporter, osmChangesetExporter]).
+- packages/engine/src/index.ts — added OsmInput, OsmNode, OsmOptions, OsmOutput, OsmWay to the public API exports.
+- metardu-v2/docs/decisions/0005-integration-export-workflow-family.md — Verification checklist updated with Brief 07 entry.
+
+Stage Summary:
+- 611/611 engine tests pass (was 590 + 21 new). 91/91 sidecar tests pass (unchanged). Sidecar build clean. Zero tsc errors in my code.
+- Brief 07 complete. SIX integration exporters now ship:
+  1. GeoJSON (text, single FeatureCollection) — Briefs 01 + 02
+  2. GeoPackage (binary, multi-layer) — Brief 03
+  3. PyQGIS loader script (Python text, references .gpkg) — Brief 04
+  4. GCP file (CSV, Pix4D/Metashape/Agisoft format) — Brief 06
+  5. QGIS project file (.qgs XML, references .gpkg) — Brief 05
+  6. OSM changeset XML (.osm, open in JOSM) — Brief 07
+- ADR-0005 deliverables status:
+  * #1 GeoJSON — DONE (Briefs 01 + 02)
+  * #2 GeoPackage — DONE (Brief 03)
+  * #3 PyQGIS script generator — DONE (Brief 04)
+  * #4 QGIS project file (.qgs) — DONE (Brief 05)
+  * #5 GCP file export — DONE (Brief 06)
+  * #6 OSM changeset XML — DONE (Brief 07)
+  * #7 DXF extension (existing dxf-output.ts extended) — PENDING (last remaining deliverable)
+- ADR-0005 is 6/7 deliverables complete. The remaining #7 (DXF extension) is the only unbuilt piece — extend the existing packages/engine/src/documents/dxf-output.ts with country-correct layer naming per the ADR's deliverable spec.
+- Honest WGS84 boundary: this is the first exporter that surfaces the projected→WGS84 conversion gap explicitly (invariant A1: integration modules don't recompute coordinates). The warning is the architecturally correct behavior — when a future task brief wires the sidecar's projection-inverse through IPC, this exporter can call it automatically.
+- Source attribution is non-negotiable: every node + way carries source=metardu-desktop + surveyor + license + survey date + adjustment run ID, so the OSM community can trace every contribution back to its source. Source tags win on conflict (surveyor can't accidentally strip attribution).
+- What's next:
+  * DXF extension (Brief 08 or similar) — last ADR-0005 deliverable. Extend existing dxf-output.ts with country-correct layer naming.
+  * Sidecar lat/lon conversion for the Pix4D lat/lon columns (currently blank) + OSM exporter's automatic projected→WGS84 conversion (currently requires manual pre-conversion).
+  * Setting-out, sectional, drone-processing, lidar, corridor, surface-comparison, utility-mapping workflows — each needs the same pointUncertainty field added per Brief 02 pattern, then all 6 exporters auto-handle them once detectSurveyType is extended.
+  * Windows cross-compile smoke test — still queued from prior session.

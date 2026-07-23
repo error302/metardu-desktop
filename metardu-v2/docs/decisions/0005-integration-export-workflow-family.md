@@ -357,6 +357,21 @@ the export menu iterates over the registered exporters.
   in `<projectMetadata>` per QGIS 3.34 schema. 16 new tests + 2 golden fixtures
   (kenya-cadastral.qgs, kenya-topographic.qgs). Both fixtures pass XML
   well-formedness checks (root tag balance, single root element).
+- [x] **Brief 07** — OSM changeset XML exporter (`osm-changeset-export.ts`)
+  shipped. Emits OSM API 0.6 XML for surveyed basemap features the surveyor
+  wants to contribute back to OSM. Standalone `<osm>` document with `<node>` +
+  `<way>` elements — surveyor opens in JOSM, reviews, uploads via standard OSM
+  API 0.6 changeset flow. Source attribution tags auto-added to every node +
+  way (`source=metardu-desktop`, `source:surveyor`, `source:license_number`,
+  `source:survey_date`, `survey:adjustment_run_id`) per OSM community norms —
+  every contributor must be traceable. **WGS84 boundary**: OSM uses EPSG:4326
+  exclusively; this exporter REQUIRES the surveyor to pass WGS84 coordinates in
+  `OsmInput` (per invariant A1, integration modules don't recompute coordinates).
+  Emits a clear warning when the country-config's primary SRID is not 4326 and
+  the input doesn't explicitly declare WGS84. Sidecar projection-inverse wiring
+  is a future task brief. 21 new tests + 2 golden fixtures
+  (kenya-cadastral.osm, kenya-topographic.osm). Both fixtures validated as
+  well-formed XML via Python's `xml.etree.ElementTree`.
 - [x] Prerequisite: `CadastralWorkflowOutput` extended with an `uncertainty`
   field carrying per-beacon error ellipses (semi-major, semi-minor,
   orientation, confidence level) — sourced from the existing normal matrix's

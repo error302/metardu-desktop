@@ -57,27 +57,37 @@ export {
   type QgsOutput,
 } from "./qgs-project-generator.js";
 
+export {
+  osmChangesetExporter,
+  type OsmInput,
+  type OsmNode,
+  type OsmOptions,
+  type OsmOutput,
+  type OsmWay,
+} from "./osm-changeset-export.js";
+
 /**
  * Registry of all currently-registered integration exporters.
  *
  * Heterogeneous — each exporter may consume a different input type
  * (SurveyOutput for GeoJSON/GeoPackage/PyQGIS/QGS, GcpInput for the
- * GCP exporter). The export menu UI dispatches based on the `format`
- * field. `IntegrationExporter<any, any, any>` is the registry's
- * element type — type safety is preserved at each exporter's own
- * declaration site.
+ * GCP exporter, OsmInput for the OSM changeset exporter). The export
+ * menu UI dispatches based on the `format` field.
+ * `IntegrationExporter<any, any, any>` is the registry's element type —
+ * type safety is preserved at each exporter's own declaration site.
  */
 import { geoJsonExporter } from "./geojson-export.js";
 import { geoPackageExporter } from "./geopackage-export.js";
 import { pyQgisScriptExporter } from "./pyqgis-script-generator.js";
 import { gcpExporter } from "./gcp-export.js";
 import { qgsProjectExporter } from "./qgs-project-generator.js";
+import { osmChangesetExporter } from "./osm-changeset-export.js";
 import type { IntegrationExporter } from "./types.js";
 
 // Use `any` for the registry element type so heterogeneous exporters
-// (SurveyOutput consumers + GcpInput consumer) can coexist. Type safety
-// is preserved at each exporter's own declaration site, not at the
-// registry level.
+// (SurveyOutput consumers + GcpInput consumer + OsmInput consumer) can
+// coexist. Type safety is preserved at each exporter's own declaration
+// site, not at the registry level.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const INTEGRATION_EXPORTERS: ReadonlyArray<IntegrationExporter<any, any, any>> = [
   geoJsonExporter,
@@ -85,4 +95,5 @@ export const INTEGRATION_EXPORTERS: ReadonlyArray<IntegrationExporter<any, any, 
   pyQgisScriptExporter,
   gcpExporter,
   qgsProjectExporter,
+  osmChangesetExporter,
 ];
