@@ -337,6 +337,87 @@ vlayer.setRenderer(QgsSingleSymbolRenderer(sym))`,
     ];
   }
 
+  if (surveyType === "setting-out") {
+    return [
+      {
+        tableName: "design_points",
+        displayName: "Design Points (Setting-Out)",
+        geometryType: "Point",
+        symbology: `sym = ${MK_MARK}
+sym.setSizeUnit(QgsUnitTypes.RenderMillimeters)
+sym.setSize(2.5)
+sym.setColor(QColor(255, 165, 0))
+vlayer.setRenderer(QgsSingleSymbolRenderer(sym))`,
+        labeling: `labels = QgsPalLayerSettings()
+labels.fieldName = '"DP: " || "design_point_id"'
+labels.enabled = True
+vlayer.setLabeling(QgsVectorLayerSimpleLabeling(labels))`,
+      },
+    ];
+  }
+  if (surveyType === "corridor") {
+    return [
+      {
+        tableName: "corridor_points",
+        displayName: "Corridor Points",
+        geometryType: "Point",
+        symbology: `sym = ${MK_MARK}
+sym.setSizeUnit(QgsUnitTypes.RenderMillimeters)
+sym.setSize(1.5)
+sym.setColor(QColor(0, 128, 128))
+vlayer.setRenderer(QgsSingleSymbolRenderer(sym))`,
+        labeling: `labels = QgsPalLayerSettings()
+labels.fieldName = 'label'
+labels.enabled = True
+vlayer.setLabeling(QgsVectorLayerSimpleLabeling(labels))`,
+      },
+    ];
+  }
+  if (surveyType === "lidar") {
+    return [
+      {
+        tableName: "lidar_points",
+        displayName: "LiDAR Points",
+        geometryType: "Point",
+        symbology: `sym = ${MK_MARK}
+sym.setSizeUnit(QgsUnitTypes.RenderMillimeters)
+sym.setSize(0.5)
+sym.setColor(QColor(100, 100, 100))
+vlayer.setRenderer(QgsSingleSymbolRenderer(sym))`,
+        labeling: ``,
+      },
+    ];
+  }
+  if (surveyType === "utility-mapping") {
+    return [
+      {
+        tableName: "utility_detections",
+        displayName: "Utility Detections",
+        geometryType: "Point",
+        symbology: `sym = ${MK_MARK}
+sym.setSizeUnit(QgsUnitTypes.RenderMillimeters)
+sym.setSize(2.0)
+sym.setColor(QColor(255, 0, 0))
+vlayer.setRenderer(QgsSingleSymbolRenderer(sym))`,
+        labeling: `labels = QgsPalLayerSettings()
+labels.fieldName = '"type: " || "utility_type" || " depth: " || to_string("depth") || "m"'
+labels.enabled = True
+vlayer.setLabeling(QgsVectorLayerSimpleLabeling(labels))`,
+      },
+      {
+        tableName: "utility_runs",
+        displayName: "Utility Runs",
+        geometryType: "LineString",
+        symbology: `sym = ${MK_LINE}
+sym.setColor(QColor(255, 0, 0))
+sym.setWidth(0.5)
+vlayer.setRenderer(QgsSingleSymbolRenderer(sym))`,
+        labeling: ``,
+      },
+    ];
+  }
+  // Metadata-only types (sectional, drone-processing, surface-comparison):
+  // no spatial layers to load — script prints summary.
   return [];
 }
 
@@ -644,13 +725,6 @@ export const pyQgisScriptExporter: IntegrationExporter<
 
     const warnings: string[] = [...validation.warnings];
     const surveyType = detectSurveyType(input);
-    if (!["cadastral", "topographic", "engineering"].includes(surveyType)) {
-      throw new Error(
-        `The ${this.format} exporter does not yet support survey type '${surveyType}'. ` +
-          `Supported: cadastral, topographic, engineering. Use the GeoJSON exporter ` +
-          `for ${surveyType} — it handles all 10 survey types.`
-      );
-    }
 
     const config = getCountryConfig(options.countryCode as CountryCode);
     const srid = config.geodeticFramework.primarySRID;

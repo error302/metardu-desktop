@@ -345,6 +345,32 @@ function getQgsLayerSpecs(
     ];
   }
 
+  if (surveyType === "setting-out") {
+    return [
+      { tableName: "design_points", displayName: "Design Points (Setting-Out)", geometryType: "Point",
+        rendererXml: pointRenderer("255,165,0,255", 2.5), labelingXml: fieldLabeling("design_point_id") },
+    ];
+  }
+  if (surveyType === "corridor") {
+    return [
+      { tableName: "corridor_points", displayName: "Corridor Points", geometryType: "Point",
+        rendererXml: pointRenderer("0,128,128,255", 1.5), labelingXml: fieldLabeling("label") },
+    ];
+  }
+  if (surveyType === "lidar") {
+    return [
+      { tableName: "lidar_points", displayName: "LiDAR Points", geometryType: "Point",
+        rendererXml: pointRenderer("100,100,100,255", 0.5), labelingXml: "" },
+    ];
+  }
+  if (surveyType === "utility-mapping") {
+    return [
+      { tableName: "utility_detections", displayName: "Utility Detections", geometryType: "Point",
+        rendererXml: pointRenderer("255,0,0,255", 2.0), labelingXml: fieldLabeling("utility_type") },
+      { tableName: "utility_runs", displayName: "Utility Runs", geometryType: "LineString",
+        rendererXml: lineRenderer("255,0,0,255", 0.5), labelingXml: "" },
+    ];
+  }
   return [];
 }
 
@@ -641,13 +667,6 @@ export const qgsProjectExporter: IntegrationExporter<
 
     const warnings: string[] = [...validation.warnings];
     const surveyType = detectSurveyType(input);
-    if (!["cadastral", "topographic", "engineering"].includes(surveyType)) {
-      throw new Error(
-        `The ${this.format} exporter does not yet support survey type '${surveyType}'. ` +
-          `Supported: cadastral, topographic, engineering. Use the GeoJSON exporter ` +
-          `for ${surveyType} — it handles all 10 survey types.`
-      );
-    }
 
     const config = getCountryConfig(options.countryCode as CountryCode);
     const srid = config.geodeticFramework.primarySRID;

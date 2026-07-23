@@ -76,6 +76,13 @@ import { getCountryConfig, type CountryCode } from "@metardu/country-config";
 import type { CadastralWorkflowOutput } from "../workflows/cadastral.js";
 import type { TopoWorkflowOutput } from "../workflows/topographic.js";
 import type { EngineeringWorkflowOutput } from "../workflows/engineering.js";
+import type { SectionalWorkflowOutput } from "../workflows/sectional.js";
+import type { SettingOutWorkflowOutput } from "../workflows/setting-out.js";
+import type { CorridorResult } from "../workflows/corridor-design.js";
+import type { ProcessingResult } from "../workflows/drone-processing.js";
+import type { ClassificationResult } from "../workflows/lidar-classification.js";
+import type { SurfaceComparisonResult } from "../workflows/surface-comparison.js";
+import type { UtilitySurveyPlan } from "../workflows/utility-mapping.js";
 import type { PointUncertainty } from "../survey-types.js";
 import type {
   IntegrationExporter,
@@ -778,6 +785,147 @@ function embedProjectMetadata(
   ).run("geopackage", null, result.lastInsertRowid);
 }
 
+// ─── New-type layer writers (setting-out, corridor, lidar, utility) ──
+
+function writeSettingOutLayers(
+  db: Database.Database,
+  output: SettingOutWorkflowOutput,
+  srid: number,
+  _warnings: string[],
+): string[] {
+  createFeatureLayer(db, "design_points", "POINT", srid, [
+    { name: "design_point_id", type: "TEXT" },
+    { name: "method", type: "TEXT" },
+    { name: "bearing_deg", type: "REAL" },
+    { name: "distance_m", type: "REAL" },
+  ]);
+  const coords: [number, number][] = [];
+  for (const inst of output.instructions) {
+    const unc = uncertaintyToColumns(output.pointUncertainty?.[inst.designPointId]);
+    const wkb = encodePointWKB(inst.designEasting, inst.designNorthing);
+    const geom = wrapGeoPackageBinary(wkb, srid);
+    insertFeature(db, "design_points", geom, {
+      feature_type: "design-point", survey_type: "setting-out",
+      label: inst.designPointId, ...unc,
+      design_point_id: inst.designPointId, method: inst.method,
+      bearing_deg: inst.bearingDeg, distance_m: inst.distanceM,
+    }, ["design_point_id", "method", "bearing_deg", "distance_m"]);
+    coords.push([inst.designEasting, inst.designNorthing]);
+  }
+  updateLayerBounds(db, "design_points", coords);
+  return ["design_points"];
+}
+
+function writeCorridorLayers(
+  db: Database.Database,
+  output: CorridorResult,
+  srid: number,
+  _warnings: string[],
+): string[] {
+  createFeatureLayer(db, "corridor_points", "POINT", srid, [
+    { name: "label", type: "TEXT" },
+    { name: "chainage", type: "REAL" },
+    { name: "offset", type: "REAL" },
+    { name: "elevation", type: "REAL" },
+  ]);
+  const coords: [number, number][] = [];
+  for (const cs of output.crossSections) {
+    for (const pt of cs.points) {
+      const wkb = encodePointWKB(pt.easting, pt.northing);
+      const geom = wrapGeoPackageBinary(wkb, srid);
+      insertFeature(db, "corridor_points", geom, {
+        feature_type: "corridor-point", survey_type: "corridor",
+        label: pt.label, adjusted: 0, semi_major: null, semi_minor: null,
+        orientation: null, confidence: null, uncertainty_reason: "field-data",
+        chainage: cs.chainage, offset: pt.offset, elevation: pt.elevation,
+      }, ["label", "chainage", "offset", "elevation"]);
+      coords.push([pt.easting, pt.northing]);
+    }
+  }
+  updateLayerBounds(db, "corridor_points", coords);
+  return ["corridor_points"];
+}
+
+function writeLidarLayers(
+  db: Database.Database,
+  output: ClassificationResult,
+  srid: number,
+  _warnings: string[],
+): string[] {
+  createFeatureLayer(db, "lidar_points", "POINT", srid, [
+    { name: "elevation", type: "REAL" },
+    { name: "classification", type: "TEXT" },
+    { name: "intensity", type: "INTEGER" },
+  ]);
+  const coords: [number, number][] = [];
+  for (let i = 0; i < output.points.length; i++) {
+    const pt = output.points[i]!;
+    const wkb = encodePointWKB(pt.easting, pt.northing);
+    const geom = wrapGeoPackageBinary(wkb, srid);
+    insertFeature(db, "lidar_points", geom, {
+      feature_type: "lidar-point", survey_type: "lidar",
+      label: `lidar-${i}`, adjusted: 0, semi_major: null, semi_minor: null,
+      orientation: null, confidence: null, uncertainty_reason: "field-data",
+      elevation: pt.elevation, classification: pt.classification ?? null,
+      intensity: pt.intensity ?? null,
+    }, ["elevation", "classification", "intensity"]);
+    coords.push([pt.easting, pt.northing]);
+  }
+  updateLayerBounds(db, "lidar_points", coords);
+  return ["lidar_points"];
+}
+
+function writeUtilityLayers(
+  db: Database.Database,
+  output: UtilitySurveyPlan,
+  srid: number,
+  _warnings: string[],
+): string[] {
+  // Detections layer (Point)
+  createFeatureLayer(db, "utility_detections", "POINT", srid, [
+    { name: "depth", type: "REAL" },
+    { name: "utility_type", type: "TEXT" },
+    { name: "signal_strength", type: "INTEGER" },
+    { name: "confidence", type: "REAL" },
+  ]);
+  const coords: [number, number][] = [];
+  for (let i = 0; i < output.detections.length; i++) {
+    const det = output.detections[i]!;
+    const wkb = encodePointWKB(det.easting, det.northing);
+    const geom = wrapGeoPackageBinary(wkb, srid);
+    insertFeature(db, "utility_detections", geom, {
+      feature_type: "utility-detection", survey_type: "utility-mapping",
+      label: `det-${i}`, adjusted: 0, semi_major: null, semi_minor: null,
+      orientation: null, confidence: null, uncertainty_reason: "field-data",
+      depth: det.depth, utility_type: det.utilityType,
+      signal_strength: det.signalStrength, detection_confidence: det.confidence,
+    }, ["depth", "utility_type", "signal_strength", "detection_confidence"]);
+    coords.push([det.easting, det.northing]);
+  }
+  updateLayerBounds(db, "utility_detections", coords);
+
+  // Runs layer (LineString)
+  createFeatureLayer(db, "utility_runs", "LINESTRING", srid, [
+    { name: "utility_type", type: "TEXT" },
+    { name: "total_length", type: "REAL" },
+    { name: "avg_depth", type: "REAL" },
+  ]);
+  for (let i = 0; i < output.runs.length; i++) {
+    const run = output.runs[i]!;
+    if (run.points.length < 2) continue;
+    const runCoords: [number, number][] = run.points.map((p) => [p.easting, p.northing]);
+    const wkb = encodeLineStringWKB(runCoords);
+    const geom = wrapGeoPackageBinary(wkb, srid);
+    insertFeature(db, "utility_runs", geom, {
+      feature_type: "utility-run", survey_type: "utility-mapping",
+      label: `run-${i}`, adjusted: 0, semi_major: null, semi_minor: null,
+      orientation: null, confidence: null, uncertainty_reason: "field-data",
+      utility_type: run.type, total_length: run.totalLength, avg_depth: run.avgDepth,
+    }, ["utility_type", "total_length", "avg_depth"]);
+  }
+  return ["utility_detections", "utility_runs"];
+}
+
 // ─── The exporter object ─────────────────────────────────────────
 
 export const geoPackageExporter: IntegrationExporter<
@@ -847,6 +995,8 @@ export const geoPackageExporter: IntegrationExporter<
         errors.push("Input engineering survey output has no sections.");
       }
     }
+    // New types: no additional validation needed — they're metadata-only
+    // or have their own point data that's checked at feature-build time.
 
     return { ok: errors.length === 0, errors, warnings };
   },
@@ -921,6 +1071,89 @@ export const geoPackageExporter: IntegrationExporter<
             maxFillHeight: output.maxFillHeight,
             engineeringToleranceM: output.engineeringToleranceM,
             volumeUncertaintyM3: output.volumeUncertaintyM3,
+          },
+        };
+      } else if (surveyType === "sectional") {
+        const output = input as SectionalWorkflowOutput;
+        // Sectional is area-based — no spatial layers, just metadata.
+        layers = [];
+        extraSummary = {
+          sectional: {
+            levelCount: output.levels.length,
+            totalBuildingArea: output.totalBuildingArea,
+            totalUnitArea: output.totalUnitArea,
+            totalCommonArea: output.totalCommonArea,
+            areaBalanceOk: output.areaBalanceOk,
+          },
+        };
+      } else if (surveyType === "setting-out") {
+        const output = input as SettingOutWorkflowOutput;
+        layers = writeSettingOutLayers(db, output, srid, warnings);
+        extraSummary = {
+          "setting-out": {
+            instructionCount: output.instructions.length,
+            allPass: output.allPass,
+            failCount: output.failCount,
+            horizontalToleranceM: output.horizontalToleranceM,
+            maxHorizontalResidual: output.maxHorizontalResidual,
+          },
+        };
+      } else if (surveyType === "corridor") {
+        const output = input as CorridorResult;
+        layers = writeCorridorLayers(db, output, srid, warnings);
+        extraSummary = {
+          corridor: {
+            crossSectionCount: output.crossSections.length,
+            totalLength: output.totalLength,
+            cutVolume: output.cutVolume,
+            fillVolume: output.fillVolume,
+            netVolume: output.netVolume,
+          },
+        };
+      } else if (surveyType === "drone-processing") {
+        const output = input as ProcessingResult;
+        // Drone processing: file paths + quality, no spatial layers.
+        layers = [];
+        extraSummary = {
+          "drone-processing": {
+            asprsClass: output.quality.asprsClass,
+            processingTimeSec: output.processingTimeSec,
+            contourCount: output.contours.length,
+          },
+        };
+      } else if (surveyType === "lidar") {
+        const output = input as ClassificationResult;
+        layers = writeLidarLayers(db, output, srid, warnings);
+        extraSummary = {
+          lidar: {
+            pointCount: output.points.length,
+            counts: output.counts,
+            processingTimeMs: output.processingTimeMs,
+          },
+        };
+      } else if (surveyType === "surface-comparison") {
+        const output = input as SurfaceComparisonResult;
+        // Surface comparison: volumes only, no spatial layers.
+        layers = [];
+        extraSummary = {
+          "surface-comparison": {
+            cutVolume: output.cutVolume,
+            fillVolume: output.fillVolume,
+            netVolume: output.netVolume,
+            cutArea: output.cutArea,
+            fillArea: output.fillArea,
+            maxCutDepth: output.maxCutDepth,
+            maxFillHeight: output.maxFillHeight,
+          },
+        };
+      } else if (surveyType === "utility-mapping") {
+        const output = input as UtilitySurveyPlan;
+        layers = writeUtilityLayers(db, output, srid, warnings);
+        extraSummary = {
+          "utility-mapping": {
+            detectionCount: output.detections.length,
+            runCount: output.runs.length,
+            crossingCount: output.crossings.length,
           },
         };
       }

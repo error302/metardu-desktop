@@ -82,6 +82,10 @@ import { getCountryConfig, type CountryCode } from "@metardu/country-config";
 import type { CadastralWorkflowOutput } from "../workflows/cadastral.js";
 import type { TopoWorkflowOutput } from "../workflows/topographic.js";
 import type { EngineeringWorkflowOutput } from "../workflows/engineering.js";
+import type { SettingOutWorkflowOutput } from "../workflows/setting-out.js";
+import type { CorridorResult } from "../workflows/corridor-design.js";
+import type { ClassificationResult } from "../workflows/lidar-classification.js";
+import type { UtilitySurveyPlan } from "../workflows/utility-mapping.js";
 import {
   createSurveyDxf,
   addPolygon,
@@ -271,6 +275,18 @@ export function getCountryDxfLayerSpecs(
   // Use Kenya's layer names as a sensible default. The exporter emits
   // a warning that the surveyor should verify against their local CAD
   // layer-naming convention per master plan Section 3.
+  // For the 7 new survey types (sectional, setting-out, corridor, etc.),
+  // Kenya doesn't have dedicated specs — return a minimal set with
+  // COORD-SCHEDULE + BEACON so the DXF is non-empty.
+  if (surveyType === "sectional" || surveyType === "drone-processing" || surveyType === "surface-comparison") {
+    return [{ name: "COORD-SCHEDULE", category: "coord-schedule" }];
+  }
+  if (surveyType === "setting-out" || surveyType === "corridor" || surveyType === "lidar" || surveyType === "utility-mapping") {
+    return [
+      { name: "BEACON", category: "beacon" },
+      { name: "COORD-SCHEDULE", category: "coord-schedule" },
+    ];
+  }
   return getCountryDxfLayerSpecs("KE", surveyType);
 }
 
@@ -533,6 +549,96 @@ function generateEngineeringDxf(
   };
 }
 
+// ─── New-type DXF generators ─────────────────────────────────────
+
+function generateSettingOutDxf(
+  output: SettingOutWorkflowOutput,
+  srid: number,
+  crsUrn: string,
+  options: DxfOptions,
+): { dxf: string; layers: string[] } {
+  const doc = createSurveyDxf();
+  for (const inst of output.instructions) {
+    addBeacon(doc, { x: inst.designEasting, y: inst.designNorthing }, 0.5, inst.designPointId);
+  }
+  if (options.includeCoordinateSchedule !== false) {
+    addText(doc, `SETTING-OUT SURVEY: SRID ${srid} | ${crsUrn}`, { x: 0, y: -5 }, "COORD-SCHEDULE", 2.0);
+    addText(doc, `POINTS: ${output.instructions.length} | ALL PASS: ${output.allPass} | FAILS: ${output.failCount}`, { x: 0, y: -8 }, "COORD-SCHEDULE", 1.5);
+    addText(doc, `HORIZ TOLERANCE: ${output.horizontalToleranceM}m | MAX RESIDUAL: ${output.maxHorizontalResidual.toFixed(3)}m`, { x: 0, y: -11 }, "COORD-SCHEDULE", 1.5);
+  }
+  return { dxf: serializeDxf(doc), layers: ["BEACON", "COORD-SCHEDULE"] };
+}
+
+function generateCorridorDxf(
+  output: CorridorResult,
+  srid: number,
+  crsUrn: string,
+  options: DxfOptions,
+): { dxf: string; layers: string[] } {
+  const doc = createSurveyDxf();
+  for (const cs of output.crossSections) {
+    for (const pt of cs.points) {
+      addBeacon(doc, { x: pt.easting, y: pt.northing }, 0.3, pt.label);
+    }
+  }
+  if (options.includeCoordinateSchedule !== false) {
+    addText(doc, `CORRIDOR DESIGN: SRID ${srid} | ${crsUrn}`, { x: 0, y: -5 }, "COORD-SCHEDULE", 2.0);
+    addText(doc, `CROSS-SECTIONS: ${output.crossSections.length} | LENGTH: ${output.totalLength.toFixed(1)}m`, { x: 0, y: -8 }, "COORD-SCHEDULE", 1.5);
+  }
+  return { dxf: serializeDxf(doc), layers: ["BEACON", "COORD-SCHEDULE"] };
+}
+
+function generateLidarDxf(
+  output: ClassificationResult,
+  srid: number,
+  crsUrn: string,
+  options: DxfOptions,
+): { dxf: string; layers: string[] } {
+  const doc = createSurveyDxf();
+  for (let i = 0; i < output.points.length; i++) {
+    const pt = output.points[i]!;
+    addBeacon(doc, { x: pt.easting, y: pt.northing }, 0.1, `${pt.classification ?? "unknown"}-${i}`);
+  }
+  if (options.includeCoordinateSchedule !== false) {
+    addText(doc, `LIDAR CLASSIFICATION: SRID ${srid} | ${crsUrn}`, { x: 0, y: -5 }, "COORD-SCHEDULE", 2.0);
+    addText(doc, `POINTS: ${output.points.length} | PROCESSING: ${output.processingTimeMs}ms`, { x: 0, y: -8 }, "COORD-SCHEDULE", 1.5);
+  }
+  return { dxf: serializeDxf(doc), layers: ["BEACON", "COORD-SCHEDULE"] };
+}
+
+function generateUtilityDxf(
+  output: UtilitySurveyPlan,
+  srid: number,
+  crsUrn: string,
+  options: DxfOptions,
+): { dxf: string; layers: string[] } {
+  const doc = createSurveyDxf();
+  for (let i = 0; i < output.detections.length; i++) {
+    const det = output.detections[i]!;
+    addBeacon(doc, { x: det.easting, y: det.northing }, 0.3, `${det.utilityType}-${i}`);
+  }
+  if (options.includeCoordinateSchedule !== false) {
+    addText(doc, `UTILITY MAPPING: SRID ${srid} | ${crsUrn}`, { x: 0, y: -5 }, "COORD-SCHEDULE", 2.0);
+    addText(doc, `DETECTIONS: ${output.detections.length} | RUNS: ${output.runs.length} | CROSSINGS: ${output.crossings.length}`, { x: 0, y: -8 }, "COORD-SCHEDULE", 1.5);
+  }
+  return { dxf: serializeDxf(doc), layers: ["BEACON", "COORD-SCHEDULE"] };
+}
+
+function generateMetadataOnlyDxf(
+  surveyType: string,
+  input: Record<string, unknown>,
+  srid: number,
+  crsUrn: string,
+  options: DxfOptions,
+): { dxf: string; layers: string[] } {
+  const doc = createSurveyDxf();
+  if (options.includeCoordinateSchedule !== false) {
+    addText(doc, `${surveyType.toUpperCase()} SURVEY: SRID ${srid} | ${crsUrn}`, { x: 0, y: -5 }, "COORD-SCHEDULE", 2.0);
+    addText(doc, `SUMMARY: ${JSON.stringify(input).slice(0, 200)}`, { x: 0, y: -8 }, "COORD-SCHEDULE", 1.0);
+  }
+  return { dxf: serializeDxf(doc), layers: ["COORD-SCHEDULE"] };
+}
+
 // ─── The exporter object ─────────────────────────────────────────
 
 export const dxfExporter: IntegrationExporter<SurveyOutput, DxfOptions, DxfOutput> = {
@@ -622,13 +728,6 @@ export const dxfExporter: IntegrationExporter<SurveyOutput, DxfOptions, DxfOutpu
 
     const warnings: string[] = [...validation.warnings];
     const surveyType = detectSurveyType(input);
-    if (!["cadastral", "topographic", "engineering"].includes(surveyType)) {
-      throw new Error(
-        `The ${this.format} exporter does not yet support survey type '${surveyType}'. ` +
-          `Supported: cadastral, topographic, engineering. Use the GeoJSON exporter ` +
-          `for ${surveyType} — it handles all 10 survey types.`
-      );
-    }
 
     const config = getCountryConfig(options.countryCode as CountryCode);
     const srid = config.geodeticFramework.primarySRID;
@@ -660,7 +759,7 @@ export const dxfExporter: IntegrationExporter<SurveyOutput, DxfOptions, DxfOutpu
       );
       dxf = result.dxf;
       layers = result.layers;
-    } else {
+    } else if (surveyType === "engineering") {
       const result = generateEngineeringDxf(
         input as EngineeringWorkflowOutput,
         layerSpecs,
@@ -669,6 +768,28 @@ export const dxfExporter: IntegrationExporter<SurveyOutput, DxfOptions, DxfOutpu
         options,
         warnings,
       );
+      dxf = result.dxf;
+      layers = result.layers;
+    } else if (surveyType === "setting-out") {
+      const result = generateSettingOutDxf(input as SettingOutWorkflowOutput, srid, crsUrn, options);
+      dxf = result.dxf;
+      layers = result.layers;
+    } else if (surveyType === "corridor") {
+      const result = generateCorridorDxf(input as CorridorResult, srid, crsUrn, options);
+      dxf = result.dxf;
+      layers = result.layers;
+    } else if (surveyType === "lidar") {
+      const result = generateLidarDxf(input as ClassificationResult, srid, crsUrn, options);
+      dxf = result.dxf;
+      layers = result.layers;
+    } else if (surveyType === "utility-mapping") {
+      const result = generateUtilityDxf(input as UtilitySurveyPlan, srid, crsUrn, options);
+      dxf = result.dxf;
+      layers = result.layers;
+    } else {
+      // Metadata-only types (sectional, drone-processing, surface-comparison):
+      // emit a DXF with summary text only.
+      const result = generateMetadataOnlyDxf(surveyType, input as unknown as Record<string, unknown>, srid, crsUrn, options);
       dxf = result.dxf;
       layers = result.layers;
     }

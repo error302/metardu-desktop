@@ -1801,3 +1801,27 @@ Stage Summary:
 - detectSurveyType now handles all 10 workflow types. The GeoJSON exporter (primary) builds features for all 10. The DXF/PyQGIS/QGS exporters handle the original 3 + throw honest errors for the 7 new types (directing user to GeoJSON).
 - The shared detectSurveyType module eliminates the 5× duplication that was accumulating across exporters. Extending to new types is now a one-place change.
 - pointUncertainty is now on every workflow output type per invariant C1. For workflows with point coordinates (setting-out, utility-mapping), it's populated with { adjusted: false, reason: "field-data" }. For workflows without point coords (sectional, drone, surface-comparison, lidar), it's {} with a comment explaining why.
+
+---
+Task ID: 12
+Agent: main (session 13 — extend all 4 exporters to handle 7 new types)
+Task: Remove "not yet supported" guards from GeoPackage/PyQGIS/QGS/DXF exporters and add proper feature builders for the 7 new workflow types (sectional, setting-out, corridor, drone-processing, lidar, surface-comparison, utility-mapping).
+
+Work Log:
+- GeoPackage: added 4 new layer-writer functions (writeSettingOutLayers, writeCorridorLayers, writeLidarLayers, writeUtilityLayers) + 7 new else-if branches in export() dispatch. Metadata-only types (sectional, drone, surface-comparison) emit empty layers + summary metadata in gpkg_metadata. Spatial types emit feature tables with WKB geometry + per-feature uncertainty columns.
+- PyQGIS: added layer specs for 4 spatial types (setting-out: design_points Point layer; corridor: corridor_points Point; lidar: lidar_points Point; utility-mapping: utility_detections Point + utility_runs LineString). Metadata-only types return [] (no layers — script prints summary).
+- QGS: added layer specs for 4 spatial types using the existing pointRenderer/lineRenderer/fieldLabeling helpers. Same layer names as GeoPackage so the .qgs loads the .gpkg layers correctly.
+- DXF: added 5 new generator functions (generateSettingOutDxf, generateCorridorDxf, generateLidarDxf, generateUtilityDxf, generateMetadataOnlyDxf). Spatial types draw beacons + coordinate schedule text. Metadata-only types emit summary text only. Fixed infinite recursion in getCountryDxfLayerSpecs generic fallback for new types — added early return for new types before the KE recursion.
+- Updated the DXF rejection test (which now expects success) to verify the DXF exporter accepts sectional.
+
+Verification:
+- npm test (engine): 650/650 pass
+- tsc --noEmit (engine): 0 errors
+
+Stage Summary:
+- All 5 integration exporters now handle all 10 survey types. No more "not yet supported" guards.
+- GeoJSON: full feature builders for all 10 types (done in prior task)
+- GeoPackage: full layer writers for 4 spatial types + metadata-only for 3 metadata types
+- PyQGIS: layer specs for 4 spatial types + metadata-only for 3 metadata types
+- QGS: layer specs for 4 spatial types + metadata-only for 3 metadata types
+- DXF: DXF generators for 4 spatial types + metadata-only for 3 metadata types

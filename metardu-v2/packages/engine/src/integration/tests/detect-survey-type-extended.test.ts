@@ -182,10 +182,12 @@ describe("geoJsonExporter — new types produce valid GeoJSON", () => {
   });
 });
 
-describe("geoJsonExporter — DXF/PyQGIS/QGS exporters reject new types honestly", () => {
-  it("dxfExporter throws for sectional", async () => {
+describe("geoJsonExporter — all exporters now handle all 10 types", () => {
+  it("dxfExporter accepts sectional (metadata-only DXF)", async () => {
     const { dxfExporter } = await import("../dxf-export.js");
     const input = { levels: [], totalBuildingArea: 0, totalUnitArea: 0, totalCommonArea: 0, areaBalanceOk: true, pointUncertainty: {}, regime: {} };
-    await expect(dxfExporter.export(input, { countryCode: "KE", projectMetadata: baseMetadata } as any)).rejects.toThrow(/does not yet support survey type 'sectional'/);
+    const result = await dxfExporter.export(input, { countryCode: "KE", projectMetadata: baseMetadata } as any);
+    expect(result.surveyType).toBe("sectional");
+    expect(result.bytes.length).toBeGreaterThan(500);
   });
 });
