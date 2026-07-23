@@ -151,6 +151,18 @@ export interface IntegrationOptions {
     northing: number,
     srid: number,
   ) => Promise<{ lat: number; lon: number }>;
+  /**
+   * Optional: when true AND `projectToWgs84` callback is provided,
+   * exporters that emit spatial features (GeoJSON, GeoPackage, QGS)
+   * will reproject all coordinates from the survey's projected CRS to
+   * WGS84 (EPSG:4326) before serialization. The output CRS declaration
+   * changes from the projected SRID to 4326.
+   *
+   * When false (default): exporters emit in the survey's native CRS.
+   * When true but no callback: exporters emit a warning and fall back
+   * to the native CRS (no silent reprojection).
+   */
+  outputWgs84?: boolean;
 }
 
 /**

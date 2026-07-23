@@ -672,6 +672,24 @@ export const qgsProjectExporter: IntegrationExporter<
     const srid = config.geodeticFramework.primarySRID;
     const crsUrn = `urn:ogc:def:crs:EPSG::${srid}`;
 
+    // Optional WGS84 output. When outputWgs84=true AND callback provided,
+    // the .qgs declares EPSG:4326 as its CRS. The actual coordinate
+    // reprojection happens in the GeoPackage (exported separately with
+    // the same outputWgs84=true option). The .qgs just needs to match.
+    let outputSrid = srid;
+    let outputCrsUrn = crsUrn;
+    if (options.outputWgs84) {
+      if (options.projectToWgs84) {
+        outputSrid = 4326;
+        outputCrsUrn = "urn:ogc:def:crs:EPSG::4326";
+      } else {
+        warnings.push(
+          "outputWgs84=true but no projectToWgs84 callback provided. " +
+            "Falling back to native CRS.",
+        );
+      }
+    }
+
     // GeoPackage base name (default: metardu-survey).
     const gpkgBaseName = options.geoPackageBaseName ?? "metardu-survey";
     const gpkgPath = `${gpkgBaseName}.gpkg`;
@@ -729,8 +747,8 @@ export const qgsProjectExporter: IntegrationExporter<
     // Generate the XML.
     const xml = generateQgsXml(
       specs,
-      srid,
-      crsUrn,
+      outputSrid,
+      outputCrsUrn,
       gpkgPath,
       projectName,
       m,
@@ -744,10 +762,10 @@ export const qgsProjectExporter: IntegrationExporter<
     return {
       format: "qgs-project",
       bytes,
-      featureCount: specs.length, // layer count, not feature count
+      featureCount: specs.length,
       warnings,
-      crsUrn,
-      srid,
+      crsUrn: outputCrsUrn,
+      srid: outputSrid,
       layers: specs.map((s) => s.tableName),
       projectName,
     };

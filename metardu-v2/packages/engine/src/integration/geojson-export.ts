@@ -1008,11 +1008,67 @@ export const geoJsonExporter: IntegrationExporter<
       }
     }
 
+    // Optional WGS84 reprojection. When outputWgs84=true AND the
+    // projectToWgs84 callback is provided, reproject all coordinates
+    // from the survey's projected CRS to WGS84 (EPSG:4326). The CRS
+    // declaration changes to 4326. GeoJSON WGS84 uses [lon, lat] order
+    // (per RFC 7946), which is what the callback returns.
+    let outputCrsUrn = crsUrn;
+    if (options.outputWgs84) {
+      if (options.projectToWgs84) {
+        const callback = options.projectToWgs84;
+        for (const feature of features) {
+          if (feature.geometry.type === "Point") {
+            const [e, n] = feature.geometry.coordinates;
+            try {
+              const wgs84 = await callback(e, n, srid);
+              feature.geometry.coordinates = [wgs84.lon, wgs84.lat];
+            } catch (err) {
+              warnings.push(`Reprojection failed for feature ${feature.id}: ${(err as Error).message}`);
+            }
+          } else if (feature.geometry.type === "LineString") {
+            const newCoords: [number, number][] = [];
+            for (const [e, n] of feature.geometry.coordinates) {
+              try {
+                const wgs84 = await callback(e, n, srid);
+                newCoords.push([wgs84.lon, wgs84.lat]);
+              } catch {
+                newCoords.push([e, n]); // keep original on error
+              }
+            }
+            feature.geometry.coordinates = newCoords;
+          } else if (feature.geometry.type === "Polygon") {
+            const newRings: [number, number][][] = [];
+            for (const ring of feature.geometry.coordinates) {
+              const newRing: [number, number][] = [];
+              for (const [e, n] of ring) {
+                try {
+                  const wgs84 = await callback(e, n, srid);
+                  newRing.push([wgs84.lon, wgs84.lat]);
+                } catch {
+                  newRing.push([e, n]);
+                }
+              }
+              newRings.push(newRing);
+            }
+            feature.geometry.coordinates = newRings;
+          }
+        }
+        outputCrsUrn = "urn:ogc:def:crs:EPSG::4326";
+      } else {
+        warnings.push(
+          "outputWgs84=true but no projectToWgs84 callback provided. " +
+            "Falling back to native CRS — pass the callback (wired to " +
+            "sidecar geodesy.utm_inverse) for WGS84 output.",
+        );
+      }
+    }
+
     // Top-level metadata block.
     const m = options.projectMetadata as ProjectMetadata;
     const featureCollection: GeoJsonFeatureCollection = {
       type: "FeatureCollection",
-      crs: { type: "name", properties: { name: crsUrn } },
+      crs: { type: "name", properties: { name: outputCrsUrn } },
       metadata: {
         metardu: {
           softwareVersion: SOFTWARE_VERSION,
@@ -1022,7 +1078,7 @@ export const geoJsonExporter: IntegrationExporter<
           surveyDate: m.surveyDate,
           adjustmentRunId: m.adjustmentRunId,
           countryCode: options.countryCode,
-          crsUrn,
+          crsUrn: outputCrsUrn,
           exportedAt: new Date().toISOString(),
           surveyType: surveyType as "cadastral" | "topographic" | "engineering",
           ...extraMetadata,
@@ -1040,7 +1096,7 @@ export const geoJsonExporter: IntegrationExporter<
       bytes,
       featureCount: features.length,
       warnings,
-      crsUrn,
+      crsUrn: outputCrsUrn,
     };
   },
 };

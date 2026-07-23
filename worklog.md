@@ -1825,3 +1825,38 @@ Stage Summary:
 - PyQGIS: layer specs for 4 spatial types + metadata-only for 3 metadata types
 - QGS: layer specs for 4 spatial types + metadata-only for 3 metadata types
 - DXF: DXF generators for 4 spatial types + metadata-only for 3 metadata types
+
+---
+Task ID: 13
+Agent: main (session 14 — WGS84 output for GeoJSON/GeoPackage/QGS)
+Task: Extend the projectToWgs84 callback to GeoJSON, GeoPackage, and QGS exporters so they can optionally emit WGS84 (EPSG:4326) output when the callback is provided.
+
+Work Log:
+- Added `outputWgs84?: boolean` option to IntegrationOptions. When true AND projectToWgs84 callback is provided, exporters reproject all coordinates from the survey's projected CRS to WGS84 before serialization. When true but no callback: warning + fallback to native CRS. When false (default): no change.
+- GeoJSON: post-processing step after buildFeaturesForSurvey() that iterates all features and reprojects Point/LineString/Polygon coordinates via the callback. CRS declaration changes to urn:ogc:def:crs:EPSG::4326. GeoJSON WGS84 uses [lon, lat] order per RFC 7946.
+- GeoPackage: layer-writer functions made async. Each encodePointWKB call preceded by `await reproject(e, n)` when callback provided. CRS registration changes to EPSG:4326. ReprojectFn type added. Engineering cross-section profiles (offset/depth coordinates, NOT map coordinates) correctly excluded from reprojection. Contour LineString coordinates reprojected using the correct local variable name. Utility run LineString coordinates reprojected correctly.
+- QGS: project CRS changes from projected SRID to 4326 in the .qgs XML. The .qgs references a .gpkg file (exported separately with the same outputWgs84 option) — the .qgs just needs its CRS declaration to match the .gpkg's.
+- 7 new tests: GeoJSON reprojects + warns + native fallback, GeoPackage registers 4326 + warns, QGS sets 4326 + warns.
+
+Verification:
+- npm test (engine): 657/657 pass (was 650 + 7 new)
+- tsc --noEmit (engine): 0 errors
+
+Files modified:
+- packages/engine/src/integration/types.ts — added outputWgs84 option
+- packages/engine/src/integration/geojson-export.ts — WGS84 reprojection post-processing
+- packages/engine/src/integration/geopackage-export.ts — async layer-writers + reproject calls + ReprojectFn type
+- packages/engine/src/integration/qgs-project-generator.ts — CRS swap to 4326
+
+Files created:
+- packages/engine/src/integration/tests/wgs84-output.test.ts (7 tests)
+
+Stage Summary:
+- 657/657 engine tests pass. Zero tsc errors.
+- The projectToWgs84 callback is now wired across ALL exporters that emit spatial features:
+  * GCP (Pix4D) — Brief 06 + sidecar bridge task
+  * OSM — Brief 07 + sidecar bridge task  
+  * GeoJSON — this task
+  * GeoPackage — this task
+  * QGS — this task
+- When outputWgs84=true + callback provided, all 5 exporters emit WGS84 coordinates. When no callback, all fall back to native CRS with a warning. The callback is the sidecar bridge — the engine never does projection math (invariant A1).

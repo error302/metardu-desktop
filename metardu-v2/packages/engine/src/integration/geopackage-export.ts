@@ -262,6 +262,10 @@ function uncertaintyToColumns(u: PointUncertainty | undefined): {
   };
 }
 
+// ─── WGS84 reprojection helper ────────────────────────────────────
+
+type ReprojectFn = ((e: number, n: number) => Promise<[number, number]>) | undefined;
+
 // ─── Layer-writer helpers ────────────────────────────────────────
 
 /**
@@ -487,13 +491,14 @@ function updateLayerBounds(
 
 // ─── Per-survey-type layer writers ───────────────────────────────
 
-function writeCadastralLayers(
+async function writeCadastralLayers(
   db: Database.Database,
   output: CadastralWorkflowOutput,
   srid: number,
   includeParcel: boolean,
   warnings: string[],
-): string[] {
+  reproject: ReprojectFn = undefined,
+): Promise<string[]> {
   const layers: string[] = [];
 
   // Beacons layer (Point)
@@ -511,7 +516,7 @@ function writeCadastralLayers(
       );
     }
     const unc = uncertaintyToColumns(u);
-    const wkb = encodePointWKB(beacon.position.easting, beacon.position.northing);
+    const [_rx, _ry] = reproject ? await reproject(beacon.position.easting, beacon.position.northing) : [beacon.position.easting, beacon.position.northing]; const wkb = encodePointWKB(_rx, _ry);
     const geom = wrapGeoPackageBinary(wkb, srid);
     insertFeature(db, "beacons", geom, {
       feature_type: "beacon",
@@ -576,12 +581,13 @@ function writeCadastralLayers(
   return layers;
 }
 
-function writeTopographicLayers(
+async function writeTopographicLayers(
   db: Database.Database,
   output: TopoWorkflowOutput,
   srid: number,
   warnings: string[],
-): string[] {
+  reproject: ReprojectFn = undefined,
+): Promise<string[]> {
   const layers: string[] = [];
 
   // Topo points layer (Point)
@@ -597,7 +603,7 @@ function writeTopographicLayers(
       warnings.push(`Topo point '${v.id}' has no uncertainty record.`);
     }
     const unc = uncertaintyToColumns(u);
-    const wkb = encodePointWKB(v.easting, v.northing);
+    const [_rx, _ry] = reproject ? await reproject(v.easting, v.northing) : [v.easting, v.northing]; const wkb = encodePointWKB(_rx, _ry);
     const geom = wrapGeoPackageBinary(wkb, srid);
     insertFeature(db, "topo_points", geom, {
       feature_type: "topo-point",
@@ -623,7 +629,8 @@ function writeTopographicLayers(
   for (let idx = 0; idx < output.contours.length; idx++) {
     const c = output.contours[idx]!;
     if (c.coordinates.length < 2) continue;
-    const wkb = encodeLineStringWKB(c.coordinates);
+    const _cc = reproject ? await Promise.all(c.coordinates.map(async ([e, n]) => reproject!(e, n))) : c.coordinates;
+    const wkb = encodeLineStringWKB(_cc as [number, number][]);
     const geom = wrapGeoPackageBinary(wkb, srid);
     insertFeature(db, "contours", geom, {
       feature_type: "contour",
@@ -651,7 +658,7 @@ function writeTopographicLayers(
   const allSpotCoords: [number, number][] = [];
   for (let idx = 0; idx < output.spotHeights.length; idx++) {
     const sh = output.spotHeights[idx]!;
-    const wkb = encodePointWKB(sh.easting, sh.northing);
+    const [_rx, _ry] = reproject ? await reproject(sh.easting, sh.northing) : [sh.easting, sh.northing]; const wkb = encodePointWKB(_rx, _ry);
     const geom = wrapGeoPackageBinary(wkb, srid);
     insertFeature(db, "spot_heights", geom, {
       feature_type: "spot-height",
@@ -673,11 +680,13 @@ function writeTopographicLayers(
   return layers;
 }
 
-function writeEngineeringLayers(
+async function writeEngineeringLayers(
   db: Database.Database,
   output: EngineeringWorkflowOutput,
   srid: number,
-): string[] {
+  _warnings: string[] = [],
+  reproject: ReprojectFn = undefined,
+): Promise<string[]> {
   const layers: string[] = [];
 
   // Section centerlines layer (Point)
@@ -689,7 +698,7 @@ function writeEngineeringLayers(
   const allCenterlineCoords: [number, number][] = [];
   for (let idx = 0; idx < output.sections.length; idx++) {
     const s = output.sections[idx]!;
-    const wkb = encodePointWKB(s.centerline.easting, s.centerline.northing);
+    const [_rx, _ry] = reproject ? await reproject(s.centerline.easting, s.centerline.northing) : [s.centerline.easting, s.centerline.northing]; const wkb = encodePointWKB(_rx, _ry);
     const geom = wrapGeoPackageBinary(wkb, srid);
     insertFeature(db, "section_centerlines", geom, {
       feature_type: "section-centerline",
@@ -787,12 +796,13 @@ function embedProjectMetadata(
 
 // ─── New-type layer writers (setting-out, corridor, lidar, utility) ──
 
-function writeSettingOutLayers(
+async function writeSettingOutLayers(
   db: Database.Database,
   output: SettingOutWorkflowOutput,
   srid: number,
   _warnings: string[],
-): string[] {
+  reproject: ReprojectFn = undefined,
+): Promise<string[]> {
   createFeatureLayer(db, "design_points", "POINT", srid, [
     { name: "design_point_id", type: "TEXT" },
     { name: "method", type: "TEXT" },
@@ -802,7 +812,7 @@ function writeSettingOutLayers(
   const coords: [number, number][] = [];
   for (const inst of output.instructions) {
     const unc = uncertaintyToColumns(output.pointUncertainty?.[inst.designPointId]);
-    const wkb = encodePointWKB(inst.designEasting, inst.designNorthing);
+    const [_rx, _ry] = reproject ? await reproject(inst.designEasting, inst.designNorthing) : [inst.designEasting, inst.designNorthing]; const wkb = encodePointWKB(_rx, _ry);
     const geom = wrapGeoPackageBinary(wkb, srid);
     insertFeature(db, "design_points", geom, {
       feature_type: "design-point", survey_type: "setting-out",
@@ -816,12 +826,13 @@ function writeSettingOutLayers(
   return ["design_points"];
 }
 
-function writeCorridorLayers(
+async function writeCorridorLayers(
   db: Database.Database,
   output: CorridorResult,
   srid: number,
   _warnings: string[],
-): string[] {
+  reproject: ReprojectFn = undefined,
+): Promise<string[]> {
   createFeatureLayer(db, "corridor_points", "POINT", srid, [
     { name: "label", type: "TEXT" },
     { name: "chainage", type: "REAL" },
@@ -831,7 +842,7 @@ function writeCorridorLayers(
   const coords: [number, number][] = [];
   for (const cs of output.crossSections) {
     for (const pt of cs.points) {
-      const wkb = encodePointWKB(pt.easting, pt.northing);
+      const [_rx, _ry] = reproject ? await reproject(pt.easting, pt.northing) : [pt.easting, pt.northing]; const wkb = encodePointWKB(_rx, _ry);
       const geom = wrapGeoPackageBinary(wkb, srid);
       insertFeature(db, "corridor_points", geom, {
         feature_type: "corridor-point", survey_type: "corridor",
@@ -846,12 +857,13 @@ function writeCorridorLayers(
   return ["corridor_points"];
 }
 
-function writeLidarLayers(
+async function writeLidarLayers(
   db: Database.Database,
   output: ClassificationResult,
   srid: number,
   _warnings: string[],
-): string[] {
+  reproject: ReprojectFn = undefined,
+): Promise<string[]> {
   createFeatureLayer(db, "lidar_points", "POINT", srid, [
     { name: "elevation", type: "REAL" },
     { name: "classification", type: "TEXT" },
@@ -860,7 +872,7 @@ function writeLidarLayers(
   const coords: [number, number][] = [];
   for (let i = 0; i < output.points.length; i++) {
     const pt = output.points[i]!;
-    const wkb = encodePointWKB(pt.easting, pt.northing);
+    const [_rx, _ry] = reproject ? await reproject(pt.easting, pt.northing) : [pt.easting, pt.northing]; const wkb = encodePointWKB(_rx, _ry);
     const geom = wrapGeoPackageBinary(wkb, srid);
     insertFeature(db, "lidar_points", geom, {
       feature_type: "lidar-point", survey_type: "lidar",
@@ -875,12 +887,13 @@ function writeLidarLayers(
   return ["lidar_points"];
 }
 
-function writeUtilityLayers(
+async function writeUtilityLayers(
   db: Database.Database,
   output: UtilitySurveyPlan,
   srid: number,
   _warnings: string[],
-): string[] {
+  reproject: ReprojectFn = undefined,
+): Promise<string[]> {
   // Detections layer (Point)
   createFeatureLayer(db, "utility_detections", "POINT", srid, [
     { name: "depth", type: "REAL" },
@@ -891,7 +904,7 @@ function writeUtilityLayers(
   const coords: [number, number][] = [];
   for (let i = 0; i < output.detections.length; i++) {
     const det = output.detections[i]!;
-    const wkb = encodePointWKB(det.easting, det.northing);
+    const [_rx, _ry] = reproject ? await reproject(det.easting, det.northing) : [det.easting, det.northing]; const wkb = encodePointWKB(_rx, _ry);
     const geom = wrapGeoPackageBinary(wkb, srid);
     insertFeature(db, "utility_detections", geom, {
       feature_type: "utility-detection", survey_type: "utility-mapping",
@@ -914,7 +927,7 @@ function writeUtilityLayers(
     const run = output.runs[i]!;
     if (run.points.length < 2) continue;
     const runCoords: [number, number][] = run.points.map((p) => [p.easting, p.northing]);
-    const wkb = encodeLineStringWKB(runCoords);
+    const _rcoords = reproject ? await Promise.all(runCoords.map(async ([e, n]) => reproject!(e, n))) : runCoords; const wkb = encodeLineStringWKB(_rcoords as [number, number][]);
     const geom = wrapGeoPackageBinary(wkb, srid);
     insertFeature(db, "utility_runs", geom, {
       feature_type: "utility-run", survey_type: "utility-mapping",
@@ -1021,6 +1034,28 @@ export const geoPackageExporter: IntegrationExporter<
     const srid = config.geodeticFramework.primarySRID;
     const crsUrn = `urn:ogc:def:crs:EPSG::${srid}`;
 
+    // Optional WGS84 reprojection. When outputWgs84=true AND callback
+    // provided, reproject all coordinates to EPSG:4326 before writing.
+    let reproject: ReprojectFn = undefined;
+    let outputSrid = srid;
+    let outputCrsUrn = crsUrn;
+    if (options.outputWgs84) {
+      if (options.projectToWgs84) {
+        const cb = options.projectToWgs84;
+        reproject = async (e: number, n: number) => {
+          const wgs = await cb(e, n, srid);
+          return [wgs.lon, wgs.lat];
+        };
+        outputSrid = 4326;
+        outputCrsUrn = "urn:ogc:def:crs:EPSG::4326";
+      } else {
+        warnings.push(
+          "outputWgs84=true but no projectToWgs84 callback provided. " +
+            "Falling back to native CRS.",
+        );
+      }
+    }
+
     // Create an in-memory SQLite database (better-sqlite3 supports `:memory:`).
     // The output bytes are the serialized SQLite file.
     const db = new Database(":memory:");
@@ -1030,22 +1065,22 @@ export const geoPackageExporter: IntegrationExporter<
       db.pragma("user_version = 10300");
 
       createSystemTables(db);
-      registerCrs(db, srid, crsUrn);
+      registerCrs(db, outputSrid, outputCrsUrn);
 
       let layers: string[] = [];
       let extraSummary: Record<string, unknown> = {};
 
       if (surveyType === "cadastral") {
-        layers = writeCadastralLayers(
+        layers = await writeCadastralLayers(
           db,
           input as CadastralWorkflowOutput,
-          srid,
+          outputSrid,
           includeParcel,
           warnings,
         );
       } else if (surveyType === "topographic") {
         const output = input as TopoWorkflowOutput;
-        layers = writeTopographicLayers(db, output, srid, warnings);
+        layers = await writeTopographicLayers(db, output, outputSrid, warnings, reproject);
         extraSummary = {
           topographic: {
             triangleCount: output.triangleCount,
@@ -1060,7 +1095,7 @@ export const geoPackageExporter: IntegrationExporter<
         };
       } else if (surveyType === "engineering") {
         const output = input as EngineeringWorkflowOutput;
-        layers = writeEngineeringLayers(db, output, srid);
+        layers = await writeEngineeringLayers(db, output, outputSrid, undefined, reproject);
         extraSummary = {
           engineering: {
             sectionCount: output.sectionCount,
@@ -1088,7 +1123,7 @@ export const geoPackageExporter: IntegrationExporter<
         };
       } else if (surveyType === "setting-out") {
         const output = input as SettingOutWorkflowOutput;
-        layers = writeSettingOutLayers(db, output, srid, warnings);
+        layers = await writeSettingOutLayers(db, output, outputSrid, warnings, reproject);
         extraSummary = {
           "setting-out": {
             instructionCount: output.instructions.length,
@@ -1100,7 +1135,7 @@ export const geoPackageExporter: IntegrationExporter<
         };
       } else if (surveyType === "corridor") {
         const output = input as CorridorResult;
-        layers = writeCorridorLayers(db, output, srid, warnings);
+        layers = await writeCorridorLayers(db, output, outputSrid, warnings, reproject);
         extraSummary = {
           corridor: {
             crossSectionCount: output.crossSections.length,
@@ -1123,7 +1158,7 @@ export const geoPackageExporter: IntegrationExporter<
         };
       } else if (surveyType === "lidar") {
         const output = input as ClassificationResult;
-        layers = writeLidarLayers(db, output, srid, warnings);
+        layers = await writeLidarLayers(db, output, outputSrid, warnings, reproject);
         extraSummary = {
           lidar: {
             pointCount: output.points.length,
@@ -1148,7 +1183,7 @@ export const geoPackageExporter: IntegrationExporter<
         };
       } else if (surveyType === "utility-mapping") {
         const output = input as UtilitySurveyPlan;
-        layers = writeUtilityLayers(db, output, srid, warnings);
+        layers = await writeUtilityLayers(db, output, outputSrid, warnings, reproject);
         extraSummary = {
           "utility-mapping": {
             detectionCount: output.detections.length,
@@ -1163,7 +1198,7 @@ export const geoPackageExporter: IntegrationExporter<
         db,
         options.projectMetadata as ProjectMetadata,
         options.countryCode,
-        crsUrn,
+        outputCrsUrn,
         surveyType,
         extraSummary,
       );
@@ -1186,7 +1221,7 @@ export const geoPackageExporter: IntegrationExporter<
         bytes,
         featureCount,
         warnings,
-        crsUrn,
+        crsUrn: outputCrsUrn,
         layers,
       };
     } finally {
