@@ -63,6 +63,25 @@ const metarduApi = {
   app: {
     version: (): Promise<string> => ipcRenderer.invoke("metardu:app:version"),
   },
+  /** Integration & Export (ADR-0005) — 7 exporters for GIS/CAD/photogrammetry. */
+  export: {
+    /** List available export formats. Returns array of {format, description, fileExtension}. */
+    list: (): Promise<Array<{ format: string; description: string; fileExtension: string }>> =>
+      ipcRenderer.invoke("metardu:export:list"),
+    /**
+     * Export survey data to a file. Shows a "Save As" dialog.
+     * @param format Exporter format ("geojson", "geopackage", "pyqgis-script", "gcp", "qgs-project", "osm-changeset", "dxf")
+     * @param surveyOutput The workflow output to export (must be serializable for IPC)
+     * @param options Export options (countryCode, projectMetadata, outputWgs84, etc.)
+     * @returns { filePath, bytes, warnings } or throws on error
+     */
+    survey: async (
+      format: string,
+      surveyOutput: unknown,
+      options: Record<string, unknown>,
+    ): Promise<{ filePath: string; bytes: number; warnings: string[] }> =>
+      ipcRenderer.invoke("metardu:export:survey", format, surveyOutput, options),
+  },
 };
 
 // Expose the API on window.metardu. The renderer imports it via

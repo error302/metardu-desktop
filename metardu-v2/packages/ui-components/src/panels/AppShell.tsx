@@ -16,6 +16,7 @@ import {
   Triangle,
   Calculator,
   PenTool,
+  Download,
   type LucideProps,
 } from "lucide-react";
 import "../styles/metardu-theme.css";
@@ -50,7 +51,7 @@ type ViewId =
   | "map" | "flight" | "stakeout" | "gnss" | "drone"
   | "lulc" | "crosssection" | "asbuilt"
   | "traverse" | "cogo" | "deedplan"
-  | "topo" | "engineering" | "sectional";
+  | "topo" | "engineering" | "sectional" | "export";
 
 interface NavItem {
   id: ViewId;
@@ -80,8 +81,10 @@ const NAV: NavItem[] = [
   // Engineering
   { id: "engineering", label: "Engineering", icon: Settings, category: "Engineering", shortcut: "g n" },
   { id: "sectional", label: "Sectional Properties", icon: Building2, category: "Engineering", shortcut: "g q" },
+  // Export
+  { id: "export", label: "Export", icon: Download, category: "Export", shortcut: "g x" },
 ];
-const CATS = ["Field Work", "Drone", "Office", "Surveying", "Engineering"];
+const CATS = ["Field Work", "Drone", "Office", "Surveying", "Engineering", "Export"];
 
 const APP_VERSION = "0.5.0";
 
@@ -168,6 +171,7 @@ export const AppShell: React.FC<{
           l: "lulc", c: "crosssection", a: "asbuilt",
           v: "traverse", o: "cogo", e: "deedplan",
           t: "topo", n: "engineering", q: "sectional", p: "map",
+          x: "export",
         };
         if (m[e.key.toLowerCase()]) { e.preventDefault(); setView(m[e.key.toLowerCase()]); }
         lastKey.current = null; return;

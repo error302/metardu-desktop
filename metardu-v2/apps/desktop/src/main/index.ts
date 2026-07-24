@@ -22,11 +22,13 @@
  *   - Offline-first: no network call is required to start or use the app.
  */
 
-import { app, BrowserWindow, ipcMain, BrowserWindowConstructorOptions } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, BrowserWindowConstructorOptions } from "electron";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SidecarClient } from "@metardu/electron-integration";
+import { INTEGRATION_EXPORTERS } from "@metardu/engine-flight-planning";
+import { getCountryConfig, type CountryCode } from "@metardu/country-config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -211,6 +213,88 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("metardu:app:version", () => {
     return app.getVersion();
+  });
+
+  // ─── Integration & Export handlers (ADR-0005) ───────────────────
+  // The renderer calls these to export survey data to files. The main
+  // process owns the filesystem + "Save As" dialog + sidecar bridge.
+
+  ipcMain.handle("metardu:export:list", () => {
+    return INTEGRATION_EXPORTERS.map((e) => ({
+      format: e.format,
+      description: e.description,
+      fileExtension: e.fileExtension,
+    }));
+  });
+
+  ipcMain.handle("metardu:export:survey", async (_event, format: string, surveyOutput: unknown, options: Record<string, unknown>) => {
+    // Find the exporter by format.
+    const exporter = INTEGRATION_EXPORTERS.find((e) => e.format === format);
+    if (!exporter) {
+      throw new Error(`Unknown export format: ${format}. Available: ${INTEGRATION_EXPORTERS.map((e) => e.format).join(", ")}`);
+    }
+
+    // Wire the projectToWgs84 callback to the sidecar if outputWgs84 is requested.
+    // Per ADR-0005 invariant A1: the actual projection math lives in the
+    // sidecar (Rust). This callback is the bridge — the engine never does
+    // projection math itself.
+    if (options.outputWgs84 && sidecar && sidecar.isRunning()) {
+      const countryCode = options.countryCode as string;
+      const config = getCountryConfig(countryCode as CountryCode);
+      const srid = config.geodeticFramework.primarySRID;
+      const zone = config.geodeticFramework.projectionZones.find((z: { srid: number }) => z.srid === srid);
+
+      if (zone) {
+        // UTM zones use the zone number + hemisphere.
+        // The country-config's projectionZones have a `name` field like
+        // "Arc 1960 / UTM zone 37S" — we extract the zone number from
+        // the name. Future work: add explicit utmZone field to ProjectionZone.
+        const zoneMatch = zone.name.match(/UTM zone (\d+)([NS])/i);
+        if (zoneMatch) {
+          const utmZone = parseInt(zoneMatch[1]!, 10);
+          const isSouthern = zoneMatch[2]!.toUpperCase() === "S";
+          const ellipsoid = zone.ellipsoid;
+
+          options.projectToWgs84 = async (easting: number, northing: number) => {
+            const result = await sidecar!.call<{ lat: number; lon: number }>(
+              "geodesy.utm_inverse",
+              { easting, northing, zone: utmZone, is_southern: isSouthern, ellipsoid },
+            );
+            return result;
+          };
+        }
+      }
+    }
+
+    // Call the exporter.
+    const result = await exporter.export(surveyOutput, options);
+
+    // Show "Save As" dialog.
+    const defaultName = `metardu-survey.${exporter.fileExtension}`;
+    const saveResult = await dialog.showSaveDialog(mainWindow!, {
+      title: `Export as ${exporter.format}`,
+      defaultPath: defaultName,
+      filters: [
+        { name: exporter.format.toUpperCase(), extensions: [exporter.fileExtension] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+    });
+
+    if (saveResult.canceled || !saveResult.filePath) {
+      return { filePath: "", bytes: 0, warnings: ["Export cancelled by user."] };
+    }
+
+    // Write bytes to file.
+    const buf = Buffer.from(result.bytes);
+    fs.writeFileSync(saveResult.filePath, buf);
+
+    console.log(`[export] wrote ${buf.length} bytes to ${saveResult.filePath}`);
+
+    return {
+      filePath: saveResult.filePath,
+      bytes: buf.length,
+      warnings: result.warnings,
+    };
   });
 }
 

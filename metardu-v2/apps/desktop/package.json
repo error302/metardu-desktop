@@ -27,6 +27,8 @@
   },
   "dependencies": {
     "@metardu/electron-integration": "*",
+    "@metardu/engine-flight-planning": "*",
+    "@metardu/country-config": "*",
     "@metardu/ipc-schemas": "*",
     "ol": "^10.9.0",
     "lucide-react": "*"

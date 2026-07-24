@@ -1909,3 +1909,57 @@ Stage Summary:
 - CI workflow is now correct: proper branch names, dependency builds, Windows smoke test that actually runs the sidecar binary.
 - E2e test script is now portable (works on any OS in CI, not just the developer's machine).
 - STATUS doc reflects the current state accurately.
+
+---
+Task ID: 15
+Agent: main (session 16 — UI wiring for Integration & Export)
+Task: Connect the 7 integration exporters to the Electron desktop app UI so a surveyor can click "Export → GeoJSON" etc.
+
+Work Log:
+- Added `export` section to the preload bridge (window.metardu.export):
+  * `list()` — returns available export formats from INTEGRATION_EXPORTERS
+  * `survey(format, surveyOutput, options)` — triggers the export pipeline
+- Added export IPC handlers in the main process:
+  * `metardu:export:list` — returns the 7 exporters' format/description/extension
+  * `metardu:export:survey` — resolves exporter by format, wires projectToWgs84 callback to sidecar's geodesy.utm_inverse when outputWgs84=true, calls exporter.export(), shows "Save As" dialog via dialog.showSaveDialog, writes bytes to file
+- Wired projectToWgs84 callback in main process:
+  * Reads country-config to resolve SRID → UTM zone + hemisphere + ellipsoid
+  * Calls sidecar.call("geodesy.utm_inverse", {easting, northing, zone, is_southern, ellipsoid})
+  * Returns {lat, lon} to the engine exporter
+  * The engine never does projection math (invariant A1 preserved)
+- Created ExportPanel.tsx renderer component:
+  * Lists 7 export formats as clickable cards with icons
+  * Project metadata fields (name, surveyor, license, date)
+  * Country selector (5 countries)
+  * WGS84 output toggle
+  * Export button → calls window.metardu.export.survey()
+  * Success/error display
+  * For MVP: generates a demo cadastral survey output (4 beacons, Kasarani) so the pipeline is functional end-to-end. Real wiring (connecting actual survey views) is a follow-up.
+- Added "Export" to the AppShell nav (with Download icon, category "Export", shortcut "g x")
+- Wired ExportPanel into main.tsx as a lazy-loaded view
+- Added @metardu/engine-flight-planning + @metardu/country-config as dependencies to apps/desktop/package.json
+
+Verification:
+- tsc --noEmit (engine): 0 errors
+- tsc --noEmit (apps/desktop): 0 errors
+- npm test (engine): 657/657 pass
+
+Files created:
+- apps/desktop/src/renderer/views/ExportPanel.tsx
+
+Files modified:
+- apps/desktop/src/preload/index.ts — added export section to window.metardu
+- apps/desktop/src/main/index.ts — added export IPC handlers + sidecar callback wiring
+- apps/desktop/src/renderer/main.tsx — wired ExportPanel as lazy view
+- packages/ui-components/src/panels/AppShell.tsx — added Export nav item + shortcut
+- apps/desktop/package.json — added engine + country-config deps
+
+Stage Summary:
+- The 7 integration exporters are now accessible from the Electron UI. A surveyor can:
+  1. Navigate to the "Export" panel (sidebar → Export, or press g x)
+  2. Pick a format (GeoJSON, GeoPackage, PyQGIS, GCP, QGS, OSM, DXF)
+  3. Enter project metadata
+  4. Toggle WGS84 output (auto-converts via sidecar)
+  5. Click Export → "Save As" dialog → file written to disk
+- The projectToWgs84 callback is wired end-to-end: main process → sidecar geodesy.utm_inverse → engine exporter. The engine never does projection math.
+- For MVP, the ExportPanel uses a demo cadastral survey. Wiring actual survey views (TopographicView, etc.) to pass their survey output to the ExportPanel is a follow-up task — it requires a shared state layer (React Context or similar) that the views don't have yet.
