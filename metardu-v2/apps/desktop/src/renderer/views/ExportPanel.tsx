@@ -12,6 +12,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Download, FileText, FileSpreadsheet, FileCode, Map, Globe, FileBox } from "lucide-react";
+import { useSurveyState } from "../SurveyStateContext.js";
 
 interface ExporterInfo {
   format: string;
@@ -38,6 +39,7 @@ const FORMAT_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWi
 };
 
 export const ExportPanel: React.FC = () => {
+  const { state: surveyState } = useSurveyState();
   const [exporters, setExporters] = useState<ExporterInfo[]>([]);
   const [selectedFormat, setSelectedFormat] = useState("geojson");
   const [countryCode, setCountryCode] = useState("KE");
@@ -97,33 +99,8 @@ export const ExportPanel: React.FC = () => {
         throw new Error("Export not available — running in browser mode. Launch the Electron app to export.");
       }
 
-      // Generate a demo cadastral survey output.
-      // In production, this would come from the active survey view's state.
-      const demoSurveyOutput = {
-        form3: {
-          pdfBytes: new Uint8Array(0),
-          pageCount: 0,
-          scale: 0,
-          coordinateSystemLabel: "Demo",
-          hasDraftWatermark: false,
-        },
-        allBeacons: [
-          { label: "B1", position: { easting: 257100.0, northing: 9857700.0 }, description: "Concrete pillar" },
-          { label: "B2", position: { easting: 257150.0, northing: 9857700.0 }, description: "Concrete pillar" },
-          { label: "B3", position: { easting: 257150.0, northing: 9857750.0 }, description: "Concrete pillar" },
-          { label: "B4", position: { easting: 257100.0, northing: 9857750.0 }, description: "Concrete pillar" },
-        ],
-        residuals: {},
-        sigma_0_sq: 1.0,
-        passesCadastralTolerance: true,
-        uncertainty: {
-          B1: { adjusted: false, reason: "fixed-control" as const },
-          B2: { adjusted: false, reason: "fixed-control" as const },
-          B3: { adjusted: true, semiMajorAxis: 0.012, semiMinorAxis: 0.008, orientation: 45.3, confidenceLevel: 0.95 },
-          B4: { adjusted: true, semiMajorAxis: 0.015, semiMinorAxis: 0.010, orientation: 30.0, confidenceLevel: 0.95 },
-        },
-      };
-
+      // Use the real survey output from the shared state if available.
+      // Fall back to demo data only if no survey has been run yet.
       const options: Record<string, unknown> = {
         countryCode,
         outputWgs84,
@@ -132,18 +109,56 @@ export const ExportPanel: React.FC = () => {
           surveyorName,
           licenseNumber,
           surveyDate,
-          adjustmentRunId: `demo-${Date.now()}`,
+          adjustmentRunId: `export-${Date.now()}`,
         },
       };
 
+      let surveyOutput: unknown;
+      if (surveyState) {
+        surveyOutput = surveyState.output;
+        // Override country code from the survey state if set.
+        if (surveyState.countryCode) {
+          options.countryCode = surveyState.countryCode;
+        }
+      } else {
+        // Demo fallback — 4-beacon cadastral survey.
+        surveyOutput = {
+          form3: {
+            pdfBytes: new Uint8Array(0), pageCount: 0, scale: 0,
+            coordinateSystemLabel: "Demo", hasDraftWatermark: false,
+          },
+          allBeacons: [
+            { label: "B1", position: { easting: 257100.0, northing: 9857700.0 }, description: "Concrete pillar" },
+            { label: "B2", position: { easting: 257150.0, northing: 9857700.0 }, description: "Concrete pillar" },
+            { label: "B3", position: { easting: 257150.0, northing: 9857750.0 }, description: "Concrete pillar" },
+            { label: "B4", position: { easting: 257100.0, northing: 9857750.0 }, description: "Concrete pillar" },
+          ],
+          residuals: {},
+          sigma_0_sq: 1.0,
+          passesCadastralTolerance: true,
+          uncertainty: {
+            B1: { adjusted: false, reason: "fixed-control" as const },
+            B2: { adjusted: false, reason: "fixed-control" as const },
+            B3: { adjusted: true, semiMajorAxis: 0.012, semiMinorAxis: 0.008, orientation: 45.3, confidenceLevel: 0.95 },
+            B4: { adjusted: true, semiMajorAxis: 0.015, semiMinorAxis: 0.010, orientation: 30.0, confidenceLevel: 0.95 },
+          },
+        };
+      }
+
       // For GCP exporter, pass GcpInput instead of SurveyOutput.
       if (selectedFormat === "gcp") {
+        // Extract points from the survey output if it has beacons/points.
+        const anyOutput = surveyOutput as Record<string, unknown>;
+        const beacons = (anyOutput.allBeacons ?? anyOutput.tin?.vertices ?? []) as Array<{
+          position?: { easting: number; northing: number };
+          easting?: number; northing?: number; label?: string; id?: string;
+        }>;
         const gcpInput = {
-          points: demoSurveyOutput.allBeacons.map((b, i) => ({
-            label: `GCP${i + 1}`,
-            easting: b.position.easting,
-            northing: b.position.northing,
-            elevation: 1795.0,
+          points: beacons.map((b, i) => ({
+            label: b.label ?? b.id ?? `GCP${i + 1}`,
+            easting: b.position?.easting ?? b.easting ?? 0,
+            northing: b.position?.northing ?? b.northing ?? 0,
+            elevation: 0,
             accuracyXY: 0.015,
           })),
         };
@@ -151,25 +166,30 @@ export const ExportPanel: React.FC = () => {
         const res = await w.metardu.export.survey(selectedFormat, gcpInput, gcpOptions);
         setResult(res);
       } else if (selectedFormat === "osm-changeset") {
-        // OSM needs WGS84 or projectedCoords + callback.
+        // OSM needs WGS84 nodes or projectedCoords + callback.
+        // For demo: convert beacons to approximate WGS84 lat/lon.
+        const anyOutput = surveyOutput as Record<string, unknown>;
+        const beacons = (anyOutput.allBeacons ?? []) as Array<{
+          label?: string; position?: { easting: number; northing: number };
+        }>;
         const osmInput = {
-          nodes: demoSurveyOutput.allBeacons.map((b, i) => ({
+          nodes: beacons.map((b, i) => ({
             id: -(i + 1),
             lat: -1.22 + i * 0.0005,
             lon: 36.90 + i * 0.0005,
-            tags: { man_made: "survey_point", name: b.label },
+            tags: { man_made: "survey_point", name: b.label ?? `P${i + 1}` },
           })),
-          ways: [{
+          ways: beacons.length >= 3 ? [{
             id: -101,
-            nodeRefs: [-1, -2, -3, -4, -1],
-            tags: { boundary: "administrative", admin_level: "8", area: "yes", name: "S/12345" },
-          }],
+            nodeRefs: beacons.map((_, i) => -(i + 1)).concat([-1]),
+            tags: { boundary: "administrative", admin_level: "8", area: "yes" },
+          }] : [],
           inputSrid: 4326,
         };
         const res = await w.metardu.export.survey(selectedFormat, osmInput, options);
         setResult(res);
       } else {
-        const res = await w.metardu.export.survey(selectedFormat, demoSurveyOutput, options);
+        const res = await w.metardu.export.survey(selectedFormat, surveyOutput, options);
         setResult(res);
       }
     } catch (e) {
@@ -190,6 +210,20 @@ export const ExportPanel: React.FC = () => {
           is a survey-grade source of truth that feeds downstream tools.
         </p>
       </div>
+
+      {/* Survey state indicator */}
+      {surveyState ? (
+        <div style={{ padding: "10px 14px", borderRadius: "8px", background: "var(--bg-success)", border: "1px solid var(--border-success)", fontSize: "12px", color: "var(--text-secondary)" }}>
+          <strong style={{ color: "var(--text-primary)" }}>Active survey:</strong> {surveyState.surveyType} from {surveyState.sourceView}
+          <span style={{ color: "var(--text-tertiary)", marginLeft: "8px" }}>
+            ({new Date(surveyState.timestamp).toLocaleTimeString()}, country: {surveyState.countryCode})
+          </span>
+        </div>
+      ) : (
+        <div style={{ padding: "10px 14px", borderRadius: "8px", background: "var(--bg-secondary)", border: "1px solid var(--border-default)", fontSize: "12px", color: "var(--text-tertiary)" }}>
+          No survey output yet. Run a workflow (e.g., Topographic) first, then come back to export. Demo data will be used as fallback.
+        </div>
+      )}
 
       {/* Format selector */}
       <div>
@@ -298,10 +332,11 @@ export const ExportPanel: React.FC = () => {
         </div>
       )}
 
-      {/* Demo data notice */}
+      {/* Data source notice */}
       <div style={{ fontSize: "11px", color: "var(--text-disabled)", fontStyle: "italic" }}>
-        Note: This panel exports a demo cadastral survey (4 beacons, Kasarani, Nairobi).
-        Wiring to actual survey views is a follow-up task.
+        {surveyState
+          ? `Exporting real survey data from ${surveyState.sourceView} (${surveyState.surveyType} type).`
+          : "No survey output in context — exporting demo cadastral data (4 beacons, Kasarani). Run a workflow view first."}
       </div>
     </div>
   );

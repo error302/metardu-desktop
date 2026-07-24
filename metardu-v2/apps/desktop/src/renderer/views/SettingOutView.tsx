@@ -8,6 +8,7 @@
 
 import React, { useState } from "react";
 import { KENYA } from "@metardu/country-config";
+import { useSurveyState } from "../SurveyStateContext.js";
 import {
   runSettingOutWorkflow,
   type SettingOutWorkflowOutput,
@@ -17,6 +18,7 @@ import {
 } from "@metardu/engine-flight-planning";
 
 export const SettingOutView: React.FC = () => {
+  const { setSurveyOutput } = useSurveyState();
   const [designPoints, setDesignPoints] = useState<DesignPoint[]>([
     { id: "F1", easting: 257100, northing: 9857700, type: "foundation" },
     { id: "F2", easting: 257110, northing: 9857700, type: "foundation" },
@@ -39,6 +41,7 @@ export const SettingOutView: React.FC = () => {
         country: KENYA,
       });
       setResult(output);
+      setSurveyOutput(output, "setting-out", "SettingOutView", "KE");
     } catch (e) {
       setError((e as Error).message);
     }

@@ -1963,3 +1963,55 @@ Stage Summary:
   5. Click Export → "Save As" dialog → file written to disk
 - The projectToWgs84 callback is wired end-to-end: main process → sidecar geodesy.utm_inverse → engine exporter. The engine never does projection math.
 - For MVP, the ExportPanel uses a demo cadastral survey. Wiring actual survey views (TopographicView, etc.) to pass their survey output to the ExportPanel is a follow-up task — it requires a shared state layer (React Context or similar) that the views don't have yet.
+
+---
+Task ID: 16
+Agent: main (session 17 — Shared survey state via React Context)
+Task: Build a shared survey state layer (React Context) that lets survey views store their workflow output, which the ExportPanel reads. Replaces the demo data with real survey data.
+
+Work Log:
+- Created SurveyStateContext.tsx — React Context provider with useSurveyState() hook:
+  * SurveyState: { output, surveyType, sourceView, timestamp, countryCode }
+  * setSurveyOutput(output, surveyType, sourceView, countryCode) — called by workflow views
+  * clear() — resets state
+- Wrapped the AppShell with SurveyStateProvider in main.tsx
+- Wired all 4 workflow views to push their output to the context:
+  * TopographicView → setSurveyOutput(output, "topographic", "TopographicView", "KE")
+  * EngineeringView → setSurveyOutput(output, "engineering", "EngineeringView", "KE")
+  * SettingOutView → setSurveyOutput(output, "setting-out", "SettingOutView", "KE")
+  * SectionalView → setSurveyOutput(output, "sectional", "SectionalView", "KE")
+- Updated ExportPanel to read from the context:
+  * Uses surveyState.output when available (real survey data)
+  * Falls back to demo cadastral data when no survey has been run
+  * Shows a survey state indicator (green banner: "Active survey: topographic from TopographicView")
+  * Shows "No survey output yet" guidance when context is empty
+  * GCP exporter extracts points from any survey output shape (beacons or TIN vertices)
+  * OSM exporter extracts beacons and builds node/way structure
+  * Country code from survey state overrides the selector
+  * Data source notice at bottom: "Exporting real survey data from..." or "exporting demo data..."
+
+Verification:
+- tsc --noEmit (engine): 0 errors
+- tsc --noEmit (apps/desktop): 0 errors
+- npm test (engine): 657/657 pass
+
+Files created:
+- apps/desktop/src/renderer/SurveyStateContext.tsx
+
+Files modified:
+- apps/desktop/src/renderer/main.tsx — wrapped AppShell with SurveyStateProvider
+- apps/desktop/src/renderer/views/TopographicView.tsx — push output to context
+- apps/desktop/src/renderer/views/EngineeringView.tsx — push output to context
+- apps/desktop/src/renderer/views/SettingOutView.tsx — push output to context
+- apps/desktop/src/renderer/views/SectionalView.tsx — push output to context
+- apps/desktop/src/renderer/views/ExportPanel.tsx — read from context, show indicator
+
+Stage Summary:
+- The ExportPanel now exports REAL survey data from whatever workflow the surveyor last ran. The flow is:
+  1. Surveyor runs a workflow (e.g., Topographic → "Generate TIN + Contours")
+  2. The view calls setSurveyOutput() → stores the output in the shared context
+  3. Surveyor navigates to Export panel (g x)
+  4. ExportPanel shows "Active survey: topographic from TopographicView"
+  5. Surveyor picks a format + clicks Export
+  6. The real TopoWorkflowOutput is passed to the exporter → file written to disk
+- Demo data is still available as a fallback (when no survey has been run), but the primary path is now real data.

@@ -7,6 +7,7 @@
 
 import React, { useState } from "react";
 import { KENYA, AUSTRALIA, UNITED_KINGDOM, SOUTH_AFRICA, UNITED_ARAB_EMIRATES, type CountrySurveyConfig } from "@metardu/country-config";
+import { useSurveyState } from "../SurveyStateContext.js";
 import { runSectionalWorkflow, type SectionalWorkflowOutput, type BuildingLevel } from "@metardu/engine-flight-planning";
 
 const COUNTRY_OPTIONS: Record<string, CountrySurveyConfig> = {
@@ -18,6 +19,7 @@ const COUNTRY_OPTIONS: Record<string, CountrySurveyConfig> = {
 };
 
 export const SectionalView: React.FC = () => {
+  const { setSurveyOutput } = useSurveyState();
   const [countryCode, setCountryCode] = useState("KE");
   const [result, setResult] = useState<SectionalWorkflowOutput | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +63,7 @@ export const SectionalView: React.FC = () => {
         surveyor: { name: "Surveyor", regNo: "LS/0000", dateOfSurvey: new Date().toISOString().split("T")[0]! },
       });
       setResult(output);
+      setSurveyOutput(output, "sectional", "SectionalView", "KE");
     } catch (e) {
       setError((e as Error).message);
     }

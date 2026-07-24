@@ -22,6 +22,7 @@
 import React, { Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import { AppShell } from "@metardu/ui-components";
+import { SurveyStateProvider } from "./SurveyStateContext.js";
 import "../preload/index.js"; // type-only side-effect import for the d.ts
 
 const LOGO_URL = new URL("./assets/metardu-logo.jpeg", import.meta.url).href;
@@ -63,22 +64,24 @@ const ViewLoading: React.FC = () => (
 const root = createRoot(rootEl);
 root.render(
   <React.StrictMode>
-    <AppShell
-      renderView={(viewId) => {
-        const view = (() => {
-          switch (viewId) {
-            case "topo":         return <TopographicView />;
-            case "engineering":  return <EngineeringView />;
-            case "stakeout":     return <SettingOutView />;
-            case "sectional":    return <SectionalView />;
-            case "map":          return <MapView />;
-            case "export":       return <ExportPanel />;
-            default:             return null;
-          }
-        })();
-        // Wrap in Suspense so lazy-loaded views show a fallback while loading.
-        return view ? <Suspense fallback={<ViewLoading />}>{view}</Suspense> : null;
-      }}
-    />
+    <SurveyStateProvider>
+      <AppShell
+        renderView={(viewId) => {
+          const view = (() => {
+            switch (viewId) {
+              case "topo":         return <TopographicView />;
+              case "engineering":  return <EngineeringView />;
+              case "stakeout":     return <SettingOutView />;
+              case "sectional":    return <SectionalView />;
+              case "map":          return <MapView />;
+              case "export":       return <ExportPanel />;
+              default:             return null;
+            }
+          })();
+          // Wrap in Suspense so lazy-loaded views show a fallback while loading.
+          return view ? <Suspense fallback={<ViewLoading />}>{view}</Suspense> : null;
+        }}
+      />
+    </SurveyStateProvider>
   </React.StrictMode>,
 );

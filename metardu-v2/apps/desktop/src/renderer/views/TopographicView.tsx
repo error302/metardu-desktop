@@ -16,12 +16,14 @@ import React, { useState } from "react";
 import { KENYA, type CountrySurveyConfig } from "@metardu/country-config";
 import { runTopographicWorkflow, type TopoPoint, type TopoWorkflowOutput } from "@metardu/engine-flight-planning";
 import { SurveyCanvas, type SurveyPoint, type SurveyContour, type SurveyTriangle } from "@metardu/ui-components";
+import { useSurveyState } from "../SurveyStateContext.js";
 
 const COUNTRIES: Record<string, CountrySurveyConfig> = {
   KE: KENYA,
 };
 
 export const TopographicView: React.FC = () => {
+  const { setSurveyOutput } = useSurveyState();
   const [csvInput, setCsvInput] = useState(
     "P1,257100,9857700,100.0,TOP\nP2,257110,9857700,101.5,TOP\nP3,257110,9857710,102.0,TOP\nP4,257100,9857710,100.5,TOP\nP5,257105,9857705,101.0,TOP"
   );
@@ -56,6 +58,8 @@ export const TopographicView: React.FC = () => {
         surveyor: { name: "Surveyor", regNo: "LS/0000", dateOfSurvey: new Date().toISOString().split("T")[0]! },
       });
       setResult(output);
+      // Push to shared survey state so ExportPanel can access it.
+      setSurveyOutput(output, "topographic", "TopographicView", "KE");
     } catch (e) {
       setError((e as Error).message);
     }

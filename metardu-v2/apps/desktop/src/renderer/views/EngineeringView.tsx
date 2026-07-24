@@ -8,6 +8,7 @@
 
 import React, { useState } from "react";
 import { KENYA } from "@metardu/country-config";
+import { useSurveyState } from "../SurveyStateContext.js";
 import { runEngineeringWorkflow, type EngineeringWorkflowOutput, type TIN, type TopoPoint } from "@metardu/engine-flight-planning";
 
 // Synthetic existing-ground TIN: a 100×100m area at elevation 100m.
@@ -22,6 +23,7 @@ const defaultTIN: TIN = {
 };
 
 export const EngineeringView: React.FC = () => {
+  const { setSurveyOutput } = useSurveyState();
   const [designElevation, setDesignElevation] = useState(102);
   const [sectionSpacing, setSectionSpacing] = useState(20);
   const [sectionWidth, setSectionWidth] = useState(80);
@@ -46,6 +48,7 @@ export const EngineeringView: React.FC = () => {
         country: KENYA,
       });
       setResult(output);
+      setSurveyOutput(output, "engineering", "EngineeringView", "KE");
     } catch (e) {
       setError((e as Error).message);
     }
