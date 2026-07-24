@@ -49,7 +49,8 @@
   "devDependencies": {
     "concurrently": "^9.0.0",
     "cross-env": "^7.0.3",
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^26.15.3"
   },
   "allowScripts": {
     "better-sqlite3@12.11.1": true

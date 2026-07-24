@@ -2015,3 +2015,51 @@ Stage Summary:
   5. Surveyor picks a format + clicks Export
   6. The real TopoWorkflowOutput is passed to the exporter → file written to disk
 - Demo data is still available as a fallback (when no survey has been run), but the primary path is now real data.
+
+---
+Task ID: 17
+Agent: main (session 18 — Electron packaging for distribution)
+Task: Build + test the Linux AppImage packaging with sidecar binary bundled. Verify the packaged app actually runs.
+
+Work Log:
+- Built all prerequisites in order:
+  1. country-config (tsc build)
+  2. electron-integration (tsc build)
+  3. engine (tsc build)
+  4. main process (tsc build)
+  5. renderer (Vite build — 6 chunks, 735KB total gzipped)
+  6. Rust sidecar (cargo build --release — 1.7MB binary)
+- Installed electron-builder at root (was only in apps/desktop devDeps — npm workspaces didn't install it at root where it's needed)
+- Installed app-builder-bin (needed by electron-builder for native packaging)
+- Built Linux unpacked dir: `npx electron-builder --linux --dir`
+  * Output: release/linux-unpacked/ (186MB executable + resources/)
+  * resources/metardu-sidecar — 1.7MB Rust binary correctly bundled
+  * resources/metardu-logo.jpeg — 204KB brand logo correctly bundled
+  * app.asar — 73MB (renderer + main + preload + node_modules)
+  * better-sqlite3 native module rebuilt for the target platform
+- Ran packaged smoke test under Xvfb:
+  * App starts (exit code 124 = timeout, expected — the app doesn't auto-quit)
+  * Sidecar spawns from resources/metardu-sidecar
+  * Sidecar reaches "running" state
+  * Health check passes (ping → pong)
+  * Version check passes (metardu-sidecar v0.1.0)
+  * SMOKE TEST PASSED
+- Built AppImage: `npx electron-builder --linux AppImage`
+  * Output: release/metardu-desktop-0.2.0-x86_64.AppImage (147MB)
+  * AppImage is a portable single-file executable — no install needed
+
+Verification:
+- tsc --noEmit (engine): 0 errors
+- tsc --noEmit (apps/desktop): 0 errors
+- npm test (engine): 657/657 pass
+- Packaged smoke test: PASSED (sidecar starts + responds to ping from packaged binary)
+- AppImage: 147MB, builds cleanly
+
+Stage Summary:
+- The Linux packaging pipeline is verified end-to-end:
+  1. Build all TS packages + renderer + sidecar
+  2. electron-builder packages into release/linux-unpacked/ with sidecar in resources/
+  3. AppImage built (147MB portable executable)
+  4. Packaged smoke test confirms sidecar starts + responds from the bundled binary
+- The Windows (.exe NSIS) and macOS (.dmg) builds use the same electron-builder.yml config — they can't be tested in this Linux container but the config is verified correct (paths, extraResources, targets all match).
+- The CI workflow (ci.yml) already has a 3-OS sidecar test matrix that builds + smoke-tests the sidecar binary on each platform. The packaging step would be added to the release workflow (triggered on tag push) — not to CI.
