@@ -1160,7 +1160,7 @@ Stage Summary:
 - ADR-0005 status: Accepted. First task brief (01-geojson) verified end-to-end.
 - GeoJSON exporter is the first concrete implementation of the IntegrationExporter interface. The export-menu UI in the Electron renderer will iterate over INTEGRATION_EXPORTERS to populate options.
 - Per-feature uncertainty (error ellipse) is now surfaced end-to-end from the LS adjustment's normal matrix → CadastralWorkflowOutput.uncertainty → GeoJSON feature.properties.uncertainty. This is invariant C1 ("every statutory number traces to an adjusted value with stated uncertainty") made machine-readable.
-- Marketing-claims canonical reference in ADR-0005 is now the source of truth for what sales copy may and may not say. Mohammed owns the metardu.duckdns.org copy update.
+- Marketing-claims canonical reference in ADR-0005 is now the source of truth for what sales copy may and may not say. Mohammed owns the metardu.space copy update.
 - What's next:
   * Brief 02: GeoJSON for topo + engineering survey outputs (extends integration/ to consume TopoWorkflowOutput and EngineeringWorkflowOutput — both need an `uncertainty` field added like Brief 00 did for cadastral).
   * Brief 03: GeoPackage exporter (binary format, @ngageoint/geopackage dependency — approved by ADR-0005).

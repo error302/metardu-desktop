@@ -7,7 +7,7 @@
 
 ## Context
 
-The previous web-app architecture (`metardu` / metardu.duckdns.org) used
+The previous web-app architecture (`metardu` / metardu.space) used
 Supabase + Leaflet + Prisma. It worked but had three structural problems:
 
 1. **Cloud dependency.** Surveyors in rural Kenya (and rural Australia,

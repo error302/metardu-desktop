@@ -15,7 +15,7 @@ Cadastral, Engineering, Construction Setting-Out, and Sectional Properties.
 
 A growth question has surfaced: **can metardu-desktop also serve the GIS analyst,
 CAD technician, and remote spatial-data-editor roles** that the marketing copy
-on metardu.duckdns.org references? Concretely — should metardu-desktop become a
+on metardu.space references? Concretely — should metardu-desktop become a
 GIS tool, or integrate with existing GIS tools?
 
 The wrong answer is "become a GIS tool." QGIS is 20+ years and hundreds of
@@ -376,7 +376,7 @@ the export menu iterates over the registered exporters.
   field carrying per-beacon error ellipses (semi-major, semi-minor,
   orientation, confidence level) — sourced from the existing normal matrix's
   inverse, `covariance = σ₀² × N⁻¹`.
-- [ ] Marketing copy on metardu.duckdns.org updated to align with the
+- [ ] Marketing copy on metardu.space updated to align with the
   "Marketing claims" section above. (Out of scope for the engineering task —
   flagged for Mohammed.)
 

@@ -123,7 +123,7 @@
 
 4. **Marketing copy alignment**
    - ADR-0005 defines canonical marketing claims
-   - metardu.duckdns.org copy needs to align with the ADR's "can/cannot claim" table
+   - metardu.space copy needs to align with the ADR's "can/cannot claim" table
 
 ### 🟢 Nice-to-have
 
