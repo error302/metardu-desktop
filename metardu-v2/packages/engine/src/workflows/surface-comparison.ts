@@ -18,6 +18,7 @@
  */
 
 import type { TIN, TopoPoint } from "../workflows/topographic.js";
+import type { PointUncertainty } from "../survey-types.js";
 
 // ─── Types ───────────────────────────────────────────────────────
 

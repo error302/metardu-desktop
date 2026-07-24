@@ -15,6 +15,8 @@
  *   - RICS Measured Surveys of Utilities specification
  */
 
+import type { PointUncertainty } from "../survey-types.js";
+
 // ─── Types ───────────────────────────────────────────────────────
 
 export type UtilityType =
@@ -179,6 +181,7 @@ export function generateUtilitySurveyPlan(detections: GprDetection[]): UtilitySu
         byType: { electric: 0, water: 0, gas: 0, telecom: 0, sewer: 0, drainage: 0, fiber: 0, unknown: 0 },
         avgDepth: 0, maxDepth: 0, minDepth: 0, avgConfidence: 0,
       },
+      pointUncertainty: {},
     };
   }
 
@@ -248,7 +251,7 @@ export function generateUtilitySurveyPlan(detections: GprDetection[]): UtilitySu
       avgConfidence: confSum / detections.length,
     },
     pointUncertainty: Object.fromEntries(
-      detections.map((d, i) => [String(i), { adjusted: false, reason: "field-data" } as const])
+      detections.map((_d, i) => [String(i), { adjusted: false, reason: "field-data" } as const])
     ),
   };
 }

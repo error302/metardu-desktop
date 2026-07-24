@@ -43,6 +43,8 @@
  *   - PDAL (Point Data Abstraction Library) documentation
  */
 
+import type { PointUncertainty } from "../survey-types.js";
+
 // ─── Types ───────────────────────────────────────────────────────
 
 /** A single LiDAR point. */

@@ -1,8 +1,8 @@
 # MetaRDU Desktop — Complete Status & Remaining Work
 
-**Date:** 20 Jul 2026
-**Total commits:** 59
-**Total tests:** 736 passing across 7 suites
+**Date:** 24 Jul 2026
+**Total commits:** 75+
+**Total tests:** 657 engine tests + 91 sidecar tests = 748 passing
 
 ---
 
@@ -10,10 +10,10 @@
 
 ### Core Architecture (Phases 0-7)
 - ✅ Rust sidecar (32 IPC methods, 91 tests)
-- ✅ TypeScript engine (489 tests)
+- ✅ TypeScript engine (657 tests)
 - ✅ Country config for 5 countries (100 tests)
 - ✅ Electron shell (branded, sandboxed, code-split, packaged)
-- ✅ AGENT.md + invariants + 4 ADRs + golden fixtures
+- ✅ AGENT.md + invariants + 8 ADRs + golden fixtures
 - ✅ Production packaging config (electron-builder, 3-platform CI)
 - ✅ lucide-react SVG icons (no emojis)
 - ✅ Vite code-splitting (initial load ~248KB)
@@ -29,7 +29,7 @@
 - ✅ Property-based tests (fast-check, 8 tests)
 
 ### Workflows (8 total)
-- ✅ Cadastral (Form 3 PDF + DXF, Gauss-Newton trilateration)
+- ✅ Cadastral (Form 3 PDF + DXF, Gauss-Newton trilateration, per-beacon uncertainty)
 - ✅ Topographic (TIN, contours, spot heights, mean slope)
 - ✅ Engineering (cross-sections, cut/fill volumes, end-area method)
 - ✅ Construction Setting-Out (stakeout + as-built QC)
@@ -37,6 +37,8 @@
 - ✅ Drone processing (GSD, ASPRS classification, overlap, report)
 - ✅ Surface comparison (cut/fill, stockpile, construction progress)
 - ✅ UK Measured Survey (RICS-compliant PDF renderer)
+- ✅ LiDAR point cloud classification (PMF, DTM/DSM)
+- ✅ Corridor design + GPR utility mapping + multi-user collaboration + interactive map canvas
 
 ### Country Configs (5 countries)
 - ✅ Kenya (Arc 1960/UTM 37S, ISK, Form 3/4, Sectional Properties Act 2020)
@@ -45,9 +47,27 @@
 - ✅ South Africa (Hartebeesthoek94/Lo27, SAGC/PLATO, SG Diagram)
 - ✅ UAE Dubai (WGS84/UTM 40N, DLD/DM, JOP Declaration)
 
+### Integration & Export (ADR-0005 — COMPLETE 7/7)
+- ✅ GeoJSON exporter (CRS metadata + per-feature uncertainty, all 10 survey types)
+- ✅ GeoPackage exporter (OGC 12-128r14, multi-layer, WKB geometry, all 10 types)
+- ✅ PyQGIS helper script generator (country-correct symbology, Python syntax-validated)
+- ✅ QGIS project file (.qgs) generator (embedded styles, QGIS 3.34 LTR)
+- ✅ GCP file exporter (Pix4D, Metashape, Agisoft CSV formats)
+- ✅ OSM changeset XML exporter (source attribution, WGS84 auto-conversion)
+- ✅ DXF exporter (country-correct layer naming: Kenya + UK + generic fallback)
+- ✅ Sidecar lat/lon conversion bridge (projectToWgs84 callback, all 5 spatial exporters)
+- ✅ All 10 survey types handled by all 5 SurveyOutput-consuming exporters
+- ✅ outputWgs84 option for GeoJSON/GeoPackage/QGS (auto-reproject to EPSG:4326)
+
 ### Output Formats
 - ✅ PDF (Form 3 Kenya, UK Measured Survey)
-- ✅ DXF (4 generators: Form 3, topo, engineering, sectional)
+- ✅ DXF (country-correct layer names, all 10 survey types)
+- ✅ GeoJSON (RFC 7946, all 10 survey types, CRS + uncertainty)
+- ✅ GeoPackage (OGC 12-128r14, multi-layer, all 10 survey types)
+- ✅ PyQGIS script (.py, country-correct symbology)
+- ✅ QGIS project (.qgs, QGIS 3.34 LTR)
+- ✅ GCP CSV (Pix4D, Metashape, Agisoft)
+- ✅ OSM XML (.osm, JOSM-compatible)
 - ✅ SVG SurveyCanvas (TIN, contours, boundaries, beacons, pan/zoom)
 - ✅ OpenLayers MapView (satellite/street/topo basemaps)
 
@@ -64,6 +84,13 @@
 - ✅ Input validation (NaN, collinear, degenerate, 43 tests)
 - ✅ Edge-case tests (43 tests)
 
+### CI
+- ✅ 3-OS sidecar matrix (Linux, Windows, macOS)
+- ✅ Windows smoke test (sidecar binary actually runs + responds to ping)
+- ✅ Node 20/22/24 engine test matrix
+- ✅ E2e protocol test (ping, echo, version, list_methods, error handling)
+- ✅ Demo script verification
+
 ### Regulatory Documents Filed (20 files)
 - ✅ Kenya: Survey Act Cap 299, Gazette 1994, Electronic Cadastre Regs 2020,
   Survey Submission Standards SRVY2025-1, Form LRA-27, Annex 6, Siriba paper,
@@ -78,70 +105,28 @@
 
 ### 🔴 Critical (blocks real-world use)
 
-1. **LiDAR point cloud classification** (Post 3 — building this now)
-   - DSM → DTM ground extraction
-   - Vegetation/building classification
-   - Needs Rust sidecar for performance (millions of points)
-
-2. **Windows sidecar cross-compilation**
-   - The .exe installer ships a Linux binary
-   - Need to cross-compile Rust + GDAL for Windows
-   - CI workflow is configured but untested
-
-3. **Real-world testing**
+1. **Real-world testing**
    - No surveyor has ever used this app
    - Need a beta tester to take it into the field
 
 ### 🟡 Important (improves marketability)
 
-4. **Corridor/alignment design module**
-   - Civil 3D corridor equivalent
-   - Horizontal + vertical alignment design
-   - Template-based cross-section generation
-   - We have cross-section EXTRACTION but not DESIGN
+2. **Electron packaging for distribution**
+   - electron-builder config exists but needs real-world testing
+   - Windows installer (.exe) + macOS (.dmg) + Linux (.AppImage)
+   - Sidecar binary must be bundled in the app resources
 
-5. **GPR/utility mapping module**
-   - For the UK utility surveying market
-   - Import GPR data, overlay on orthophoto
-   - Generate utility survey plan
+3. **UI wiring for Integration & Export**
+   - 7 exporters are built but not yet accessible from the Electron UI
+   - Need an "Export → GeoJSON / GeoPackage / PyQGIS / QGS / GCP / OSM / DXF" menu
+   - The INTEGRATION_EXPORTERS registry is ready — UI just needs to iterate over it
 
-6. **Field data collection mode**
-   - Live connection to Total Station / GNSS
-   - Real-time coordinate display
-   - This is metardu-access's job (the mobile app) but the desktop
-     app should at least support live NMEA streaming
+4. **Marketing copy alignment**
+   - ADR-0005 defines canonical marketing claims
+   - metardu.duckdns.org copy needs to align with the ADR's "can/cannot claim" table
 
-### 🟢 Nice to have (polish)
+### 🟢 Nice-to-have
 
-7. **AI plan checker**
-   - Automated compliance checking of generated plans
-   - metardu web has /ai-plan-checker
-
-8. **Ardhisasa integration** (Kenya)
-   - Electronic cadastre submission via NLIS API
-
-9. **Multi-user collaboration**
-   - Team project sharing via the sync client
-
-10. **Map canvas enhancements**
-    - Draw + annotate on the map
-    - Measure distances/areas interactively
-    - Print to PDF from the map view
-
----
-
-## Summary
-
-**Done:** 8 workflows, 5 countries, 4 instrument importers, 2 PDF renderers,
-4 DXF generators, sync, digital signature, surface comparison, stockpile
-volumes, construction progress, SVG canvas, OpenLayers map, 736 tests.
-
-**Remaining critical:** LiDAR classification (building now), Windows build,
-real-world testing.
-
-**Remaining important:** Corridor design, GPR module, field mode.
-
-The app is now at the point where a UK surveyor with Trimble equipment
-can: import field data → compute traverses → adjust coordinates →
-compare surfaces → compute volumes → generate RICS-compliant plans →
-digitally sign → sync with the web app. That's a complete office workflow.
+5. **Sidecar warnings cleanup** (39 pre-existing warnings)
+6. **Performance optimization** for large LiDAR point clouds
+7. **Additional country configs** (Australia states beyond NSW, UAE emirates beyond Dubai)

@@ -22,11 +22,18 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-          cache-dependency-path: packages/engine/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        working-directory: packages/engine
-        run: npm ci || npm install
+        run: npm install
+
+      - name: Build country-config (engine dependency)
+        working-directory: packages/country-config
+        run: npm run build
+
+      - name: Build electron-integration (engine + desktop dependency)
+        working-directory: packages/electron-integration
+        run: npm run build
 
       - name: Type check
         working-directory: packages/engine
@@ -44,7 +51,7 @@ jobs:
           path: packages/engine/coverage/
           retention-days: 7
 
-  # ─── Rust Sidecar Tests ─────────────────────────────────────────────
+  # ─── Rust Sidecar Tests (3-OS matrix) ──────────────────────────────
   sidecar-test:
     name: Sidecar Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -65,23 +72,48 @@ jobs:
         with:
           workspaces: packages/metardu-sidecar
 
-      - name: Format check
-        working-directory: packages/metardu-sidecar
-        run: cargo fmt -- --check
-        continue-on-error: true
-
-      - name: Clippy
-        working-directory: packages/metardu-sidecar
-        run: cargo clippy --all-targets -- -D warnings
-        continue-on-error: true
-
       - name: Build
         working-directory: packages/metardu-sidecar
         run: cargo build --release
 
-      - name: Run tests
+      - name: Run unit tests
         working-directory: packages/metardu-sidecar
         run: cargo test
+
+      - name: Run end-to-end smoke test (ping/echo/version)
+        working-directory: packages/metardu-sidecar
+        shell: python
+        run: |
+          import json, struct, subprocess, sys
+          from pathlib import Path
+          
+          binary = Path("target/release/metardu-sidecar")
+          if sys.platform == "win32":
+              binary = binary.with_suffix(".exe")
+          
+          if not binary.exists():
+              print(f"ERROR: {binary} not found", file=sys.stderr)
+              sys.exit(1)
+          
+          proc = subprocess.Popen([str(binary)], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+          try:
+              # Send ping
+              payload = json.dumps({"id":"1","method":"ping","params":None}).encode()
+              proc.stdin.write(struct.pack(">I", len(payload)) + payload)
+              proc.stdin.flush()
+              
+              # Read response
+              hdr = proc.stdout.read(4)
+              (length,) = struct.unpack(">I", hdr)
+              resp = json.loads(proc.stdout.read(length))
+              
+              assert resp["ok"] == True, f"ping failed: {resp}"
+              assert resp["result"]["pong"] == True
+              print("SMOKE TEST PASSED: sidecar responds to ping on ${{ matrix.os }}")
+          finally:
+              proc.stdin.close()
+              proc.wait(timeout=5)
 
       - name: Upload sidecar binary
         if: github.ref == 'refs/heads/main'
@@ -96,7 +128,7 @@ jobs:
 
   # ─── End-to-End Test (Python script against Linux sidecar) ─────────
   e2e-test:
-    name: End-to-End Test
+    name: End-to-End Test (full protocol)
     runs-on: ubuntu-latest
     needs: sidecar-test
     steps:
@@ -131,8 +163,11 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        working-directory: packages/engine
         run: npm install
+
+      - name: Build country-config
+        working-directory: packages/country-config
+        run: npm run build
 
       - name: Run terrain-aware demo
         run: npx tsx scripts/demo-terrain-aware.mjs

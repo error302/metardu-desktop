@@ -15,6 +15,8 @@
  *   - Schofield & Breach, "Engineering Surveying" Ch. 12-13
  */
 
+import type { PointUncertainty } from "../survey-types.js";
+
 // ─── Types ───────────────────────────────────────────────────────
 
 export interface HorizontalElement {
