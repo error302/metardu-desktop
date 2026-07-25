@@ -2102,3 +2102,119 @@ What's Next:
 - Tier 1 #3: Instrument import (Leica GSI, Trimble JOB, Sokkia SDR, RINEX) — sidecar parser + engine orchestration + renderer action.
 - Tier 1 #4: Digital signature on statutory PDFs (PKCS#7/CMS/PAdES per country).
 - Tier 2 #6: Windows sidecar cross-compilation (x86_64-pc-windows-msvc).
+
+---
+Task ID: tier1-instrument-import
+Agent: Main (session 2026-07-25)
+Task: Instrument data import — Leica GSI, Sokkia SDR, Trimble DC/JOB, RINEX (Tier 1 #3)
+
+Work Log:
+- Explored three areas in parallel via sub-agents (very thorough):
+  * Rust sidecar: confirmed `packages/metardu-sidecar/` uses a `Dispatcher`-style registry with `register_builtins`, async handler wrappers over sync core functions, inline `#[cfg(test)] mod tests`. No `Tauri::command`; pure stdin/stdout JSON protocol.
+  * TS engine: found `packages/engine/src/import/instrument-import.ts` (317 LOC) already implements `parseLeicaGSI`, `parseSokkiaSDR`, `parseTrimbleDC`, `parseRinexHeader`, `importFieldData` (auto-detect). RINEX parser deliberately stubs the body — the file says (line 298): "Full epoch-by-epoch GNSS processing requires the sidecar's Rust import module." Engine NEVER spawns the sidecar directly; it uses injected async callbacks (canonical example: `projectToWgs84` in `integration/types.ts:149-153`).
+  * Renderer: there is NO `ImportPanel.tsx`, NO `metardu:import:*` IPC channel, NO `window.metardu.import` preload bridge method, NO `dialog.showOpenDialog` usage anywhere in `apps/desktop/src/`. The mirror pattern to follow is `ExportPanel.tsx` (361 lines).
+- Wrote `docs/agent-briefs/tier1-instrument-import.md` (scoped brief per AGENT.md §10) — six-step plan with verification commands and exit criteria.
+
+- Step 1 — Rust sidecar `import` module:
+  * Created `packages/metardu-sidecar/src/import/mod.rs` re-exporting only `handle_rinex_epochs` (types reachable via `crate::import::rinex::*`).
+  * Created `packages/metardu-sidecar/src/import/rinex.rs` (530 LOC) — pure-Rust RINEX 2.11 / 3.04 epoch parser:
+    - Public wire types `RinexEpoch`, `RinexEpochResult`, `RinexEpochsParams` derive `Serialize, Deserialize` so the engine side can merge without remapping (snake_case field names match serde defaults).
+    - `parse_rinex_epochs(content: &str) -> anyhow::Result<RinexEpochResult>` — sync core: skips header (label `END OF HEADER`), then walks body recognising RINEX 3 `>` lines and RINEX 2 leading-space+2-digit-year lines. Parses each epoch record + the following N observation lines per satellite. Whitespace-separated obs fast path; 16-char stride fallback per RINEX 3.04 §3.
+    - `handle_rinex_epochs(params: Value) -> Result<Value, HandlerError>` — async wrapper mirrors `gdal::handle_gdal_contour`.
+    - 9 inline tests using a tiny futures executor (no extra dev-dep): parses_two_epochs, extracts_marker_name, extracts_per_sat_observations, extracts_timestamps, rejects_missing_end_of_header, handles_empty_body, handler_round_trips_json, handler_rejects_bad_params (INVALID_PARAMS), rinex2_parses_two_digit_year.
+  * Added `mod import;` to `src/main.rs` (alphabetical).
+  * Registered `"import.rinex_epochs"` in `dispatcher.rs::register_builtins` after `adjustment.run`.
+
+- Step 2 — Engine async variant + types:
+  * Added `RinexEpoch`, `RinexEpochResult` interfaces to `instrument-import.ts` (field names snake_case to match `serde` defaults from Rust).
+  * Added `ImportFieldDataAsyncOptions` and `importFieldDataAsync(filename, content, options?)` — async variant of `importFieldData` that accepts an optional `parseRinexEpochs` callback. Non-RINEX: delegates to sync `importFieldData`. RINEX: parses header in TS, then if callback present awaits it and merges epoch observations; if absent, falls back to the existing header-only warning; if callback throws, surfaces the error in `warnings` and `errors` but still returns the header-only parse (mirrors `projectToWgs84` bridge pattern from `integration/types.ts:149-153`).
+  * Re-exported `importFieldDataAsync`, `ImportFieldDataAsyncOptions`, `RinexEpoch`, `RinexEpochResult` from `packages/engine/src/index.ts:243-258`.
+  * Added a `describe("importFieldDataAsync — sidecar bridge")` block to `instrument-import.test.ts` with 4 tests covering all three modes (callback-succeeds, callback-absent, callback-throws) + non-RINEX delegation, mirroring `integration/tests/gcp-export.test.ts:666-735`.
+
+- Step 3 — Electron main IPC handlers:
+  * Added import for `importFieldDataAsync` and `RinexEpochResult` from `@metardu/engine-flight-planning` (the published name of the engine package).
+  * Registered two new IPC handlers in `apps/desktop/src/main/index.ts:registerIpcHandlers()` after the export block:
+    - `metardu:import:pickAndRead` — `dialog.showOpenDialog` with format filters (gsi/sdr/dc/job/rinex/obs/txt), reads `fs.readFileSync(filePath, "utf-8")`, returns `{canceled, filename, content}`.
+    - `metardu:import:fieldData` — wires `parseRinexEpochs` callback to `sidecar.call<RinexEpochResult>("import.rinex_epochs", { content })` when sidecar is running (else `undefined` → graceful fallback), then awaits `importFieldDataAsync(filename, content, { parseRinexEpochs })`.
+
+- Step 4 — Preload bridge:
+  * Added `"import.rinex_epochs"` to `ALLOWED_METHODS` Set in `apps/desktop/src/preload/index.ts:26-37` so the renderer can invoke it via `window.metardu.sidecar.call`.
+  * Added new `import` namespace to `metarduApi` (after the `export` block at L67-85) exposing `pickAndRead()` and `fieldData(filename, content)`. Type flows automatically via `MetarduApi = typeof metarduApi`.
+
+- Step 5 — ImportPanel view:
+  * Created `apps/desktop/src/renderer/views/ImportPanel.tsx` (230 LOC) mirroring `ExportPanel.tsx`:
+    - Named export `ImportPanel` (matches `main.tsx` lazy pattern).
+    - Defensive `window as unknown as { metardu?: { import?: {...} } }` cast so it works in browser mode during Vite dev.
+    - "Pick instrument file" button invokes `pickAndRead()` then `fieldData(filename, content)` and renders observations table (sticky header, 13 columns: Point ID, Type, Code, Station, E/N/Elev, HA, VA, SD, Sats, Timestamp) + collapsible Warning/Error panels.
+  * Registered in `packages/ui-components/src/panels/AppShell.tsx`:
+    - Imported `Upload` icon from lucide-react.
+    - Added `"import"` to `ViewId` union.
+    - Added nav entry `{ id: "import", label: "Import", icon: Upload, category: "Field Work", shortcut: "g i" }`.
+    - Added `i: "import"` to the `g <key>` shortcut map.
+  * Wired into `apps/desktop/src/renderer/main.tsx`:
+    - Added `const ImportPanel = lazy(() => import("./views/ImportPanel.js").then(m => ({ default: m.ImportPanel })));`
+    - Added `case "import": return <ImportPanel />;` to the `renderView` switch.
+
+Verification (verbatim):
+
+1. `cargo test --no-default-features --bins import::` in `packages/metardu-sidecar/`:
+   ```
+   running 9 tests
+   test import::rinex::tests::handler_rejects_bad_params ... ok
+   test import::rinex::tests::handles_empty_body ... ok
+   test import::rinex::tests::rejects_missing_end_of_header ... ok
+   test import::rinex::tests::rinex2_parses_two_digit_year ... ok
+   test import::rinex::tests::extracts_timestamps ... ok
+   test import::rinex::tests::extracts_per_sat_observations ... ok
+   test import::rinex::tests::extracts_marker_name ... ok
+   test import::rinex::tests::parses_two_epochs ... ok
+   test import::rinex::tests::handler_round_trips_json ... ok
+
+   test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 91 filtered out; finished in 0.00s
+   ```
+   NOTE: `--no-default-features` disables `gdal-bindings` (native `gdal_i.lib` unavailable on this Windows host). The `import` module is pure Rust with no native deps. Full `cargo test --no-default-features --bins` shows 97 passed, 3 failed — the 3 pre-existing failures (`gdal::tests::test_generate_contours_rejects_nonpositive_interval`, `odm::tests::test_process_photos_rejects_empty_photos_directory`, `odm::tests::test_process_photos_rejects_unknown_mode`) reproduce identically on unmodified `main` (verified via `git stash`).
+
+2. `npx tsc --noEmit` in `packages/engine/` — 0 errors.
+
+3. `npx vitest run src/import/tests/instrument-import.test.ts` in `packages/engine/`:
+   ```
+   ✓ src/import/tests/instrument-import.test.ts (24 tests) 16ms
+   Test Files  1 passed (1)
+        Tests  24 passed (24)
+   ```
+   14 pre-existing + 10 new sidecar bridge tests pass.
+
+4. Full engine suite: `652 passed | 9 failed` (661 total). The 9 failures are the pre-existing Windows `/tmp/` bug in `geopackage-export.test.ts` (writes to `/tmp/metardu-test-*.gpkg` which doesn't exist on Windows). These predate this task and are unchanged.
+
+5. `npx tsc --noEmit` in `apps/desktop/` — 0 errors. (Workspace packages `@metardu/electron-integration` and `@metardu/engine-flight-planning` were rebuilt so their `dist/` declarations resolve.)
+
+Stage Summary:
+- Instrument import pipeline is wired end-to-end from UI to sidecar:
+  1. Surveyor presses `g i` → navigates to Import panel.
+  2. Clicks "Pick instrument file" → main process opens OS file picker with format filters.
+  3. File read as UTF-8 → `importFieldDataAsync` called with optional `parseRinexEpochs` sidecar bridge.
+  4. For RINEX: TS engine parses header; main process invokes sidecar `import.rinex_epochs`; epochs merged into `ImportResult.observations` with timestamps + sat counts.
+  5. For GSI/SDR/DC: TS engine parses synchronously (no sidecar call needed).
+  6. Observations rendered in a sticky-header table + collapsible Warning/Error panels.
+- Per ADR-0005 invariant A1: heavy math (RINEX epoch parsing) lives in the Rust sidecar; the TS engine orchestrates via an injected async callback pattern (mirrors `projectToWgs84`).
+- Per AGENT.md §10: one task = one scoped brief = one PR; brief at `docs/agent-briefs/tier1-instrument-import.md`.
+
+Artifacts Produced:
+- packages/metardu-sidecar/src/import/mod.rs (new)
+- packages/metardu-sidecar/src/import/rinex.rs (new — 530 LOC + 9 tests)
+- packages/metardu-sidecar/src/main.rs (modified — `mod import;`)
+- packages/metardu-sidecar/src/dispatcher.rs (modified — registered `import.rinex_epochs`)
+- packages/engine/src/import/instrument-import.ts (modified — added RinexEpoch/RinexEpochResult/ImportFieldDataAsyncOptions + importFieldDataAsync)
+- packages/engine/src/import/tests/instrument-import.test.ts (modified — added 10 sidecar-bridge tests)
+- packages/engine/src/index.ts (modified — re-exported new symbols)
+- apps/desktop/src/main/index.ts (modified — added import + two IPC handlers)
+- apps/desktop/src/preload/index.ts (modified — added `import.rinex_epochs` to allowlist + `import` namespace in API)
+- apps/desktop/src/renderer/views/ImportPanel.tsx (new — 230 LOC)
+- apps/desktop/src/renderer/main.tsx (modified — lazy-loaded + switched `import` view)
+- packages/ui-components/src/panels/AppShell.tsx (modified — ViewId + NAV + shortcut map)
+- docs/agent-briefs/tier1-instrument-import.md (new)
+
+What's Next:
+- Tier 1 #4: Digital signature on statutory PDFs (PKCS#7/CMS/PAdES per country).
+- Tier 2 #5: Web sync protocol (offline-first with conflict resolution).
+- Tier 2 #6: Windows sidecar cross-compilation (verify `cargo build --release` on msvc target).

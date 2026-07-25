@@ -243,12 +243,16 @@ export {
 // Instrument import — THE killer feature (Leica GSI, Trimble DC, Sokkia SDR, RINEX)
 export {
   importFieldData,
+  importFieldDataAsync,
   parseLeicaGSI,
   parseSokkiaSDR,
   parseTrimbleDC,
   parseRinexHeader,
   type FieldObservation,
   type ImportResult,
+  type ImportFieldDataAsyncOptions,
+  type RinexEpoch,
+  type RinexEpochResult,
 } from "./import/instrument-import.js";
 
 // UK Measured Survey Plan renderer (RICS-compliant)

@@ -33,6 +33,8 @@ const ALLOWED_METHODS = new Set<string>([
   "mavlink_connect",
   "odm_process",
   "ml_extract_buildings",
+  // Tier 1 #3 — RINEX epoch parsing lives in the sidecar per ADR-0005 A1.
+  "import.rinex_epochs",
 ]);
 
 function validateMethod(method: unknown): asserts method is string {
@@ -81,6 +83,34 @@ const metarduApi = {
       options: Record<string, unknown>,
     ): Promise<{ filePath: string; bytes: number; warnings: string[] }> =>
       ipcRenderer.invoke("metardu:export:survey", format, surveyOutput, options),
+  },
+  /** Instrument data import (Tier 1 #3) — Leica GSI, Sokkia SDR, Trimble DC/JOB, RINEX. */
+  import: {
+    /**
+     * Open the OS file picker and read the chosen instrument file as UTF-8.
+     * @returns `{ canceled, filename, content }`. If canceled, filename="" and content="".
+     */
+    pickAndRead: (): Promise<{ canceled: boolean; filename: string; content: string }> =>
+      ipcRenderer.invoke("metardu:import:pickAndRead"),
+    /**
+     * Parse the given instrument file content and return observations.
+     * For RINEX files, the main process wires the sidecar's
+     * `import.rinex_epochs` handler to parse epoch records; if the sidecar
+     * is unavailable the engine falls back to header-only parse with a warning.
+     * @param filename Used for format auto-detection (extension sniffing).
+     * @param content Raw text content of the instrument file.
+     * @returns The ImportResult from the engine (observations, warnings, errors, format, pointCount).
+     */
+    fieldData: async (
+      filename: string,
+      content: string,
+    ): Promise<{
+      observations: Array<{ pointId: string; type: string }>;
+      warnings: string[];
+      errors: string[];
+      format: string;
+      pointCount: number;
+    }> => ipcRenderer.invoke("metardu:import:fieldData", filename, content),
   },
 };
 

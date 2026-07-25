@@ -241,6 +241,14 @@ impl Dispatcher {
         self.register("adjustment.run", |params: Value| async move {
             crate::compute_handlers::handle_adjustment_run(params).await
         });
+
+        // ---- Phase 1 #3: Instrument data import (RINEX epoch parsing) ----
+        // The TS engine parses the RINEX header; this handler parses the body
+        // (epoch records + observation lines). Per ADR-0005 invariant A1 the
+        // heavy parsing lives here in the sidecar.
+        self.register("import.rinex_epochs", |params: Value| async move {
+            crate::import::handle_rinex_epochs(params).await
+        });
     }
 
     /// Returns the list of all registered method names.

@@ -12,6 +12,7 @@ mod compute_handlers;
 mod dispatcher;
 mod gdal;
 mod geodesy;
+mod import;
 mod mavsdk;
 mod ml;
 mod odm;

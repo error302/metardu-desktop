@@ -7,6 +7,14 @@
  *   3. Sokkia SDR (Standard Data Record) — total stations
  *   4. RINEX (Receiver Independent Exchange Format) — GNSS raw data
  *
+ * The TS layer handles formats 1-3 fully synchronously (they're small text
+ * files). For RINEX, the TS layer parses only the header; the body (epoch
+ * records + per-satellite observations) is parsed by the Rust sidecar via
+ * the `import.rinex_epochs` IPC handler, per ADR-0005 invariant A1 (heavy
+ * math in Rust). The Electron main process wires the sidecar call behind
+ * an injected async callback — `importFieldDataAsync`'s `options.parseRinexEpochs`
+ * — so the engine never imports the sidecar client directly.
+ *
  * References:
  *   - Leica GSI: Leica Geo Office documentation
  *   - Trimble JOB: Trimble Business Center import docs
@@ -51,6 +59,26 @@ export interface ImportResult {
   errors: string[];
   format: string;
   pointCount: number;
+}
+
+// ─── RINEX epoch bridge types (mirror sidecar RinexEpochResult) ─────
+
+/** One parsed RINEX epoch returned by the sidecar's `import.rinex_epochs`. */
+export interface RinexEpoch {
+  timestamp: string;
+  /** Number of satellites observed at this epoch (matches Rust `satellite_count`). */
+  satellite_count: number;
+  satellites: string[];
+  observations: number[][];
+  epoch_flag: number;
+}
+
+/** Result of the sidecar's `import.rinex_epochs` handler. */
+export interface RinexEpochResult {
+  epochs: RinexEpoch[];
+  warnings: string[];
+  epoch_count: number;
+  marker_name: string;
 }
 
 // ─── Leica GSI parser ────────────────────────────────────────────
@@ -314,4 +342,115 @@ export function importFieldData(filename: string, content: string): ImportResult
     format: "unknown",
     pointCount: 0,
   };
+}
+
+// ─── Async variant with sidecar bridge (ADR-0005 invariant A1) ─────
+
+/** Options for {@link importFieldDataAsync}. */
+export interface ImportFieldDataAsyncOptions {
+  /**
+   * Sidecar bridge for RINEX epoch parsing. When provided AND the file is
+   * detected as RINEX, this callback is invoked with the full file content.
+   * The result's epochs are merged into the returned {@link ImportResult}.
+   *
+   * Wired by the Electron main process to
+   * `sidecar.call("import.rinex_epochs", { content })`. When omitted, the
+   * TS RINEX header-only parse is used and a warning is appended noting
+   * that the sidecar is needed for full epoch data.
+   */
+  parseRinexEpochs?: (content: string) => Promise<RinexEpochResult>;
+}
+
+/**
+ * Async variant of {@link importFieldData} that accepts an optional sidecar
+ * bridge for RINEX epoch parsing. Non-RINEX formats are parsed synchronously
+ * by the existing TS parsers and returned immediately.
+ *
+ * Error-handling contract (mirrors the `projectToWgs84` bridge in
+ * `integration/types.ts:149-153`):
+ *   - If the callback is absent → fall back to header-only parse; emit a
+ *     warning that the sidecar is needed for full epoch data.
+ *   - If the callback throws → catch, surface the error message in a
+ *     warning, and return the header-only parse result rather than
+ *     re-throwing. This keeps "import" always successful for the caller.
+ */
+export async function importFieldDataAsync(
+  filename: string,
+  content: string,
+  options?: ImportFieldDataAsyncOptions,
+): Promise<ImportResult> {
+  const ext = filename.toLowerCase().split(".").pop() ?? "";
+  const upperContent = content.substring(0, 500).toUpperCase();
+  const isRinex = ext === "rinex" || ext === "obs" || upperContent.includes("RINEX VERSION");
+
+  // Non-RINEX: delegate to the synchronous importFieldData.
+  if (!isRinex) {
+    return importFieldData(filename, content);
+  }
+
+  // RINEX: parse the header in TS, then optionally parse the body in the sidecar.
+  const header = parseRinexHeader(content);
+  const headerWarning = `RINEX header parsed. Marker: ${header.markerName}, Receiver: ${header.receiverType}`;
+  const headerObs: FieldObservation = {
+    pointId: header.markerName || "GNSS_BASE",
+    type: "gnss",
+    code: header.markerName,
+    gnss: { latitude: 0, longitude: 0, height: header.approximatePosition.z, fixQuality: "unknown", satellites: 0, hdop: 0, vdop: 0 },
+    coordinates: { easting: header.approximatePosition.x, northing: header.approximatePosition.y, elevation: header.approximatePosition.z },
+  };
+
+  if (!options?.parseRinexEpochs) {
+    return {
+      observations: [headerObs],
+      warnings: header.warnings.concat([
+        headerWarning,
+        `Full epoch-by-epoch GNSS processing requires the sidecar's Rust import module.`,
+      ]),
+      errors: [],
+      format: `RINEX (${header.receiverType || "unknown receiver"})`,
+      pointCount: 1,
+    };
+  }
+
+  // Sidecar bridge present — invoke it. Errors are surfaced as warnings.
+  try {
+    const epochResult = await options.parseRinexEpochs(content);
+    const epochObs: FieldObservation[] = epochResult.epochs.map((ep, i) => ({
+      pointId: `${header.markerName || "GNSS_BASE"}-E${i + 1}`,
+      type: "gnss",
+      code: ep.satellites.join(",") || undefined,
+      timestamp: ep.timestamp,
+      gnss: {
+        latitude: 0,
+        longitude: 0,
+        height: header.approximatePosition.z,
+        fixQuality: ep.epoch_flag === 0 ? "fixed" : "unknown",
+        satellites: ep.satellite_count,
+        hdop: 0,
+        vdop: 0,
+      },
+    }));
+    return {
+      observations: [headerObs, ...epochObs],
+      warnings: header.warnings.concat(epochResult.warnings, [
+        headerWarning,
+        `Parsed ${epochResult.epoch_count} epoch records via sidecar.`,
+      ]),
+      errors: [],
+      format: `RINEX (${header.receiverType || "unknown receiver"})`,
+      pointCount: 1 + epochObs.length,
+    };
+  } catch (err) {
+    const msg = (err as Error).message ?? String(err);
+    return {
+      observations: [headerObs],
+      warnings: header.warnings.concat([
+        headerWarning,
+        `Sidecar RINEX epoch parse failed (${msg}); falling back to header-only.`,
+      ]),
+      errors: [`sidecar: ${msg}`],
+      format: `RINEX (${header.receiverType || "unknown receiver"})`,
+      pointCount: 1,
+    };
+  }
 }

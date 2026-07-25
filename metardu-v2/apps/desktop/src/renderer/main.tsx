@@ -53,6 +53,7 @@ const SettingOutView = lazy(() => import("./views/SettingOutView.js").then(m => 
 const SectionalView = lazy(() => import("./views/SectionalView.js").then(m => ({ default: m.SectionalView })));
 const MapView = lazy(() => import("./views/MapView.js").then(m => ({ default: m.MapView })));
 const ExportPanel = lazy(() => import("./views/ExportPanel.js").then(m => ({ default: m.ExportPanel })));
+const ImportPanel = lazy(() => import("./views/ImportPanel.js").then(m => ({ default: m.ImportPanel })));
 
 // Loading fallback for lazy views — small spinner, not a full-screen blocker.
 const ViewLoading: React.FC = () => (
@@ -75,6 +76,7 @@ root.render(
               case "sectional":    return <SectionalView />;
               case "map":          return <MapView />;
               case "export":       return <ExportPanel />;
+              case "import":       return <ImportPanel />;
               default:             return null;
             }
           })();

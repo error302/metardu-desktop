@@ -17,6 +17,7 @@ import {
   Calculator,
   PenTool,
   Download,
+  Upload,
   type LucideProps,
 } from "lucide-react";
 import "../styles/metardu-theme.css";
@@ -51,7 +52,7 @@ type ViewId =
   | "map" | "flight" | "stakeout" | "gnss" | "drone"
   | "lulc" | "crosssection" | "asbuilt"
   | "traverse" | "cogo" | "deedplan"
-  | "topo" | "engineering" | "sectional" | "export";
+  | "topo" | "engineering" | "sectional" | "export" | "import";
 
 interface NavItem {
   id: ViewId;
@@ -66,6 +67,7 @@ const NAV: NavItem[] = [
   { id: "map", label: "Map", icon: MapIcon, category: "Field Work", shortcut: "g m" },
   { id: "stakeout", label: "Setting-Out", icon: Crosshair, category: "Field Work", shortcut: "g s" },
   { id: "gnss", label: "GNSS Monitor", icon: Radar, category: "Field Work", shortcut: "g g" },
+  { id: "import", label: "Import", icon: Upload, category: "Field Work", shortcut: "g i" },
   // Drone
   { id: "flight", label: "Flight Planning", icon: Plane, category: "Drone", shortcut: "g f" },
   { id: "drone", label: "Drone Dashboard", icon: Plane, category: "Drone", shortcut: "g d" },
@@ -171,7 +173,7 @@ export const AppShell: React.FC<{
           l: "lulc", c: "crosssection", a: "asbuilt",
           v: "traverse", o: "cogo", e: "deedplan",
           t: "topo", n: "engineering", q: "sectional", p: "map",
-          x: "export",
+          x: "export", i: "import",
         };
         if (m[e.key.toLowerCase()]) { e.preventDefault(); setView(m[e.key.toLowerCase()]); }
         lastKey.current = null; return;

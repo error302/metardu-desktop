@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseLeicaGSI, parseSokkiaSDR, parseTrimbleDC, parseRinexHeader, importFieldData } from "../instrument-import.js";
+import { parseLeicaGSI, parseSokkiaSDR, parseTrimbleDC, parseRinexHeader, importFieldData, importFieldDataAsync, type RinexEpochResult } from "../instrument-import.js";
 
 describe("Leica GSI parser", () => {
   // GSI8: each word = 8 chars (WI(2) + data(6)), space-separated
@@ -136,5 +136,79 @@ describe("importFieldData auto-detection", () => {
     const r = importFieldData("f.xyz", "hello");
     expect(r.format).toBe("unknown");
     expect(r.errors.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── importFieldDataAsync — sidecar bridge tests ─────────────────────
+// Mirrors the projectToWgs84 bridge test pattern in
+// `integration/tests/gcp-export.test.ts:666-735`: three modes covered —
+// callback-provided-success, callback-absent-fallback, callback-throws-with-warning-surfaced.
+
+describe("importFieldDataAsync — sidecar bridge", () => {
+  // Build a minimal RINEX 3.04 file with header + 2 epochs (same shape the
+  // Rust sidecar test fixture uses).
+  const pad = (data: string, label: string) => data.padEnd(60).slice(0, 60) + label;
+  const rinex = [
+    pad("     3.04           OBSERVATION DATA    M (MIXED)", "RINEX VERSION / TYPE"),
+    pad("MARKER001", "MARKER NAME"),
+    pad("REC001   TRIMBLE R10       5.20", "REC # / TYPE / VERS"),
+    pad("   1000.0000  2000.0000   100.0000", "APPROX POSITION XYZ"),
+    pad("    4    L1    L2    C1    P1", "# / TYPES OF OBSERV"),
+    "".padEnd(60) + "END OF HEADER",
+    "> 2026  7 25 10 30  0.0000000  0  3 G01 G02 G03",
+    "  21000000.000  21000000.000  21000000.000  21000000.000",
+    "  21100000.000  21100000.000  21100000.000  21100000.000",
+    "  21200000.000  21200000.000  21200000.000  21200000.000",
+    "> 2026  7 25 10 30 30.0000000  0  3 G01 G02 G03",
+    "  22000000.000  22000000.000  22000000.000  22000000.000",
+    "  22100000.000  22100000.000  22100000.000  22100000.000",
+    "  22200000.000  22200000.000  22200000.000  22200000.000",
+  ].join("\n");
+
+  const fakeEpochResult: RinexEpochResult = {
+    epochs: [
+      { timestamp: "2026-07-25T10:30:00", satellite_count: 3, satellites: ["G01", "G02", "G03"], observations: [[21e6, 21e6, 21e6, 21e6], [21.1e6, 21.1e6, 21.1e6, 21.1e6], [21.2e6, 21.2e6, 21.2e6, 21.2e6]], epoch_flag: 0 },
+      { timestamp: "2026-07-25T10:30:30", satellite_count: 3, satellites: ["G01", "G02", "G03"], observations: [[22e6, 22e6, 22e6, 22e6], [22.1e6, 22.1e6, 22.1e6, 22.1e6], [22.2e6, 22.2e6, 22.2e6, 22.2e6]], epoch_flag: 0 },
+    ],
+    warnings: [],
+    epoch_count: 2,
+    marker_name: "MARKER001",
+  };
+
+  it("merges sidecar epoch observations when callback succeeds", async () => {
+    const r = await importFieldDataAsync("f.obs", rinex, {
+      parseRinexEpochs: async () => fakeEpochResult,
+    });
+    expect(r.format).toContain("RINEX");
+    // 1 header obs + 2 epoch obs.
+    expect(r.pointCount).toBe(3);
+    expect(r.observations.length).toBe(3);
+    // Epoch observations carry the timestamp from the sidecar.
+    expect(r.observations[1]!.timestamp).toBe("2026-07-25T10:30:00");
+    expect(r.observations[2]!.timestamp).toBe("2026-07-25T10:30:30");
+    // Warning surfaces epoch count.
+    expect(r.warnings.some((w) => w.includes("Parsed 2 epoch records via sidecar"))).toBe(true);
+  });
+
+  it("falls back to header-only parse when callback is absent", async () => {
+    const r = await importFieldDataAsync("f.obs", rinex);
+    expect(r.pointCount).toBe(1);
+    expect(r.warnings.some((w) => w.includes("requires the sidecar"))).toBe(true);
+  });
+
+  it("surfaces warning when callback throws", async () => {
+    const r = await importFieldDataAsync("f.obs", rinex, {
+      parseRinexEpochs: async () => { throw new Error("sidecar IPC timeout"); },
+    });
+    // Header-only fallback — still returns 1 obs.
+    expect(r.pointCount).toBe(1);
+    expect(r.warnings.some((w) => w.includes("Sidecar RINEX epoch parse failed") && w.includes("sidecar IPC timeout"))).toBe(true);
+    expect(r.errors.some((e) => e.includes("sidecar IPC timeout"))).toBe(true);
+  });
+
+  it("delegates non-RINEX formats to synchronous importFieldData", async () => {
+    const r = await importFieldDataAsync("f.gsi", "11000001 21+00000");
+    expect(r.format).toContain("GSI");
+    expect(r.format).not.toContain("RINEX");
   });
 });

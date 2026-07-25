@@ -27,7 +27,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SidecarClient } from "@metardu/electron-integration";
-import { INTEGRATION_EXPORTERS } from "@metardu/engine-flight-planning";
+import { INTEGRATION_EXPORTERS, importFieldDataAsync, type RinexEpochResult } from "@metardu/engine-flight-planning";
 import { getCountryConfig, type CountryCode } from "@metardu/country-config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -295,6 +295,41 @@ function registerIpcHandlers(): void {
       bytes: buf.length,
       warnings: result.warnings,
     };
+  });
+
+  // ─── Instrument data import (Tier 1 #3) ────────────────────────────
+  // The renderer calls these to import raw field data from surveying
+  // instruments. The main process owns the filesystem + "Open File" dialog
+  // and wires the sidecar bridge for RINEX epoch parsing.
+
+  ipcMain.handle("metardu:import:pickAndRead", async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: "Import instrument data",
+      properties: ["openFile"],
+      filters: [
+        { name: "Instrument files", extensions: ["gsi", "sdr", "dc", "job", "rinex", "obs", "txt"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { canceled: true, filename: "", content: "" };
+    }
+    const filePath = result.filePaths[0]!;
+    const content = fs.readFileSync(filePath, "utf-8");
+    const filename = path.basename(filePath);
+    return { canceled: false, filename, content };
+  });
+
+  ipcMain.handle("metardu:import:fieldData", async (_event, filename: string, content: string) => {
+    // Wire the sidecar bridge for RINEX epoch parsing per ADR-0005 invariant A1
+    // (heavy math in Rust). When the sidecar is unavailable, the engine
+    // gracefully falls back to the TS RINEX header-only parse with a warning.
+    const parseRinexEpochs = (sidecar && sidecar.isRunning())
+      ? async (rinexContent: string) => {
+          return sidecar!.call<RinexEpochResult>("import.rinex_epochs", { content: rinexContent });
+        }
+      : undefined;
+    return importFieldDataAsync(filename, content, { parseRinexEpochs });
   });
 }
 
