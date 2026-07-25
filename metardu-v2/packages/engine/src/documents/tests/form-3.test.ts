@@ -115,11 +115,14 @@ describe("Form 3 renderer", () => {
     expect(result.coordinateSystemLabel).toContain("21037");
   });
 
-  it("applies the DRAFT watermark (Survey Act Cap. 299 not yet filed)", async () => {
+  it("does NOT apply the diagonal DRAFT watermark (Survey Act Cap. 299 now filed)", async () => {
     const result = await generateForm3Pdf(sampleParcel);
-    // Per spec §"What this spec does NOT yet cover", every PDF carries
-    // a DRAFT watermark until the Survey Act Cap. 299 template is filed.
-    expect(result.hasDraftWatermark).toBe(true);
+    // The diagonal "DRAFT — pending verification against Survey Act Cap. 299"
+    // watermark was removed in tier1-kenya-form3-verification (this task).
+    // The Survey Act PDF is now filed at docs/regulatory-sources/kenya/
+    // cadastral/survey-act-cap-299-revised-2012.pdf; the renderer instead
+    // draws a non-legal verification footer pointing at SOURCE-VERIFICATION.md.
+    expect(result.hasDraftWatermark).toBe(false);
   });
 
   it("rejects an invalid ISK registration number", async () => {

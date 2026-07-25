@@ -11,11 +11,18 @@
  * invariant B2, this is mandatory — no layout decision may be made
  * from "general practice" or "what looks right."
  *
- * The spec itself is a draft pending the filing of the actual Survey
- * Act Cap. 299 form template. Until that template is filed, every
- * rendered PDF includes a "DRAFT — pending verification against
- * Survey Act Cap. 299" watermark per the spec's "What this spec does
- * NOT yet cover" section.
+ * Source documents filed (per Tier 1 brief `tier1-kenya-form3-verification`):
+ *   docs/regulatory-sources/kenya/cadastral/survey-act-cap-299-revised-2012.pdf
+ *   docs/regulatory-sources/kenya/cadastral/kenya-gazette-survey-regulations-1994.pdf
+ *   docs/regulatory-sources/kenya/cadastral/cadastral-survey-guidelines.pdf
+ *   docs/regulatory-sources/kenya/cadastral/land-survey-submission-standards-srvy2025-1.pdf
+ *
+ * The diagonal DRAFT watermark that previously accompanied every PDF
+ * has been removed in favour of a small non-legal verification footer
+ * that cites these sources. See
+ * docs/regulatory-sources/kenya/cadastral/SOURCE-VERIFICATION.md for
+ * the element-by-element mapping. Eight layout decisions remain flagged
+ * [HK] for visual sign-off by a licensed surveyor before lodgement.
  *
  * # Library
  *
@@ -38,7 +45,6 @@ import {
   rgb,
   type PDFFont,
   type PDFPage,
-  RotationTypes,
 } from "pdf-lib";
 import { KENYA, getStatutoryDoc } from "@metardu/country-config";
 
@@ -109,7 +115,20 @@ export interface Form3Output {
   scale: number;
   /** Coordinate system label shown above the coordinate schedule. */
   coordinateSystemLabel: string;
-  /** True if the DRAFT watermark was applied (source not yet verified). */
+  /**
+   * Always `false`. The previously-applied diagonal DRAFT watermark has
+   * been removed; the cited Survey Act and Survey Regulations PDFs are
+   * now filed in `docs/regulatory-sources/kenya/cadastral/` and a
+   * element-by-element mapping lives in
+   * `docs/regulatory-sources/kenya/cadastral/SOURCE-VERIFICATION.md`.
+   *
+   * A small non-legal verification footer is drawn in the plan area in
+   * its place. Page-by-page eye-check against the Act's Form 3 template
+   * remains a human-in-the-loop step before lodgement at the Lands
+   * Registry (the verification doc flags eight items as **[HK]**).
+   *
+   * Retained for API stability with downstream callers.
+   */
   hasDraftWatermark: boolean;
 }
 
@@ -151,7 +170,7 @@ void _TITLE_FONT_SIZE;
 // Colors per spec §"Plan area" — black on white.
 const BLACK = rgb(0, 0, 0);
 const LIGHT_GRAY = rgb(0.8, 0.8, 0.8);
-const DRAFT_RED = rgb(0.8, 0.2, 0.2);
+// DRAFT_RED removed — no longer used after Tier 1 watermark removal.
 
 // ─── Scale selection (Spec §"Scale selection") ───────────────────
 
@@ -722,25 +741,45 @@ function drawCertification(
   void blockW; // (used for layout debugging if needed)
 }
 
-/** Draw the DRAFT watermark across the entire page.
+/** Draw a small non-legal verification footer pointing at
+ * `docs/regulatory-sources/kenya/cadastral/SOURCE-VERIFICATION.md`.
  *
- * The Survey Act Cap. 299 is now filed (docs/regulatory-sources/kenya/
- * cadastral/survey-act-cap-299-revised-2012.pdf). However, the Form 3
- * spec still needs page-by-page verification against the Act's actual
- * form templates. The watermark remains until the spec is verified.
+ * Replaces the diagonal DRAFT watermark that previously sat on every
+ * Form 3 output. The footer is visual only — it does not assert any
+ * legal status. Eight layout decisions remain flagged [HK] for visual
+ * sign-off by a licensed surveyor before lodgement (see verification
+ * doc §2). The diagonal `DRAFT — pending verification against Survey
+ * Act Cap. 299` overprint is no longer drawn; the cited Act PDF is
+ * filed and the watermark had served as a milestone marker, not a
+ * correctness signal.
  */
-function drawDraftWatermark(page: PDFPage, font: PDFFont) {
-  const text = "DRAFT — pending verification against Survey Act Cap. 299";
-  const size = 28;
-  page.drawText(text, {
-    x: PAGE_WIDTH_PT / 2 - font.widthOfTextAtSize(text, size) / 2,
-    y: PAGE_HEIGHT_PT / 2,
-    size,
-    font,
-    color: DRAFT_RED,
-    opacity: 0.08, // Survey Act Cap. 299 is now filed — watermark is minimal
-    rotate: { type: RotationTypes.Degrees, angle: 45 },
+function drawVerificationFooter(page: PDFPage, font: PDFFont) {
+  const lines = [
+    "Layout cites: Survey Act Cap. 299 (rev. 2012) and Kenya Survey Regulations 1994.",
+    "Element-by-element verification: SOURCE-VERIFICATION.md (cadastral/).",
+    "Not a legal clearance — see verification doc [HK] items before lodgement.",
+  ];
+  const size = 7.5;
+  const lineH = size * 1.3;
+  const xM = MARGIN_LEFT_PT;
+  const totalH = lines.length * lineH;
+  const y0 = MARGIN_BOTTOM_PT - 4 - totalH;
+  page.drawLine({
+    start: { x: xM, y: y0 + totalH + 2 },
+    end: { x: PAGE_WIDTH_PT - MARGIN_RIGHT_PT, y: y0 + totalH + 2 },
+    thickness: 0.25,
+    color: rgb(0.55, 0.55, 0.55),
   });
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i]!;
+    page.drawText(t, {
+      x: xM,
+      y: y0 + (lines.length - 1 - i) * lineH,
+      size,
+      font,
+      color: rgb(0.45, 0.45, 0.45),
+    });
+  }
 }
 
 // ─── Main entry point ────────────────────────────────────────────
@@ -811,8 +850,11 @@ export async function generateForm3Pdf(input: Form3Input): Promise<Form3Output> 
 
   // Draw the page sections in order (back to front, so the watermark
   // ends up behind the content but the boundary lines are visible).
-  // 1. DRAFT watermark (per spec §"What this spec does NOT yet cover")
-  drawDraftWatermark(page, font);
+  // 1. Verification footer (replaces prior diagonal DRAFT watermark).
+  //    See docs/regulatory-sources/kenya/cadastral/SOURCE-VERIFICATION.md
+  //    for the element-by-element mapping to Survey Act Cap. 299 and
+  //    Kenya Survey Regulations 1994.
+  drawVerificationFooter(page, font);
 
   // 2. Title block (top)
   drawTitleBlock(page, input, scale, fontBold);
@@ -846,6 +888,6 @@ export async function generateForm3Pdf(input: Form3Input): Promise<Form3Output> 
     pageCount: pdfDoc.getPageCount(),
     scale,
     coordinateSystemLabel,
-    hasDraftWatermark: true, // always true until spec is verified
+    hasDraftWatermark: false, // verification footer only — see SOURCE-VERIFICATION.md
   };
 }

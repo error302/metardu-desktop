@@ -2063,3 +2063,42 @@ Stage Summary:
   4. Packaged smoke test confirms sidecar starts + responds from the bundled binary
 - The Windows (.exe NSIS) and macOS (.dmg) builds use the same electron-builder.yml config — they can't be tested in this Linux container but the config is verified correct (paths, extraResources, targets all match).
 - The CI workflow (ci.yml) already has a 3-OS sidecar test matrix that builds + smoke-tests the sidecar binary on each platform. The packaging step would be added to the release workflow (triggered on tag push) — not to CI.
+
+---
+Task ID: tier1-kenya-form3-verification
+Agent: Main (session 2026-07-25)
+Task: Kenya Form 3 — Spec verification (remove DRAFT watermark, add SOURCE-VERIFICATION.md)
+
+Work Log:
+- Read AGENT.md, invariants.md, form-3-spec.md, and source PDFs filed at docs/regulatory-sources/kenya/cadastral/ (Survey Act Cap. 299 revised 2012, Kenya Survey Regulations 1994, Cadastral Survey Guidelines, Land Survey Submission Standards SRVY 2025/1).
+- Authored `docs/agent-briefs/tier1-kenya-form3-verification.md` per AGENT.md §10 template.
+- Authored `docs/regulatory-sources/kenya/cadastral/SOURCE-VERIFICATION.md` with element-by-element mapping table mapping 31 Form 3 layout decisions to cited sections of Survey Act Cap. 299, Survey Regulations 1994, Cadastral Survey Guidelines. Eight items flagged [HK] for human-in-the-loop eye-check by a licensed surveyor before lodgement.
+- Updated `packages/engine/src/documents/form-3.ts`:
+  * Removed diagonal DRAFT watermark (`drawDraftWatermark` → `drawVerificationFooter`).
+  * Replaced with small non-legal verification footer citing the SOURCE-VERIFICATION.md and listing the cited Acts/Regs.
+  * Updated `Form3Output.hasDraftWatermark` docstring and return value (`false`).
+  * Updated top-of-file docstring to reflect source docs are now filed.
+  * Removed unused `DRAFT_RED` constant and `RotationTypes` import.
+- Updated `packages/engine/src/documents/tests/form-3.test.ts`:
+  * Renamed test "applies the DRAFT watermark (Survey Act Cap. 299 not yet filed)" → "does NOT apply the diagonal DRAFT watermark (Survey Act Cap. 299 now filed)".
+  * Assertion changed: `expect(result.hasDraftWatermark).toBe(false)`.
+- Verified:
+  * `npx tsc --noEmit -p packages/engine/tsconfig.json` — 0 errors.
+  * `npx vitest run packages/engine/src/documents/tests/form-3.test.ts` — 14/14 tests pass.
+  * Full engine test suite: 648/657 pass (9 failures are pre-existing Windows path bug in geopackage-export.test.ts using `/tmp/` paths).
+
+Stage Summary:
+- Form 3 DRAFT watermark removed; verification footer added citing filed source docs.
+- Eight layout items remain flagged [HK] for human sign-off (Survey Act page-by-page eye-check) before lodgement.
+- SOURCE-VERIFICATION.md is the regulatory audit trail; no guessing at regulatory formats.
+
+Artifacts Produced:
+- docs/agent-briefs/tier1-kenya-form3-verification.md
+- docs/regulatory-sources/kenya/cadastral/SOURCE-VERIFICATION.md
+- packages/engine/src/documents/form-3.ts (modified)
+- packages/engine/src/documents/tests/form-3.test.ts (modified)
+
+What's Next:
+- Tier 1 #3: Instrument import (Leica GSI, Trimble JOB, Sokkia SDR, RINEX) — sidecar parser + engine orchestration + renderer action.
+- Tier 1 #4: Digital signature on statutory PDFs (PKCS#7/CMS/PAdES per country).
+- Tier 2 #6: Windows sidecar cross-compilation (x86_64-pc-windows-msvc).
