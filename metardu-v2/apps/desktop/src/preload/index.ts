@@ -112,6 +112,32 @@ const metarduApi = {
       pointCount: number;
     }> => ipcRenderer.invoke("metardu:import:fieldData", filename, content),
   },
+  /** Digital signature + seal (Tier 1 #4). */
+  signing: {
+    signPdf: (
+      pdfBytesBase64: string,
+      privateKeyBase64: string,
+      surveyor: { name: string; registrationNumber: string; professionalBody: string; country: string },
+    ): Promise<{
+      surveyor: { name: string; registrationNumber: string; professionalBody: string; country: string; publicKeyBase64: string; keyCreatedAt: string };
+      algorithm: string;
+      signatureBase64: string;
+      contentHashBase64: string;
+      signedAt: string;
+      signedContent: string;
+    }> => ipcRenderer.invoke("metardu:signing:sign", pdfBytesBase64, privateKeyBase64, surveyor),
+    verifyPdf: (
+      pkcs7Base64: string,
+      pdfBytesBase64: string,
+    ): Promise<{
+      valid: boolean;
+      surveyor: { name: string; registrationNumber: string; professionalBody: string; country: string; publicKeyBase64: string; keyCreatedAt: string };
+      signedAt: string;
+      contentHashMatches: boolean;
+      signatureValid: boolean;
+      error?: string;
+    }> => ipcRenderer.invoke("metardu:signing:verify", pkcs7Base64, pdfBytesBase64),
+  },
 };
 
 // Expose the API on window.metardu. The renderer imports it via

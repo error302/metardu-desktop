@@ -242,10 +242,12 @@ impl Dispatcher {
             crate::compute_handlers::handle_adjustment_run(params).await
         });
 
-        // ---- Phase 1 #3: Instrument data import (RINEX epoch parsing) ----
-        // The TS engine parses the RINEX header; this handler parses the body
-        // (epoch records + observation lines). Per ADR-0005 invariant A1 the
-        // heavy parsing lives here in the sidecar.
+        // ---- Phase 1 #4: Statutory PDF signing (dispatched via
+        // TS engine's existing `digital-signature.ts` module which uses
+        // Web Crypto API RSASSA-PKCS1-v1_5 SHA-256. The heavy math
+        // (TIN, geodetic projection, RINEX epoch parsing) stays in
+        // Rust per ADR-0005 A1; RSA signing of a ~200-byte hash is
+        // trivial and lives on the TS/Electron side.)
         self.register("import.rinex_epochs", |params: Value| async move {
             crate::import::handle_rinex_epochs(params).await
         });

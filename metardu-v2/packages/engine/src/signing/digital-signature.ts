@@ -305,3 +305,44 @@ function base64ToBuffer(base64: string): ArrayBuffer {
 // Use global btoa/atob (available in both Node.js 16+ and Electron)
 declare const btoa: (s: string) => string;
 declare const atob: (s: string) => string;
+
+// ─── High-level sign/verify PDF helpers ────────────────────
+// These wrap importPrivateKeyBase64 + signContent / verifySignature
+// into single-call interfaces that accept base64 strings throughout,
+// so the Electron main process can call them with JSON-serializable
+// params (no CryptoKey sharing across IPC boundaries needed).
+
+/**
+ * Sign a PDF (or any binary content) with a surveyor's private key.
+ *
+ * @param pdfBytes The PDF bytes to sign (Uint8Array).
+ * @param privateKeyBase64 The surveyor's RSA private key (PKCS8 DER, base64).
+ * @param identity The surveyor's identity.
+ * @returns {DigitalSignature} — detached signature + content hash + surveyor identity echo.
+ *
+ * Error handling: throws if key import fails or signing is unavailable.
+ * The caller (renderer) is expected to surface the error rather than
+ * swallow it.
+ */
+export async function signPdf(
+  pdfBytes: Uint8Array,
+  privateKeyBase64: string,
+  identity: SurveyorIdentity,
+): Promise<DigitalSignature> {
+  const privateKey = await importPrivateKeyBase64(privateKeyBase64);
+  return signContent(pdfBytes, privateKey, identity, "Form 3 statutory PDF");
+}
+
+/**
+ * Verify a digital signature against the original PDF bytes.
+ *
+ * @param pdfBytes The original PDF bytes (same bytes that were signed).
+ * @param signature The DigitalSignature to verify (from `signPdf`).
+ * @returns {VerificationResult} — valid + contentHashMatches + signatureValid.
+ */
+export async function verifyPdf(
+  pdfBytes: Uint8Array,
+  signature: DigitalSignature,
+): Promise<VerificationResult> {
+  return verifySignature(pdfBytes, signature);
+}

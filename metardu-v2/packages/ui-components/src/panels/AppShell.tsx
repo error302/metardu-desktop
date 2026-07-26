@@ -52,7 +52,7 @@ type ViewId =
   | "map" | "flight" | "stakeout" | "gnss" | "drone"
   | "lulc" | "crosssection" | "asbuilt"
   | "traverse" | "cogo" | "deedplan"
-  | "topo" | "engineering" | "sectional" | "export" | "import";
+  | "topo" | "engineering" | "sectional" | "export" | "import" | "signing";
 
 interface NavItem {
   id: ViewId;
@@ -80,6 +80,7 @@ const NAV: NavItem[] = [
   { id: "traverse", label: "Traverse", icon: Compass, category: "Surveying", shortcut: "g v" },
   { id: "cogo", label: "COGO", icon: Calculator, category: "Surveying", shortcut: "g o" },
   { id: "deedplan", label: "Deed Plan", icon: FileText, category: "Surveying", shortcut: "g e" },
+  { id: "signing", label: "Sign & Seal", icon: PenTool, category: "Surveying", shortcut: "g y" },
   // Engineering
   { id: "engineering", label: "Engineering", icon: Settings, category: "Engineering", shortcut: "g n" },
   { id: "sectional", label: "Sectional Properties", icon: Building2, category: "Engineering", shortcut: "g q" },

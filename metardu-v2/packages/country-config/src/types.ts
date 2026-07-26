@@ -126,6 +126,23 @@ export interface StatutoryDocSpec {
   dxfLayers: string[];
   /** True if the form must be signed/sealed by a registered surveyor. */
   requiresProfessionalSeal: boolean;
+  /** Per-document signature policy (required when requiresProfessionalSeal is true). */
+  signaturePolicy?: SignaturePolicy;
+}
+
+/** Per-document signature policy, governing algorithm, container format,
+ *  and certificate requirements for statutory PDFs. */
+export interface SignaturePolicy {
+  /** Detached signature (sidecar file) or embedded-in-PDF. */
+  containerFormat: "detached" | "cms-pkcs7-detached" | "pades-baseline" | "pades-b-lt" | string;
+  /** Allowed signing algorithms, in priority order. */
+  allowedAlgorithms: Array<"rsa-sha256" | "rsa-sha384" | "ecdsa-p256-sha256">;
+  /** Minimum RSA key size in bits when rsa-sha* is allowed. */
+  minimumKeyBits: number;
+  /** Whether self-signed certs are accepted (true for this tier; false requires CA-issued). */
+  allowSelfSignedCerts: boolean;
+  /** Where the signed artifact lives relative to the PDF. */
+  artifactStorage: "sidecar-file" | "embedded-in-pdf";
 }
 
 /** Reference to the professional body that registers surveyors. */

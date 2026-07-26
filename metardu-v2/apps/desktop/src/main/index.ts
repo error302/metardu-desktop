@@ -27,7 +27,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SidecarClient } from "@metardu/electron-integration";
-import { INTEGRATION_EXPORTERS, importFieldDataAsync, type RinexEpochResult } from "@metardu/engine-flight-planning";
+import { INTEGRATION_EXPORTERS, importFieldDataAsync, signPdf, verifyPdf, importPrivateKeyBase64, type RinexEpochResult, type SurveyorIdentity, type DigitalSignature, type VerificationResult } from "@metardu/engine-flight-planning";
 import { getCountryConfig, type CountryCode } from "@metardu/country-config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -330,6 +330,44 @@ function registerIpcHandlers(): void {
         }
       : undefined;
     return importFieldDataAsync(filename, content, { parseRinexEpochs });
+  });
+
+  // ─── Digital signature + seal (Tier 1 #4) ─────────────────────────
+  // Signing uses Web Crypto in the main process (never in the renderer
+  // so the private key never enters the V8 sandbox of the renderer).
+  // Per ADR-0005 invariant A1: no sidecar involvement for signing.
+
+  ipcMain.handle("metardu:signing:sign", async (
+    _event,
+    pdfBytesBase64: string,
+    privateKeyBase64: string,
+    surveyor: { name: string; registrationNumber: string; professionalBody: string; country: string },
+  ): Promise<DigitalSignature> => {
+    const pdfBytes = Uint8Array.from(atob(pdfBytesBase64), (c) => c.charCodeAt(0));
+    const privateKey = await importPrivateKeyBase64(privateKeyBase64);
+    const pubSpki = await crypto.subtle.exportKey("spki", privateKey);
+    const publicKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(pubSpki)));
+    const identity: SurveyorIdentity = {
+      name: surveyor.name,
+      registrationNumber: surveyor.registrationNumber,
+      professionalBody: surveyor.professionalBody,
+      country: surveyor.country,
+      publicKeyBase64,
+      keyCreatedAt: new Date().toISOString(),
+    };
+    return signPdf(pdfBytes, privateKeyBase64, identity);
+  });
+
+  ipcMain.handle("metardu:signing:verify", async (
+    _event,
+    pkcs7Base64: string,
+    pdfBytesBase64: string,
+  ): Promise<VerificationResult> => {
+    // Reconstruct the DigitalSignature from the pkcs7Base64 string.
+    // In this tier (v0.2.0-alpha) pkcs7Base64 is the serialized DigitalSignature JSON.
+    const signature: DigitalSignature = JSON.parse(atob(pkcs7Base64));
+    const pdfBytes = Uint8Array.from(atob(pdfBytesBase64), (c) => c.charCodeAt(0));
+    return verifyPdf(pdfBytes, signature);
   });
 }
 
