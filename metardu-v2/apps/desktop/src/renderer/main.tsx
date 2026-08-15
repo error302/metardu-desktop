@@ -30,12 +30,23 @@ const LOGO_URL = new URL("./assets/metardu-logo.jpeg", import.meta.url).href;
 // Replace the static loading placeholder with a branded one.
 const loading = document.getElementById("loading");
 if (loading) {
-  loading.innerHTML = `
-    <div class="loading-screen">
-      <img src="${LOGO_URL}" alt="MetaRDU" />
-      <div class="loading-screen-text">MetaRDU Desktop — loading…</div>
-    </div>
-  `;
+  // Fix XSS vulnerability: Do not use innerHTML with dynamic properties
+  const container = document.createElement("div");
+  container.className = "loading-screen";
+
+  const img = document.createElement("img");
+  img.src = LOGO_URL;
+  img.alt = "MetaRDU";
+
+  const text = document.createElement("div");
+  text.className = "loading-screen-text";
+  text.textContent = "MetaRDU Desktop — loading…";
+
+  container.appendChild(img);
+  container.appendChild(text);
+
+  loading.replaceChildren(container);
+
   setTimeout(() => loading.remove(), 0);
 }
 
