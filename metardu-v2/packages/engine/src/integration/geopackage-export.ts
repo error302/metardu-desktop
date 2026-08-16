@@ -411,7 +411,8 @@ function createFeatureLayer(
     "uncertainty_reason TEXT",
     ...extraColumns.map((c) => `${c.name} ${c.type}`),
   ];
-  db.exec(`CREATE TABLE "${tableName}" (${columnDefs.join(", ")});`);
+  const safeTableName = tableName.replace(/"/g, '""');
+  db.exec(`CREATE TABLE "${safeTableName}" (${columnDefs.join(", ")});`);
 }
 
 /**
