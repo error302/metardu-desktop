@@ -20,7 +20,7 @@ mod protocol;
 use anyhow::Result;
 use protocol::{read_message, write_message, Response};
 use std::io::{self, BufReader, BufWriter, Write};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]

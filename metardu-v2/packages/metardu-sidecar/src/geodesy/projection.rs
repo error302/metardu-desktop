@@ -49,7 +49,7 @@ pub struct TMParams {
 /// Outputs: (easting, northing) in metres.
 pub fn transverse_mercator_forward(lat_deg: f64, lon_deg: f64, params: &TMParams) -> (f64, f64) {
     let a = params.ellipsoid.semi_major_a;
-    let f = 1.0 / params.ellipsoid.inverse_flattening;
+    let _f = 1.0 / params.ellipsoid.inverse_flattening;
     let e2 = params.ellipsoid.e2();
     let ep2 = e2 / (1.0 - e2); // e'²
 

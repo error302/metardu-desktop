@@ -17,10 +17,9 @@
 //!   - MAVLink common message set: https://mavlink.io/en/messages/common.html
 //!   - ArduPilot MAVLink docs: https://ardupilot.org/dev/docs/mavlink-commands.html
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
-use tracing::{info, instrument, warn};
+use tracing::info;
 
 /// Connection parameters for a drone.
 #[derive(Debug, Clone, Serialize, Deserialize)]

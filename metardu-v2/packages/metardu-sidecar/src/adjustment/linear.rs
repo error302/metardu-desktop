@@ -300,7 +300,7 @@ pub fn adjust_least_squares(
 ///   Σ⁻¹ = 1/σ²
 fn build_design_and_misclosure(
     x: &[Vec<f64>],
-    parameters: &[ParameterPrior],
+    _parameters: &[ParameterPrior],
     observations: &[Observation],
     unknown_layout: &[(usize, usize)],
 ) -> Result<(Vec<Vec<f64>>, Vec<f64>, Vec<f64>), AdjustmentError> {
