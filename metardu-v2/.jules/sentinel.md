@@ -1,4 +1,0 @@
-## 2023-10-27 - [Security] Replaced insecure ID generation with crypto.randomUUID()
-**Vulnerability:** Predictable unique identifiers generated via `Date.now()` and `Math.random()`. These predictable patterns could make the application vulnerable to Insecure Direct Object Reference (IDOR) attacks or enumeration of teams/users/activities.
-**Learning:** Found usage of predictable IDs in `packages/engine/src/sync/team-collaboration.ts`. It used a weak random number generator which is cryptographically insecure. The initial attempt to use `node:crypto` was incorrect for frontend applications; `globalThis.crypto.randomUUID()` is the safer, cross-platform standard for environments that may run in browsers or sandboxed Electron contexts.
-**Prevention:** Always use `globalThis.crypto.randomUUID()` when generating unique identifiers in frontend or cross-environment TypeScript code instead of relying on `Math.random()` or time-based IDs.

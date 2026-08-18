@@ -17,6 +17,7 @@ pub enum IntersectionError {
     #[error("Geometry is ambiguous (two valid solutions; call the *_two_solutions variant)")]
     Ambiguous,
     #[error("Inputs out of range: {0}")]
+    #[allow(dead_code)]
     OutOfRange(String),
 }
 
@@ -40,6 +41,7 @@ impl Point2D {
     }
 
     /// Bearing from self to other, in decimal degrees clockwise from North.
+    #[allow(dead_code)]
     pub fn bearing_to(&self, other: &Point2D) -> f64 {
         let de = other.easting - self.easting;
         let dn = other.northing - self.northing;

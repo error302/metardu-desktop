@@ -38,6 +38,7 @@ pub enum TraverseError {
     #[error("Traverse must have at least 1 leg, got {0}")]
     TooFewLegs(usize),
     #[error("Traverse closure failed: linear misclosure {misclosure_m} m exceeds tolerance {tolerance_m} m")]
+    #[allow(dead_code)]
     MisclosureExceedsTolerance { misclosure_m: f64, tolerance_m: f64 },
 }
 

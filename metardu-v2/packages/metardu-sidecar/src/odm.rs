@@ -95,6 +95,7 @@ pub struct OdmProcessResult {
 
 /// ODM processing progress (streamed during processing).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct OdmProgress {
     /// Current stage (e.g., "OpenSfM", "OpenMVS", "ODM")
     pub stage: String,

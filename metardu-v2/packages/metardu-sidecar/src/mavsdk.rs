@@ -142,6 +142,7 @@ pub struct MissionUploadResult {
 
 /// Drone state for the connection manager.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct DroneState {
     /// True if the drone is connected
     pub connected: bool,
@@ -178,6 +179,7 @@ pub trait DroneLink: Send + Sync {
     fn start_mission(&self) -> Result<()>;
 
     /// Pause the current mission (drone hovers in place).
+    #[allow(dead_code)]
     fn pause_mission(&self) -> Result<()>;
 
     /// Return to launch (RTL).
@@ -210,6 +212,7 @@ impl MockDroneLink {
     }
 
     /// Simulate a telemetry update (called by a background thread in tests).
+    #[allow(dead_code)]
     pub fn simulate_telemetry(&self, telemetry: DroneTelemetry) {
         let mut t = self.telemetry.lock().unwrap();
         *t = Some(telemetry);
@@ -287,6 +290,7 @@ impl DroneLink for MockDroneLink {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn pause_mission(&self) -> Result<()> {
         if !self.is_connected() {
             return Err(anyhow::anyhow!("Not connected to drone"));
@@ -379,7 +383,8 @@ mod mavsdk_impl {
             Err(anyhow::anyhow!("MAVSDK implementation requires feature flag + C++ library"))
         }
 
-        fn pause_mission(&self) -> Result<()> {
+        #[allow(dead_code)]
+    fn pause_mission(&self) -> Result<()> {
             Err(anyhow::anyhow!("MAVSDK implementation requires feature flag + C++ library"))
         }
 

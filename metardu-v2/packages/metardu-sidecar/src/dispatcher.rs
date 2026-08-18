@@ -21,6 +21,7 @@ pub enum HandlerError {
     Internal(String),
 
     #[error("Not implemented yet: {0}")]
+    #[allow(dead_code)]
     NotImplemented(String),
 }
 
