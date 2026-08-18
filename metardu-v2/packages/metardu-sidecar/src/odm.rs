@@ -20,7 +20,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::process::Command;
 use tracing::{info, instrument, warn};
 
@@ -95,6 +95,7 @@ pub struct OdmProcessResult {
 
 /// ODM processing progress (streamed during processing).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct OdmProgress {
     /// Current stage (e.g., "OpenSfM", "OpenMVS", "ODM")
     pub stage: String,
@@ -252,7 +253,7 @@ async fn process_with_docker(params: &OdmProcessParams, _photo_count: usize) -> 
         .await
         .context("Failed to run docker command")?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let _stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if !output.status.success() {

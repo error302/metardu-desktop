@@ -23,6 +23,7 @@ pub struct ECEF {
 /// The semi-minor axis `b` is derived: `b = a * (1 - 1/(1/f))`.
 #[derive(Debug, Clone, Copy)]
 pub struct Ellipsoid {
+    #[allow(dead_code)]
     pub name: &'static str,
     pub semi_major_a: f64,
     pub inverse_flattening: f64,

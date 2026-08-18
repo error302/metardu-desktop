@@ -25,9 +25,6 @@ pub mod helmert;
 pub mod projection;
 
 // Re-export the main public API at the module root for convenience.
-pub use ecef::{geodetic_to_ecef, ecef_to_geodetic, Ellipsoid, ECEF};
-pub use helmert::{helmert_transform, HelmertParams, TransformConvention};
-pub use projection::{transverse_mercator_forward, transverse_mercator_inverse, utm_forward, utm_inverse, TMParams};
 
 /// Common datum definitions used by Kenya and other target countries.
 ///
@@ -65,6 +62,7 @@ pub mod datums {
     /// Source: EPSG registry. Position Vector transformation convention.
     /// Used for Kenya survey work — Kenya's primary datum is Arc 1960,
     /// SRID 21037 (Arc 1960 / UTM zone 37S).
+    #[allow(dead_code)]
     pub const WGS84_TO_ARC1960: super::helmert::HelmertParams = super::helmert::HelmertParams {
         tx: -160.0,
         ty: -8.0,
@@ -78,6 +76,7 @@ pub mod datums {
 
     /// Inverse of WGS84_TO_ARC1960 — Arc 1960 → WGS84.
     /// Sign of every parameter is flipped.
+    #[allow(dead_code)]
     pub const ARC1960_TO_WGS84: super::helmert::HelmertParams = super::helmert::HelmertParams {
         tx: 160.0,
         ty: 8.0,

@@ -127,7 +127,7 @@ mod native {
     use super::*;
     use gdal::Dataset;
     use gdal::raster::RasterBand;
-    use std::collections::HashMap;
+
 
     /// Generate contours using native GDAL Rust bindings.
     ///
@@ -175,7 +175,7 @@ mod native {
             .context("Dataset has no geo transform")?;
 
         // Get the spatial reference (CRS)
-        let srs = dataset.spatial_ref()
+        let _srs = dataset.spatial_ref()
             .context("Dataset has no spatial reference")?;
 
         // Compute min/max elevation (skipping nodata)
@@ -382,7 +382,7 @@ mod native {
         use geojson::{FeatureCollection, Feature, Geometry, Value, JsonObject, JsonValue};
 
         let features: Vec<Feature> = contours.iter().map(|c| {
-            let coords: Vec<JsonValue> = c.coordinates.iter()
+            let _coords: Vec<JsonValue> = c.coordinates.iter()
                 .map(|pt| JsonValue::Array(vec![pt[0].into(), pt[1].into()]))
                 .collect();
 

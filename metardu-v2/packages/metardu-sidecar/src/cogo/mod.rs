@@ -18,6 +18,9 @@ pub mod area;
 pub mod intersection;
 pub mod traverse;
 
+#[allow(unused_imports)]
 pub use area::{shoelace_area, ellipsoidal_area, AreaUnit};
+#[allow(unused_imports)]
 pub use intersection::{bearing_bearing, bearing_distance, distance_distance, IntersectionError};
+#[allow(unused_imports)]
 pub use traverse::{bowditch_adjust, transit_adjust, closed_traverse_misclosure, TraverseError, TraverseLeg};

@@ -129,11 +129,11 @@ pub fn adjust_least_squares(
     // fresh values at the final x_current after the loop, so these
     // aren't read after assignment.
     #[allow(unused_assignments)]
-    let mut last_a: Vec<Vec<f64>> = Vec::new();
+    let mut _last_a: Vec<Vec<f64>> = Vec::new();
     #[allow(unused_assignments)]
-    let mut last_dl: Vec<f64> = Vec::new();
+    let mut _last_dl: Vec<f64> = Vec::new();
     #[allow(unused_assignments)]
-    let mut last_sigma_inv: Vec<f64> = Vec::new();
+    let mut _last_sigma_inv: Vec<f64> = Vec::new();
 
     let mut iter = 0;
     loop {
@@ -147,9 +147,9 @@ pub fn adjust_least_squares(
             &unknown_layout,
         )?;
 
-        last_a = a.clone();
-        last_dl = dl.clone();
-        last_sigma_inv = sigma_inv.clone();
+        _last_a = a.clone();
+        _last_dl = dl.clone();
+        _last_sigma_inv = sigma_inv.clone();
 
         // Form normal equations: N = Aᵀ Σ⁻¹ A, u = Aᵀ Σ⁻¹ Δl.
         let normal = matmul_at_sa(&a, &sigma_inv);
@@ -300,7 +300,7 @@ pub fn adjust_least_squares(
 ///   Σ⁻¹ = 1/σ²
 fn build_design_and_misclosure(
     x: &[Vec<f64>],
-    parameters: &[ParameterPrior],
+    _parameters: &[ParameterPrior],
     observations: &[Observation],
     unknown_layout: &[(usize, usize)],
 ) -> Result<(Vec<Vec<f64>>, Vec<f64>, Vec<f64>), AdjustmentError> {
