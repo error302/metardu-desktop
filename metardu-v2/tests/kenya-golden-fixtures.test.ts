@@ -21,8 +21,9 @@ import {
   helmertTransform,
   wgs84ToArc1960,
   arc1960ToWgs84,
-  type HelmertParams,
 } from "@metardu/engine-flight-planning";
+
+type HelmertParams = Parameters<typeof helmertTransform>[1];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = join(__dirname, "golden-fixtures", "kenya");
