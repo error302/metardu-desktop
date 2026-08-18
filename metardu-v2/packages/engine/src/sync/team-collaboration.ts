@@ -83,7 +83,7 @@ export class TeamManager {
     this.currentUserId = userId;
     // Auto-create a personal team.
     const personalTeam: Team = {
-      id: `team_${userId}`,
+      id: `team_${globalThis.crypto.randomUUID()}`,
       name: `${userName}'s Team`,
       members: [{ id: userId, name: userName, email, role: "owner" }],
       createdAt: new Date().toISOString(),
@@ -96,7 +96,7 @@ export class TeamManager {
 
   createTeam(name: string, description?: string): Team {
     const team: Team = {
-      id: `team_${Date.now()}`,
+      id: `team_${globalThis.crypto.randomUUID()}`,
       name,
       description,
       members: [{
@@ -115,7 +115,7 @@ export class TeamManager {
   inviteMember(teamId: string, name: string, email: string, role: TeamRole = "editor"): TeamMember {
     const team = this.teams.get(teamId);
     if (!team) throw new Error(`Team ${teamId} not found.`);
-    const member: TeamMember = { id: `user_${Date.now()}`, name, email, role };
+    const member: TeamMember = { id: `user_${globalThis.crypto.randomUUID()}`, name, email, role };
     team.members.push(member);
     return member;
   }
@@ -207,7 +207,7 @@ export class TeamManager {
     const team = this.teams.values().next().value;
     const userName = team?.members.find((m) => m.id === this.currentUserId)?.name ?? "User";
     this.activities.push({
-      id: `act_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+      id: `act_${globalThis.crypto.randomUUID()}`,
       projectId,
       userId: this.currentUserId,
       userName,
@@ -229,7 +229,7 @@ export class TeamManager {
     const team = this.teams.values().next().value;
     const userName = team?.members.find((m) => m.id === this.currentUserId)?.name ?? "User";
     const comment: ProjectComment = {
-      id: `cmt_${Date.now()}`,
+      id: `cmt_${globalThis.crypto.randomUUID()}`,
       projectId,
       userId: this.currentUserId,
       userName,
