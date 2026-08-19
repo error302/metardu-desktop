@@ -252,7 +252,48 @@ export const UNITED_KINGDOM: CountrySurveyConfig = {
     "OSGN15 / OSTN15 transformation specification (Ordnance Survey)",
     "BS 7334 (surveying accuracy standards)",
   ],
-  version: "0.1.0",
+  planSheet: {
+    defaultSheetSize: "a4",
+    defaultOrientation: "portrait",
+    titleBlockLabel: "UNITED KINGDOM — HM LAND REGISTRY",
+    planTypeLabel: "TITLE PLAN / FILED PLAN",
+    footerNote:
+      "Prepared to the standards of HM Land Registry Practice Guide 40. " +
+      "The general boundaries rule (Land Registration Act 2002 s.60) applies. " +
+      "Coordinates in OSGB36 / British National Grid (EPSG:27700).",
+    titleBlockLayout: {
+      // HM Land Registry filed-plan styling. Mirror TITLE_PLAN.titleBlockFields
+      // (Land Registration Rules 2003, r. 8) — title number, property address,
+      // OS map reference. No surveyor seal: HMLR title plans are registry-issued.
+      variant: "hmlr-title-plan",
+      fieldRows: [
+        { label: "TITLE NUMBER" },
+        { label: "PROPERTY ADDRESS" },
+        { label: "ORDNANCE SURVEY MAP REFERENCE", value: "{{crs}}" },
+        { label: "SCALE", value: "{{scale}}" },
+        { label: "EDITION" },
+        { label: "DATE", value: "{{date}}" },
+      ],
+      certification: {
+        heading: "GENERAL BOUNDARIES",
+        lines: [
+          "This plan shows the general position, not the exact line, of the",
+          "boundaries (Land Registration Act 2002, s.60). The red line denotes",
+          "the extent of the registered estate and is not to scale.",
+        ],
+      },
+      seal: {
+        position: "none", // registry-issued — no surveyor seal on HMLR title plans
+      },
+      statutoryFooterLines: [
+        "This map is based upon Ordnance Survey material with the permission of",
+        "Ordnance Survey on behalf of the Controller of His Majesty's Stationery",
+        "Office © Crown copyright. Unauthorised reproduction infringes Crown",
+        "copyright and may lead to prosecution or civil proceedings.",
+      ],
+    },
+  },
+  version: "0.1.2",
   lastReviewed: "2026-07-19",
 };
 

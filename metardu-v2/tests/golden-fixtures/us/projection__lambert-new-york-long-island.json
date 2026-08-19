@@ -1,0 +1,35 @@
+{
+  "name": "Lambert Conformal Conic (2SP) forward and inverse — NAD83(2011) / New York Long Island (EPSG::6539)",
+  "country": "US",
+  "computation": "projection-lcc-forward-inverse",
+  "source": {
+    "document": "EPSG::6539 — NAD83(2011) / New York Long Island",
+    "page": "EPSG registry; EPSG Geomatics Guidance Note 7-2 §1.3.2.1 (Lambert Conic Conformal 2SP)",
+    "file": "https://epsg.org/crs_6539/NAD83-2011-New-York-Long-Island.html",
+    "notes": "Lambert Conformal Conic 2SP. Standard parallels 40°40'N / 41°02'N, latitude of origin 40°10'N, central meridian 74°W, false easting 300000 m, false northing 0 m, GRS80 ellipsoid."
+  },
+  "projection": {
+    "method": "Lambert Conformal Conic (2SP, EPSG::9802)",
+    "datum": "NAD83(2011)",
+    "ellipsoid": "GRS80 (a=6378137.0 m, 1/f=298.257222101)",
+    "standard_parallel_1_deg": 40.6666666667,
+    "standard_parallel_2_deg": 41.0333333333,
+    "latitude_of_origin_deg": 40.1666666667,
+    "central_meridian_deg": -74.0,
+    "false_easting_m": 300000.0,
+    "false_northing_m": 0.0
+  },
+  "cases": [
+    {
+      "name": "New York City (40.7128°N, 74.006°W → SPCS)",
+      "input_geographic": { "lat": 40.7128, "lon": -74.006 },
+      "expected_projected": { "easting": 299493.0052, "northing": 60645.8178 },
+      "precision_m": 0.01,
+      "notes": "Cross-checked with scripts/verify_lcc.py (independent Python LCC), validated against the EPSG GN7-2 worked example."
+    }
+  ],
+  "roundtrip_test": {
+    "description": "Forward then inverse must reproduce the input geographic coordinates to within 1e-9 deg (~0.1 mm).",
+    "precision_deg": 1e-9
+  }
+}

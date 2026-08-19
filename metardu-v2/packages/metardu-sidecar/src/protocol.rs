@@ -41,6 +41,33 @@ pub struct Response {
     pub payload: ResponsePayload,
 }
 
+/// Outgoing notification envelope — unsolicited event pushed from sidecar
+/// to the main process. Same wire format as Response but with `method`
+/// (event name) instead of `ok`/`error`. The main process demuxes by
+/// checking for the `method` field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Notification {
+    pub id: RequestId,
+    pub method: String,
+    pub payload: serde_json::Value,
+}
+
+impl Notification {
+    pub fn new(method: &str, payload: serde_json::Value) -> Self {
+        Notification {
+            id: uuid_v4(),
+            method: method.to_string(),
+            payload,
+        }
+    }
+}
+
+fn uuid_v4() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    format!("n-{}-{}", t.as_millis(), t.subsec_nanos())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ResponsePayload {
@@ -116,6 +143,21 @@ pub fn read_message<R: Read>(reader: &mut R) -> Result<Option<Request>> {
 /// Write a single length-prefixed message to the given writer.
 pub fn write_message<W: Write>(writer: &mut W, resp: &Response) -> Result<()> {
     let payload = serde_json::to_vec(resp).context("Failed to serialize response JSON")?;
+
+    let len = payload.len() as u32;
+    writer.write_all(&len.to_be_bytes())?;
+    writer.write_all(&payload)?;
+    writer.flush()?;
+
+    Ok(())
+}
+
+/// Write a length-prefixed notification (unsolicited event) to stdout.
+/// Used by background instrument streams to push live data to the main
+/// process. The wire format is identical to a Response — the main process
+/// demuxes by checking for the `method` field.
+pub fn write_notification<W: Write>(writer: &mut W, notif: &Notification) -> Result<()> {
+    let payload = serde_json::to_vec(notif).context("Failed to serialize notification JSON")?;
 
     let len = payload.len() as u32;
     writer.write_all(&len.to_be_bytes())?;

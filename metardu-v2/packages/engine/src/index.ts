@@ -151,6 +151,14 @@ export * from "./surveying/error-ellipse.js";
 export * from "./surveying/site-calibration.js";
 export * from "./surveying/stakeout.js";
 
+// Survey standards — Kenya RDM 1.1 + Bahrain CSD + SRVY2025-1
+export * from "./surveying/loop-misclosure.js";
+export * from "./surveying/beacon-verification.js";
+export * from "./surveying/beacon-types.js";
+export * from "./surveying/field-note-audit.js";
+export * from "./surveying/submission-naming.js";
+export * from "./surveying/plan-checker.js";
+
 // Geodesy — CRS database, geoid models
 export * from "./geodesy/crs-database.js";
 export * from "./geodesy/geoid.js";
@@ -292,6 +300,7 @@ export {
   type SyncQueueItem,
   type SyncConflict,
   type SyncStatus,
+  type SyncSnapshot,
 } from "./sync/sync-client.js";
 
 // Multi-user collaboration

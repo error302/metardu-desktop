@@ -133,13 +133,9 @@ const LINEAR_MISCLOSURE_CADASTRAL: ToleranceRule = {
   surveyType: "Cadastral",
   toleranceType: "linear_misclosure",
   formula: "1:5000  (ratio of misclosure to total traverse length)",
-  compute: (input) => {
-    const length = input.total_length_m ?? 0;
-    const misc = input.misclosure_m ?? 0;
-    // Returns the ratio (e.g. 5000 means the survey passes 1:5000).
-    if (misc <= 0) return Number.POSITIVE_INFINITY;
-    return length / misc;
-  },
+  // Returns the allowable limit (the N in 1:N). The achieved ratio is the
+  // caller's responsibility; compare achieved >= this limit to pass.
+  compute: () => 5000,
   unit: "ratio",
   source: "Kenya Survey Regulations 1994, §4.4",
 };
@@ -150,12 +146,8 @@ const LINEAR_MISCLOSURE_CONTROL: ToleranceRule = {
   surveyType: "Geodetic",
   toleranceType: "linear_misclosure",
   formula: "1:10000  (control surveys)",
-  compute: (input) => {
-    const length = input.total_length_m ?? 0;
-    const misc = input.misclosure_m ?? 0;
-    if (misc <= 0) return Number.POSITIVE_INFINITY;
-    return length / misc;
-  },
+  // Returns the allowable limit (the N in 1:N).
+  compute: () => 10000,
   unit: "ratio",
   source: "Kenya Survey Regulations 1994, §4.4 (control)",
 };
@@ -383,7 +375,49 @@ export const KENYA: CountrySurveyConfig = {
     "LSB Topographical Survey Guidelines",
     "ISK Code of Ethics",
   ],
-  version: "0.2.0",
+  planSheet: {
+    defaultSheetSize: "a4",
+    defaultOrientation: "landscape",
+    titleBlockLabel: "REPUBLIC OF KENYA",
+    planTypeLabel: "DEED PLAN",
+    footerNote:
+      "Prepared under the Survey Act Cap. 299 and the Survey Regulations 1994. " +
+      "Coordinates in Arc 1960 / UTM zone 37S (EPSG:21037).",
+    titleBlockLayout: {
+      // Field grid mirrors FORM_3.titleBlockFields (Survey Act Cap. 299,
+      // Form No. 3 — the Deed Plan) so the sheet files as-is.
+      variant: "standard",
+      fieldRows: [
+        { label: "DEED PLAN NO." },
+        { label: "SURVEY NO." },
+        { label: "DISTRICT" },
+        { label: "LOCATION" },
+        { label: "AREA (ha)" },
+        { label: "SCALE", value: "{{scale}}" },
+        { label: "DATE OF SURVEY", value: "{{date}}" },
+        { label: "SURVEYOR", value: "{{surveyor}}" },
+      ],
+      certification: {
+        heading: "CERTIFICATION",
+        lines: [
+          "This Deed Plan is prepared in accordance with the Survey Act Cap. 299",
+          "and the Survey Regulations 1994, from a survey executed under the",
+          "supervision of the undersigned registered surveyor.",
+        ],
+      },
+      seal: {
+        position: "bottom-right",
+        caption: "REGISTERED SURVEYOR — ISK REG. NO.",
+      },
+      statutoryFooterLines: [
+        "This Deed Plan is prepared under the Survey Act Cap. 299 (Laws of Kenya)",
+        "and the Survey Regulations 1994, and must be lodged with the Survey of",
+        "Kenya / NLIS for registration. Reproduction without the Director of",
+        "Surveys' authority is prohibited. Coordinates in Arc 1960 / UTM (EPSG:21037).",
+      ],
+    },
+  },
+  version: "0.2.3",
   lastReviewed: "2026-07-20",
 };
 
@@ -425,19 +459,19 @@ export function angularMisclosureToleranceArcsec(config: CountrySurveyConfig, N_
 }
 
 /**
- * Compute the linear misclosure ratio for a cadastral traverse.
- * Returns the ratio (e.g. 5000 means the survey passes 1:5000).
+ * Compute the achieved linear misclosure ratio (1:N) for a traverse.
+ * Returns the achieved N (e.g. 5000 means the actual misclosure is 1:5000);
+ * compares against the rule's allowable limit (from {@link getTolerance}
+ * `compute()`) to determine a pass.
  */
 export function linearMisclosureRatio(
-  config: CountrySurveyConfig,
+  _config: CountrySurveyConfig,
   total_length_m: number,
   misclosure_m: number,
-  surveyType: "Cadastral" | "Geodetic" = "Cadastral",
+  _surveyType: "Cadastral" | "Geodetic" = "Cadastral",
 ): number {
-  return getTolerance(config, surveyType, "linear_misclosure").compute({
-    total_length_m,
-    misclosure_m,
-  });
+  if (misclosure_m <= 0) return Number.POSITIVE_INFINITY;
+  return total_length_m / misclosure_m;
 }
 
 /**

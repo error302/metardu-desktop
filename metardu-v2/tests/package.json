@@ -10,7 +10,8 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@metardu/engine-flight-planning": "*"
+    "@metardu/engine-flight-planning": "*",
+    "@metardu/country-config": "*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

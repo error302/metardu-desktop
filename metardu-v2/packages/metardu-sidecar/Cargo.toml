@@ -39,13 +39,26 @@ gdal = { version = "0.17", optional = true, features = ["bindgen"] }
 # GeoJSON serialization (for contour output)
 geojson = { version = "0.24", optional = true }
 
+# Instrument connection — serial port + Bluetooth LE
+# tokio-serial: async serial port I/O (total stations, GNSS receivers via USB-serial)
+# btleplug: cross-platform Bluetooth Low Energy (modern GNSS receivers)
+# lazy_static: thread-safe port registry for concurrent instrument connections
+# uuid: unique IDs for instrument connections
+tokio-serial = { version = "5.4", optional = true }
+btleplug = { version = "0.11", optional = true }
+lazy_static = "1.4"
+uuid = { version = "1.8", features = ["v4"] }
+url = "2.5"
+
 [features]
-default = ["gdal-bindings"]
+default = ["gdal-bindings", "instrument"]
 # Enable native GDAL Rust bindings (requires system libgdal)
 gdal-bindings = ["dep:gdal", "dep:geojson"]
 # Shell-out fallback (uses gdal_contour CLI, no native bindings)
 # Use this feature on platforms where native GDAL bindings are hard to build
 shell-out = []
+# Enable live instrument connection (serial + BLE + NTRIP)
+instrument = ["dep:tokio-serial", "dep:btleplug"]
 
 [dev-dependencies]
 assert_matches = "1.5"

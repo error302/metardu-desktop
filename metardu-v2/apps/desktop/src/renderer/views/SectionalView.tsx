@@ -6,17 +6,10 @@
  */
 
 import React, { useState } from "react";
-import { KENYA, AUSTRALIA, UNITED_KINGDOM, SOUTH_AFRICA, UNITED_ARAB_EMIRATES, type CountrySurveyConfig } from "@metardu/country-config";
 import { useSurveyState } from "../SurveyStateContext.js";
 import { runSectionalWorkflow, type SectionalWorkflowOutput, type BuildingLevel } from "@metardu/engine-flight-planning";
-
-const COUNTRY_OPTIONS: Record<string, CountrySurveyConfig> = {
-  KE: KENYA,
-  AU: AUSTRALIA,
-  GB: UNITED_KINGDOM,
-  ZA: SOUTH_AFRICA,
-  AE: UNITED_ARAB_EMIRATES,
-};
+import { COUNTRY_OPTIONS, getCountryOption } from "../countries.js";
+import { AutoExportBanner } from "./AutoExportBanner.js";
 
 export const SectionalView: React.FC = () => {
   const { setSurveyOutput } = useSurveyState();
@@ -51,7 +44,7 @@ export const SectionalView: React.FC = () => {
   const run = () => {
     setError(null);
     try {
-      const country = COUNTRY_OPTIONS[countryCode]!;
+      const country = getCountryOption(countryCode).config;
       const output = runSectionalWorkflow({
         building: {
           name: "Test Building",
@@ -63,7 +56,7 @@ export const SectionalView: React.FC = () => {
         surveyor: { name: "Surveyor", regNo: "LS/0000", dateOfSurvey: new Date().toISOString().split("T")[0]! },
       });
       setResult(output);
-      setSurveyOutput(output, "sectional", "SectionalView", "KE");
+      setSurveyOutput(output, "sectional", "SectionalView", countryCode);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -79,8 +72,8 @@ export const SectionalView: React.FC = () => {
       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
         <label>Country:</label>
         <select value={countryCode} onChange={(e) => setCountryCode(e.target.value)} style={{ minWidth: "200px" }}>
-          {Object.entries(COUNTRY_OPTIONS).map(([code, cfg]) => (
-            <option key={code} value={code}>{cfg.countryName}</option>
+          {COUNTRY_OPTIONS.map((o) => (
+            <option key={o.code} value={o.code}>{o.name}</option>
           ))}
         </select>
         <button className="primary" onClick={run}>Compute</button>
@@ -91,6 +84,8 @@ export const SectionalView: React.FC = () => {
           Error: {error}
         </div>
       )}
+
+      <AutoExportBanner />
 
       {result && (
         <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: "12px" }}>

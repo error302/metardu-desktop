@@ -5,6 +5,10 @@
 //! algorithm used by most production GIS software (PROJ's `tmerc`
 //! defaults to Snyder unless you explicitly request the Krüger series).
 //!
+//! Also implements the Lambert Conformal Conic (2SP) projection (§14),
+//! which powers the US SPCS zones (Texas South Central, California 5,
+//! New York Long Island).
+//!
 //! For sub-nanometre accuracy, swap this implementation for Karney's
 //! Krüger n-series (2011). The interface is identical. We chose Snyder
 //! for Phase 4 because:
@@ -16,8 +20,9 @@
 //!
 //! # References
 //!   - Snyder, J. P. (1987), "Map Projections — A Working Manual,"
-//!     USGS Professional Paper 1395, §8 (Transverse Mercator).
-//!   - EPSG Geomatics Guidance Note 7-2 §1.3.5.
+//!     USGS Professional Paper 1395, §8 (Transverse Mercator), §14
+//!     (Lambert Conformal Conic).
+//!   - EPSG Geomatics Guidance Note 7-2 §1.3.5 (TM), §1.3.2.1 (LCC).
 //!   - Karney, C. F. F. (2011), "Transverse Mercator with an accuracy
 //!     of a few nanometers," J. Geodesy 85(8): 475-485 (for the future
 //!     upgrade path).
@@ -196,6 +201,161 @@ pub fn utm_inverse(easting: f64, northing: f64, zone: u8, is_southern: bool, ell
     transverse_mercator_inverse(easting, northing, &params)
 }
 
+// ─── Lambert Conformal Conic (2SP) ────────────────────────────────
+//
+// Snyder PP-1395 §14, EPSG Guidance Note 7-2 §1.3.2.1.
+// Powers the US SPCS zones (Texas South Central, California 5,
+// New York Long Island) — see country-config united-states.ts.
+
+/// Parameters defining a Lambert Conformal Conic (2 standard parallels)
+/// projection.
+#[derive(Debug, Clone, Copy)]
+pub struct LCCParams {
+    /// Standard parallel 1 in decimal degrees.
+    pub standard_parallel_1_deg: f64,
+    /// Standard parallel 2 in decimal degrees.
+    pub standard_parallel_2_deg: f64,
+    /// Latitude of natural origin in decimal degrees.
+    pub latitude_of_origin_deg: f64,
+    /// Central meridian in decimal degrees.
+    pub central_meridian_deg: f64,
+    /// False easting in metres.
+    pub false_easting_m: f64,
+    /// False northing in metres.
+    pub false_northing_m: f64,
+    /// Reference ellipsoid.
+    pub ellipsoid: Ellipsoid,
+}
+
+/// Snyder eq. 14-15: m(φ) = cosφ / √(1 − e² sin²φ).
+fn lcc_m(phi: f64, e2: f64) -> f64 {
+    let sin_phi = phi.sin();
+    phi.cos() / (1.0 - e2 * sin_phi * sin_phi).sqrt()
+}
+
+/// Snyder eq. 14-10 / 14-16: t(φ) = tan(π/4 − φ/2) / ((1−e·sinφ)/(1+e·sinφ))^(e/2).
+fn lcc_t(phi: f64, e2: f64) -> f64 {
+    let e = e2.sqrt();
+    let sin_phi = phi.sin();
+    (std::f64::consts::FRAC_PI_4 - phi / 2.0).tan()
+        / ((1.0 - e * sin_phi) / (1.0 + e * sin_phi)).powf(e / 2.0)
+}
+
+/// Lambert Conformal Conic (2SP) forward projection (geodetic → projected).
+///
+/// Snyder PP-1395 equations 14-1 through 14-10. Cross-checked against
+/// the EPSG GN7-2 §1.3.2.1 worked example (NAD27 / Texas South Central)
+/// and pyproj-equivalent references — see scripts/verify_lcc.py.
+///
+/// Inputs: lat, lon in decimal degrees.
+/// Outputs: (easting, northing) in metres.
+pub fn lambert_conformal_conic_forward(lat_deg: f64, lon_deg: f64, params: &LCCParams) -> (f64, f64) {
+    let a = params.ellipsoid.semi_major_a;
+    let f = 1.0 / params.ellipsoid.inverse_flattening;
+    let e2 = 2.0 * f - f * f;
+
+    let phi = lat_deg.to_radians();
+    let lam = lon_deg.to_radians();
+    let phi1 = params.standard_parallel_1_deg.to_radians();
+    let phi2 = params.standard_parallel_2_deg.to_radians();
+    let phi0 = params.latitude_of_origin_deg.to_radians();
+    let lam0 = params.central_meridian_deg.to_radians();
+
+    let m1 = lcc_m(phi1, e2);
+    let m2 = lcc_m(phi2, e2);
+    let t1 = lcc_t(phi1, e2);
+    let t2 = lcc_t(phi2, e2);
+    let t0 = lcc_t(phi0, e2);
+    let t = lcc_t(phi, e2);
+
+    // Snyder eq. 14-1/14-2: n = (ln m₁ − ln m₂) / (ln t₁ − ln t₂),
+    // with the one-parallel limit n = sin φ₁ when φ₁ = φ₂.
+    let n = if (phi1 - phi2).abs() < 1e-12 {
+        phi1.sin()
+    } else {
+        (m1.ln() - m2.ln()) / (t1.ln() - t2.ln())
+    };
+
+    // Snyder eq. 14-3: F = m₁ / (n t₁ⁿ)
+    let f_val = m1 / (n * t1.powf(n));
+
+    // Snyder eq. 14-4/14-5: ρ = a F tⁿ, ρ₀ = a F t₀ⁿ
+    let rho = a * f_val * t.powf(n);
+    let rho0 = a * f_val * t0.powf(n);
+
+    // Snyder eq. 14-6: θ = n(λ − λ₀)
+    let theta = n * (lam - lam0);
+
+    // Snyder eq. 14-7/14-8: E = FE + ρ sinθ, N = FN + ρ₀ − ρ cosθ
+    let easting = params.false_easting_m + rho * theta.sin();
+    let northing = params.false_northing_m + rho0 - rho * theta.cos();
+
+    (easting, northing)
+}
+
+/// Lambert Conformal Conic (2SP) inverse projection (projected → geodetic).
+///
+/// Snyder PP-1395 equations 14-10 through 14-13 + the iterative
+/// footpoint latitude per EPSG GN7-2 §1.3.2.1.
+pub fn lambert_conformal_conic_inverse(easting: f64, northing: f64, params: &LCCParams) -> (f64, f64) {
+    let a = params.ellipsoid.semi_major_a;
+    let f = 1.0 / params.ellipsoid.inverse_flattening;
+    let e2 = 2.0 * f - f * f;
+
+    let phi1 = params.standard_parallel_1_deg.to_radians();
+    let phi2 = params.standard_parallel_2_deg.to_radians();
+    let phi0 = params.latitude_of_origin_deg.to_radians();
+    let lam0 = params.central_meridian_deg.to_radians();
+
+    let m1 = lcc_m(phi1, e2);
+    let m2 = lcc_m(phi2, e2);
+    let t1 = lcc_t(phi1, e2);
+    let t2 = lcc_t(phi2, e2);
+    let t0 = lcc_t(phi0, e2);
+
+    let n = if (phi1 - phi2).abs() < 1e-12 {
+        phi1.sin()
+    } else {
+        (m1.ln() - m2.ln()) / (t1.ln() - t2.ln())
+    };
+    let f_val = m1 / (n * t1.powf(n));
+    let rho0 = a * f_val * t0.powf(n);
+
+    // Snyder eq. 14-10 (inverse): ρ = ±√((E−FE)² + (ρ₀−(N−FN))²), sign of n.
+    let dx = easting - params.false_easting_m;
+    let dy = rho0 - (northing - params.false_northing_m);
+    let rho = n.signum() * (dx * dx + dy * dy).sqrt();
+
+    // Snyder eq. 14-11 is θ = atan2(E−FE, ρ₀−(N−FN)), but that only
+    // recovers θ when ρ > 0 (n > 0). Southern-hemisphere zones have
+    // n < 0 ⇒ F < 0 ⇒ ρ < 0, so the raw atan2 returns θ ∓ π — a
+    // ~π/|n| ≈ 280° longitude error (caught by scripts/verify_lcc.py's
+    // southern 2SP probe). Scaling both arms by sign(n) fixes the
+    // quadrant for every n; for n > 0 it reduces to the published form.
+    let theta = (n.signum() * dx).atan2(n.signum() * dy);
+
+    // Snyder eq. 14-12: t = (ρ / (a F))^(1/n)
+    let t = (rho / (a * f_val)).powf(1.0 / n);
+
+    // Iterative footpoint: φ = π/2 − 2·atan(t · ((1−e·sinφ)/(1+e·sinφ))^(e/2))
+    let e = e2.sqrt();
+    let mut phi = std::f64::consts::FRAC_PI_2 - 2.0 * t.atan();
+    for _ in 0..20 {
+        let factor = ((1.0 - e * phi.sin()) / (1.0 + e * phi.sin())).powf(e / 2.0);
+        let phi_next = std::f64::consts::FRAC_PI_2 - 2.0 * (t * factor).atan();
+        if (phi_next - phi).abs() < 1e-14 {
+            phi = phi_next;
+            break;
+        }
+        phi = phi_next;
+    }
+
+    // Snyder eq. 14-13: λ = λ₀ + θ/n
+    let lam = lam0 + theta / n;
+
+    (phi.to_degrees(), lam.to_degrees())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,4 +450,254 @@ mod tests {
         let (_e, n) = transverse_mercator_forward(0.0, 39.0, &params);
         assert!((n - 10_000_000.0).abs() < 0.1, "equator CM northing: {}", n);
     }
+
+    // ─── Lambert Conformal Conic (2SP) tests ───────────────────────
+    //
+    // Verified against the EPSG Guidance Note 7-2 §1.3.2.1 worked
+    // example (NAD27 / Texas South Central, ftUS units) and against an
+    // independent Python implementation (scripts/verify_lcc.py).
+    // Golden fixtures: tests/golden-fixtures/us/projection__lambert-*.json
+
+    /// EPSG GN7-2 §1.3.2.1 worked example — NAD27 / Texas South Central.
+    /// Point (28°30'N, 96°W) → E=2,963,503.91 ftUS, N=254,759.80 ftUS.
+    /// Our sidecar works in metres, so convert with 1 ftUS = 1200/3937 m.
+    #[test]
+    fn test_lcc_epsg_gn72_worked_example() {
+        const FTUS_TO_M: f64 = 1200.0 / 3937.0;
+        let params = LCCParams {
+            standard_parallel_1_deg: 28.0 + 23.0 / 60.0,
+            standard_parallel_2_deg: 30.0 + 17.0 / 60.0,
+            latitude_of_origin_deg: 27.0 + 50.0 / 60.0,
+            central_meridian_deg: -99.0,
+            false_easting_m: 2_000_000.0 * FTUS_TO_M,
+            false_northing_m: 0.0,
+            ellipsoid: datums::CLARKE_1866,
+        };
+        let (e, n) = lambert_conformal_conic_forward(28.5, -96.0, &params);
+        let e_ft = e / FTUS_TO_M;
+        let n_ft = n / FTUS_TO_M;
+        // Published: E = 2,963,503.91 ftUS, N = 254,759.80 ftUS.
+        assert!((e_ft - 2_963_503.91).abs() < 0.05, "E={e_ft:.2} ftUS");
+        assert!((n_ft - 254_759.80).abs() < 0.05, "N={n_ft:.2} ftUS");
+
+        // Inverse must return exactly the input.
+        let (lat, lon) = lambert_conformal_conic_inverse(e, n, &params);
+        assert!((lat - 28.5).abs() < 1e-9, "lat={lat}");
+        assert!((lon + 96.0).abs() < 1e-9, "lon={lon}");
+    }
+
+    /// Texas South Central (EPSG::6360, metres) — San Antonio.
+    /// Cross-checked with scripts/verify_lcc.py.
+    #[test]
+    fn test_lcc_texas_south_central_san_antonio() {
+        let params = LCCParams {
+            standard_parallel_1_deg: 27.0 + 50.0 / 60.0,
+            standard_parallel_2_deg: 31.0 + 53.0 / 60.0,
+            latitude_of_origin_deg: 27.0 + 50.0 / 60.0,
+            central_meridian_deg: -99.0,
+            false_easting_m: 600_000.0,
+            false_northing_m: 4_000_000.0,
+            ellipsoid: datums::GRS80,
+        };
+        let (e, n) = lambert_conformal_conic_forward(29.4241, -98.4936, &params);
+        assert!((e - 649_111.0529).abs() < 0.01, "E={e}");
+        assert!((n - 4_176_348.9526).abs() < 0.01, "N={n}");
+        let (lat, lon) = lambert_conformal_conic_inverse(e, n, &params);
+        assert!((lat - 29.4241).abs() < 1e-9);
+        assert!((lon + 98.4936).abs() < 1e-9);
+    }
+
+    /// California zone 5 (EPSG::6335, metres) — Los Angeles.
+    #[test]
+    fn test_lcc_california_5_los_angeles() {
+        let params = LCCParams {
+            standard_parallel_1_deg: 34.0 + 2.0 / 60.0,
+            standard_parallel_2_deg: 35.0 + 28.0 / 60.0,
+            latitude_of_origin_deg: 33.0 + 30.0 / 60.0,
+            central_meridian_deg: -118.0,
+            false_easting_m: 2_000_000.0,
+            false_northing_m: 500_000.0,
+            ellipsoid: datums::GRS80,
+        };
+        let (e, n) = lambert_conformal_conic_forward(34.0522, -118.2437, &params);
+        assert!((e - 1_977_499.7214).abs() < 0.01, "E={e}");
+        assert!((n - 561_280.6456).abs() < 0.01, "N={n}");
+        let (lat, lon) = lambert_conformal_conic_inverse(e, n, &params);
+        assert!((lat - 34.0522).abs() < 1e-9);
+        assert!((lon + 118.2437).abs() < 1e-9);
+    }
+
+    /// New York Long Island (EPSG::6539, metres) — New York City.
+    #[test]
+    fn test_lcc_new_york_long_island() {
+        let params = LCCParams {
+            standard_parallel_1_deg: 40.0 + 40.0 / 60.0,
+            standard_parallel_2_deg: 41.0 + 2.0 / 60.0,
+            latitude_of_origin_deg: 40.0 + 10.0 / 60.0,
+            central_meridian_deg: -74.0,
+            false_easting_m: 300_000.0,
+            false_northing_m: 0.0,
+            ellipsoid: datums::GRS80,
+        };
+        let (e, n) = lambert_conformal_conic_forward(40.7128, -74.006, &params);
+        assert!((e - 299_493.0052).abs() < 0.01, "E={e}");
+        assert!((n - 60_645.8178).abs() < 0.01, "N={n}");
+        let (lat, lon) = lambert_conformal_conic_inverse(e, n, &params);
+        assert!((lat - 40.7128).abs() < 1e-9);
+        assert!((lon + 74.006).abs() < 1e-9);
+    }
+
+    /// Round-trip sweep across the US domain (all three SPCS zones).
+    #[test]
+    fn test_lcc_roundtrip_sweep() {
+        let zones = [
+            (LCCParams {
+                standard_parallel_1_deg: 27.833_333_333,
+                standard_parallel_2_deg: 31.883_333_333,
+                latitude_of_origin_deg: 27.833_333_333,
+                central_meridian_deg: -99.0,
+                false_easting_m: 600_000.0,
+                false_northing_m: 4_000_000.0,
+                ellipsoid: datums::GRS80,
+            }, 25.0, -107.0, 37.0, -93.0),
+            (LCCParams {
+                standard_parallel_1_deg: 34.033_333_333,
+                standard_parallel_2_deg: 35.466_666_667,
+                latitude_of_origin_deg: 33.5,
+                central_meridian_deg: -118.0,
+                false_easting_m: 2_000_000.0,
+                false_northing_m: 500_000.0,
+                ellipsoid: datums::GRS80,
+            }, 32.5, -121.0, 37.5, -114.0),
+            (LCCParams {
+                standard_parallel_1_deg: 40.666_666_667,
+                standard_parallel_2_deg: 41.033_333_333,
+                latitude_of_origin_deg: 40.166_666_667,
+                central_meridian_deg: -74.0,
+                false_easting_m: 300_000.0,
+                false_northing_m: 0.0,
+                ellipsoid: datums::GRS80,
+            }, 40.3, -74.5, 41.3, -73.0),
+        ];
+        for (params, lat_min, lon_min, lat_max, lon_max) in zones {
+            // Sample a small grid; every point must round-trip.
+            let lat_step = (lat_max - lat_min) / 5.0;
+            let lon_step = (lon_max - lon_min) / 5.0;
+            let mut i = 0.0;
+            while i <= 5.0 {
+                let mut j = 0.0;
+                while j <= 5.0 {
+                    let lat = lat_min + lat_step * i;
+                    let lon = lon_min + lon_step * j;
+                    let (e, n) = lambert_conformal_conic_forward(lat, lon, &params);
+                    let (lat_b, lon_b) = lambert_conformal_conic_inverse(e, n, &params);
+                    assert!(
+                        (lat_b - lat).abs() < 1e-9 && (lon_b - lon).abs() < 1e-9,
+                        "round-trip drift at ({lat},{lon}) → ({lat_b},{lon_b})"
+                    );
+                    j += 1.0;
+                }
+            i += 1.0;
+        }
+    }
+
+    // ─── LCC edge cases (negative n / degenerate parallel) ──────────
+    //
+    // Expected values cross-checked with scripts/verify_lcc.py against
+    // the independent Python reference (which is itself validated on the
+    // EPSG GN7-2 worked example). These zones were deliberately chosen to
+    // exercise code paths the US SPCS tests cannot reach:
+    //   • southern 2SP        → n < 0 (F and ρ negative)
+    //   • equatorial straddle → small |n| < 0.1, n < 0
+    //   • single parallel 34N → degenerate φ₁=φ₂ branch, n > 0
+    //   • single parallel 34S → degenerate branch, n < 0
+    // The negative-n inverse previously returned θ ∓ π (≈280° longitude
+    // error); the sign(n)-scaled atan2 fix is what makes these pass.
+
+    /// Southern-hemisphere 2SP zone — n < 0 makes ρ < 0, so the inverse
+    /// must recover θ in the correct quadrant (the sign(n) atan2 fix).
+    #[test]
+    fn test_lcc_southern_2sp_negative_n() {
+        let params = LCCParams {
+            standard_parallel_1_deg: -35.0,
+            standard_parallel_2_deg: -45.0,
+            latitude_of_origin_deg: -35.0,
+            central_meridian_deg: 120.0,
+            false_easting_m: 0.0,
+            false_northing_m: 10_000_000.0,
+            ellipsoid: datums::GRS80,
+        };
+        let (e, n) = lambert_conformal_conic_forward(-40.0, 122.0, &params);
+        assert!((e - 170_125.7707).abs() < 0.01, "E={e}");
+        assert!((n - 9_444_543.9277).abs() < 0.01, "N={n}");
+        let (lat, lon) = lambert_conformal_conic_inverse(e, n, &params);
+        assert!((lat + 40.0).abs() < 1e-9, "lat={lat}");
+        assert!((lon - 122.0).abs() < 1e-9, "lon={lon}");
+    }
+
+    /// Equatorial straddle (5°N / 15°S) — a small negative n ≈ −0.088.
+    /// Exercises the sign(n) θ recovery with |n| far from 1 and a point
+    /// south of both parallels.
+    #[test]
+    fn test_lcc_equatorial_straddle_negative_n() {
+        let params = LCCParams {
+            standard_parallel_1_deg: 5.0,
+            standard_parallel_2_deg: -15.0,
+            latitude_of_origin_deg: -5.0,
+            central_meridian_deg: 30.0,
+            false_easting_m: 500_000.0,
+            false_northing_m: 1_000_000.0,
+            ellipsoid: datums::GRS80,
+        };
+        let (e, n) = lambert_conformal_conic_forward(-8.0, 33.0, &params);
+        assert!((e - 826_173.6312).abs() < 0.01, "E={e}");
+        assert!((n - 672_348.5418).abs() < 0.01, "N={n}");
+        let (lat, lon) = lambert_conformal_conic_inverse(e, n, &params);
+        assert!((lat + 8.0).abs() < 1e-9, "lat={lat}");
+        assert!((lon - 33.0).abs() < 1e-9, "lon={lon}");
+    }
+
+    /// Single-parallel limit φ₁ = φ₂ = 34°N — the degenerate branch
+    /// (n = sin φ₁ instead of the ln ratio), northern hemisphere (n > 0).
+    #[test]
+    fn test_lcc_single_parallel_34n() {
+        let params = LCCParams {
+            standard_parallel_1_deg: 34.0,
+            standard_parallel_2_deg: 34.0,
+            latitude_of_origin_deg: 0.0,
+            central_meridian_deg: -96.0,
+            false_easting_m: 0.0,
+            false_northing_m: 0.0,
+            ellipsoid: datums::GRS80,
+        };
+        let (e, n) = lambert_conformal_conic_forward(35.0, -95.0, &params);
+        assert!((e - 91_300.6176).abs() < 0.01, "E={e}");
+        assert!((n - 4_093_336.2213).abs() < 0.01, "N={n}");
+        let (lat, lon) = lambert_conformal_conic_inverse(e, n, &params);
+        assert!((lat - 35.0).abs() < 1e-9, "lat={lat}");
+        assert!((lon + 95.0).abs() < 1e-9, "lon={lon}");
+    }
+
+    /// Single-parallel limit φ₁ = φ₂ = 34°S — degenerate branch with
+    /// n < 0. The only test that drives the φ₁=φ₂ code path AND the
+    /// negative-n inverse quadrant fix at the same time.
+    #[test]
+    fn test_lcc_single_parallel_southern_34s() {
+        let params = LCCParams {
+            standard_parallel_1_deg: -34.0,
+            standard_parallel_2_deg: -34.0,
+            latitude_of_origin_deg: -30.0,
+            central_meridian_deg: 150.0,
+            false_easting_m: 0.0,
+            false_northing_m: 10_000_000.0,
+            ellipsoid: datums::GRS80,
+        };
+        let (e, n) = lambert_conformal_conic_forward(-35.0, 152.0, &params);
+        assert!((e - 182_592.5387).abs() < 0.01, "E={e}");
+        assert!((n - 9_443_377.9337).abs() < 0.01, "N={n}");
+        let (lat, lon) = lambert_conformal_conic_inverse(e, n, &params);
+        assert!((lat + 35.0).abs() < 1e-9, "lat={lat}");
+        assert!((lon - 152.0).abs() < 1e-9, "lon={lon}");
+    }
+}
 }

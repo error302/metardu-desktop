@@ -321,6 +321,49 @@ export const SOUTH_AFRICA: CountrySurveyConfig = {
     "Sectional Titles Act 95 of 1986 (as amended)",
     "Sectional Titles Schemes Management Act 8 of 2011",
   ],
-  version: "0.1.0",
+  planSheet: {
+    defaultSheetSize: "a1",
+    defaultOrientation: "portrait",
+    titleBlockLabel: "REPUBLIC OF SOUTH AFRICA — SURVEYOR-GENERAL",
+    planTypeLabel: "GENERAL PLAN / DIAGRAM",
+    footerNote:
+      "Prepared under the Land Survey Act 8 of 1997 and SANS 187. " +
+      "Coordinates in Hartebeesthoek94 / Lo belts.",
+    titleBlockLayout: {
+      // Surveyor-General diagram lettering. Field grid mirrors
+      // SG_DIAGRAM.titleBlockFields (Land Survey Act 8 of 1997, s.1 + Reg. 7):
+      // diagram number, farm name, registration division, province, area,
+      // scale — with the SG approval block and surveyor seal.
+      variant: "sg-diagram",
+      fieldRows: [
+        { label: "SG DIAGRAM NO." },
+        { label: "FARM NAME" },
+        { label: "REGISTRATION DIVISION" },
+        { label: "PROVINCE" },
+        { label: "AREA (ha)" },
+        { label: "SCALE", value: "{{scale}}" },
+        { label: "DATE OF SURVEY", value: "{{date}}" },
+        { label: "SURVEYOR", value: "{{surveyor}}" },
+      ],
+      certification: {
+        heading: "APPROVED — SURVEYOR-GENERAL",
+        lines: [
+          "Examined and approved in terms of the Land Survey Act 8 of 1997",
+          "and SANS 2814. This diagram must accompany the deed on lodgment.",
+        ],
+      },
+      seal: {
+        position: "bottom-right",
+        caption: "REGISTERED LAND SURVEYOR — SAGC (PLATO) REG. NO.",
+      },
+      statutoryFooterLines: [
+        "This diagram is examined and approved under the Land Survey Act 8 of 1997",
+        "and must be lodged with the deeds registry together with the deed it",
+        "serves. Reproduction of an approved diagram is an offence under the Act.",
+        "Coordinates in Hartebeesthoek94 / Lo belts (EPSG:2051-2058).",
+      ],
+    },
+  },
+  version: "0.1.3",
   lastReviewed: "2026-07-19",
 };

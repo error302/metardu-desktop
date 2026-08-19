@@ -26,14 +26,18 @@
     "dist:mac": "npm run build && electron-builder --mac"
   },
   "dependencies": {
+    "@metardu/country-config": "*",
     "@metardu/electron-integration": "*",
     "@metardu/engine-flight-planning": "*",
-    "@metardu/country-config": "*",
     "@metardu/ipc-schemas": "*",
+    "@metardu/report-pdf": "*",
+    "better-sqlite3": "^13.0.3",
+    "lucide-react": "*",
     "ol": "^10.9.0",
-    "lucide-react": "*"
+    "sharp": "^0.33.5"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.0.0",
     "@types/ol": "^6.5.3",
     "electron": "33.4.11",

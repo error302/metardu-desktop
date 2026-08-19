@@ -7,9 +7,10 @@
  */
 
 import React, { useState } from "react";
-import { KENYA } from "@metardu/country-config";
 import { useSurveyState } from "../SurveyStateContext.js";
 import { runEngineeringWorkflow, type EngineeringWorkflowOutput, type TIN, type TopoPoint } from "@metardu/engine-flight-planning";
+import { COUNTRY_OPTIONS, getCountryOption } from "../countries.js";
+import { AutoExportBanner } from "./AutoExportBanner.js";
 
 // Synthetic existing-ground TIN: a 100×100m area at elevation 100m.
 const defaultTIN: TIN = {
@@ -24,6 +25,7 @@ const defaultTIN: TIN = {
 
 export const EngineeringView: React.FC = () => {
   const { setSurveyOutput } = useSurveyState();
+  const [countryCode, setCountryCode] = useState("KE");
   const [designElevation, setDesignElevation] = useState(102);
   const [sectionSpacing, setSectionSpacing] = useState(20);
   const [sectionWidth, setSectionWidth] = useState(80);
@@ -45,10 +47,10 @@ export const EngineeringView: React.FC = () => {
         sectionSpacing,
         sectionWidth,
         sectionSampleInterval: 10,
-        country: KENYA,
+        country: getCountryOption(countryCode).config,
       });
       setResult(output);
-      setSurveyOutput(output, "engineering", "EngineeringView", "KE");
+      setSurveyOutput(output, "engineering", "EngineeringView", countryCode);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -61,6 +63,15 @@ export const EngineeringView: React.FC = () => {
         Cut/fill volume computation between existing ground and a design plane.
         Cross-sections extracted along the alignment using the average-end-area method.
       </p>
+
+      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <label>Country:</label>
+        <select value={countryCode} onChange={(e) => setCountryCode(e.target.value)} style={{ minWidth: "200px" }}>
+          {COUNTRY_OPTIONS.map((o) => (
+            <option key={o.code} value={o.code}>{o.name}</option>
+          ))}
+        </select>
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px" }}>
         <div>
@@ -96,6 +107,8 @@ export const EngineeringView: React.FC = () => {
           Error: {error}
         </div>
       )}
+
+      <AutoExportBanner />
 
       {result && (
         <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: "12px" }}>

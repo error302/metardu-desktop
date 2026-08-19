@@ -21,6 +21,17 @@
 import type { Form3Input, Form3Parcel, Form3Beacon } from "../documents/form-3.js";
 import { generateForm3Pdf, type Form3Output } from "../documents/form-3.js";
 import type { PointUncertainty } from "../survey-types.js";
+import {
+  classifyBeacon,
+  validateBeacon,
+  type BeaconDefinition,
+  type BeaconType,
+} from "../surveying/beacon-types.js";
+import {
+  verifyBeaconByDistances,
+  type BeaconVerificationInput,
+  type BeaconVerificationResult,
+} from "../surveying/beacon-verification.js";
 
 // Re-export for backwards compatibility — BeaconUncertainty was the
 // original cadastral-only name; PointUncertainty is the survey-domain
@@ -51,6 +62,50 @@ export interface CadastralWorkflowInput {
   surveyor: Form3Input["surveyor"];
   /** SRID for the output (must match knownBeacons coordinates). */
   srid: number;
+
+  /**
+   * Optional: Beacon type context for classifying new beacons.
+   * If provided, each new beacon will be classified into one of the
+   * 8 Kenya-regulated types (standard, line, river, indicatory, etc.)
+   * per Survey Regulations R.37-49.
+   */
+  beaconContext?: {
+    /** Whether the survey is on a property boundary */
+    isOnBoundary: boolean;
+    /** Whether the boundary intersects a curvilinear feature */
+    intersectsCurvilinear: boolean;
+    /** Whether the beacon location is accessible */
+    isAccessible: boolean;
+    /** Whether there's a permanent building at the corner */
+    hasPermanentBuilding: boolean;
+    /** Whether the building corner is permanent enough to serve as a beacon */
+    isBuildingCornerPermanent: boolean;
+    /** Whether the beacon is in a river or swamp */
+    isInRiver: boolean;
+    /** Whether the beacon is above flood level */
+    isAboveFloodLevel: boolean;
+  };
+
+  /**
+   * Optional: Verification observations for 3-distance beacon verification
+   * per Bahrain CSD §3.11. If provided, each new beacon will be verified
+   * by measuring distances to at least 3 known reference points.
+   */
+  verificationObservations?: Array<{
+    /** The new beacon being verified */
+    beaconLabel: string;
+    /** Distance observations to known reference points */
+    distances: Array<{
+      referenceLabel: string;
+      observedDistanceM: number;
+    }>;
+  }>;
+
+  /**
+   * Optional: Tolerance for 3-distance verification in mm.
+   * Default: 50mm (Bahrain CSD standard).
+   */
+  verificationToleranceMm?: number;
 }
 
 /** Output of the cadastral workflow. */
@@ -83,6 +138,32 @@ export interface CadastralWorkflowOutput {
    * this field stays the same.
    */
   uncertainty: Record<string, BeaconUncertainty>;
+
+  /**
+   * Beacon type classifications for all beacons.
+   * Only present when `beaconContext` is provided in the input.
+   * Keys are beacon labels, values are the classified beacon type.
+   */
+  beaconClassifications?: Record<string, BeaconType>;
+
+  /**
+   * Beacon validation results (rules compliance check).
+   * Only present when `beaconContext` is provided in the input.
+   */
+  beaconValidations?: Record<string, { valid: boolean; violations: string[] }>;
+
+  /**
+   * 3-distance verification results for new beacons.
+   * Only present when `verificationObservations` is provided in the input.
+   * Keys are beacon labels.
+   */
+  beaconVerifications?: Record<string, BeaconVerificationResult>;
+
+  /**
+   * Whether all new beacons passed 3-distance verification.
+   * true if no verification was requested, or all verifications passed.
+   */
+  allBeaconsVerified: boolean;
 }
 
 /**
@@ -198,6 +279,7 @@ export async function runCadastralWorkflow(
         sigma_0_sq,
         passesCadastralTolerance: Math.max(...Object.values(residuals).map(Math.abs)) < 0.020,
         uncertainty,
+        allBeaconsVerified: true,
       };
     }
 
@@ -213,6 +295,7 @@ export async function runCadastralWorkflow(
       sigma_0_sq,
       passesCadastralTolerance: Math.max(...Object.values(residuals).map(Math.abs)) < 0.020,
       uncertainty,
+      allBeaconsVerified: true,
     };
   }
 
@@ -439,6 +522,86 @@ export async function runCadastralWorkflow(
   const maxResidual = Math.max(...Object.values(residuals).map(Math.abs));
   const passesCadastralTolerance = maxResidual < 0.020; // 20mm threshold
 
+  // ─── Beacon Type Classification (Survey Regs R.37-49) ──────────
+  let beaconClassifications: Record<string, BeaconType> | undefined;
+  let beaconValidations: Record<string, { valid: boolean; violations: string[] }> | undefined;
+  if (input.beaconContext) {
+    beaconClassifications = {};
+    beaconValidations = {};
+    for (const beacon of allBeacons) {
+      const isNew = newLabels.includes(beacon.label);
+      // Only classify new beacons; known beacons keep "standard" type
+      const beaconType: BeaconType = isNew
+        ? classifyBeacon({
+            ...input.beaconContext,
+            isTrigStation: false,
+            isBenchmark: false,
+            isReferenceMark: false,
+          })
+        : "standard";
+      beaconClassifications[beacon.label] = beaconType;
+
+      const beaconDef: BeaconDefinition = {
+        label: beacon.label,
+        type: beaconType,
+        material: "pillar",
+        easting: beacon.position.easting,
+        northing: beacon.position.northing,
+        description: beacon.description,
+        status: isNew ? "new" : "existing",
+        referenceMarks: [],
+      };
+      beaconValidations[beacon.label] = validateBeacon(beaconDef);
+    }
+  }
+
+  // ─── 3-Distance Beacon Verification (Bahrain CSD §3.11) ────────
+  let beaconVerifications: Record<string, BeaconVerificationResult> | undefined;
+  let allBeaconsVerified = true;
+  if (input.verificationObservations && input.verificationObservations.length > 0) {
+    beaconVerifications = {};
+    const toleranceMm = input.verificationToleranceMm ?? 50;
+
+    // Build reference points from all known beacons
+    const referencePoints = input.knownBeacons.map((b) => ({
+      label: b.label,
+      easting: b.position.easting,
+      northing: b.position.northing,
+      isFixed: true,
+    }));
+
+    // Only verify new beacons (known beacons are already established)
+    for (const vo of input.verificationObservations) {
+      if (!newLabels.includes(vo.beaconLabel)) continue;
+      const beaconPosition = allBeacons.find((b) => b.label === vo.beaconLabel);
+      if (!beaconPosition) continue;
+
+      const verificationInput: BeaconVerificationInput = {
+        beacon: {
+          label: vo.beaconLabel,
+          easting: beaconPosition.position.easting,
+          northing: beaconPosition.position.northing,
+          description: beaconPosition.description,
+          isFixed: false,
+        },
+        referencePoints,
+        observations: vo.distances.map((d) => ({
+          beaconLabel: vo.beaconLabel,
+          referenceLabel: d.referenceLabel,
+          observedDistanceM: d.observedDistanceM,
+        })),
+        toleranceMm,
+        minDistances: 3,
+      };
+
+      const result = verifyBeaconByDistances(verificationInput);
+      beaconVerifications[vo.beaconLabel] = result;
+      if (!result.verified) {
+        allBeaconsVerified = false;
+      }
+    }
+  }
+
   return {
     form3,
     allBeacons,
@@ -446,6 +609,10 @@ export async function runCadastralWorkflow(
     sigma_0_sq,
     passesCadastralTolerance,
     uncertainty,
+    beaconClassifications,
+    beaconValidations,
+    beaconVerifications,
+    allBeaconsVerified,
   };
 }
 

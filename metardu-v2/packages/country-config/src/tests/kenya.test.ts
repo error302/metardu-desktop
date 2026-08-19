@@ -352,9 +352,9 @@ describe("country registry", () => {
     expect(COUNTRY_REGISTRY.AE).toBeDefined();
   });
 
-  it("implementedCountries() returns all 5 codes", () => {
+  it("implementedCountries() returns all 8 codes", () => {
     const implemented = implementedCountries();
-    expect(implemented.sort()).toEqual(["AE", "AU", "GB", "KE", "ZA"]);
+    expect(implemented.sort()).toEqual(["AE", "AU", "DE", "GB", "GH", "KE", "US", "ZA"]);
   });
 
   it("getCountryConfig('KE') returns the Kenya config", () => {

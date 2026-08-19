@@ -13,16 +13,24 @@ mod dispatcher;
 mod gdal;
 mod geodesy;
 mod import;
+mod instrument;
 mod mavsdk;
 mod ml;
 mod odm;
 mod protocol;
 
 use anyhow::Result;
-use protocol::{read_message, write_message, Response};
+use protocol::{read_message, write_message, write_notification, Notification, Response};
 use std::io::{self, BufReader, BufWriter, Write};
+use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
+
+/// Channel for background instrument threads to push notifications to the
+/// main stdout writer. The main loop selects between stdin reads and
+/// broadcast receiver, writing any notifications to stdout.
+pub type NotificationSender = broadcast::Sender<Notification>;
+pub type NotificationReceiver = broadcast::Receiver<Notification>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -45,36 +53,68 @@ async fn main() -> Result<()> {
     let mut reader = BufReader::new(stdin.lock());
     let mut writer = BufWriter::new(stdout.lock());
 
-    let dispatcher = dispatcher::Dispatcher::new();
+    // Broadcast channel for streaming notifications (instrument events).
+    let (notif_tx, _) = broadcast::channel::<Notification>(256);
+    let mut notif_rx = notif_tx.subscribe();
 
-    // Main loop: read request, dispatch, write response, repeat.
+    let dispatcher = dispatcher::Dispatcher::new(notif_tx.clone());
+
+    // Main loop: read request, dispatch, write response, and forward
+    // any streaming notifications to stdout.
     loop {
-        let req = match read_message(&mut reader) {
-            Ok(Some(req)) => req,
-            Ok(None) => {
-                // EOF on stdin — renderer closed the connection. Shut down cleanly.
-                info!("stdin EOF received, shutting down");
-                break;
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to read message");
-                // Don't crash — try to send an error response if we can.
-                // If writing also fails, then exit.
-                let resp = Response::err("unknown".into(), "READ_ERROR", &e.to_string());
-                if let Err(write_err) = write_message(&mut writer, &resp) {
-                    error!(error = %write_err, "Failed to write error response, exiting");
-                    break;
+        tokio::select! {
+            // Branch 1: incoming request from the main process.
+            req_result = tokio::task::spawn_blocking({
+                let mut r = BufReader::new(io::stdin());
+                move || read_message(&mut r)
+            }) => {
+                match req_result {
+                    Ok(Ok(Some(req))) => {
+                        info!(method = %req.method, id = %req.id, "dispatching request");
+                        let resp = dispatcher.dispatch(req).await;
+                        if let Err(e) = write_message(&mut writer, &resp) {
+                            error!(error = %e, "Failed to write response, exiting");
+                            break;
+                        }
+                    }
+                    Ok(Ok(None)) => {
+                        info!("stdin EOF received, shutting down");
+                        // Signal all background tasks to stop.
+                        drop(notif_tx);
+                        break;
+                    }
+                    Ok(Err(e)) => {
+                        error!(error = %e, "Failed to read message");
+                        let resp = Response::err("unknown".into(), "READ_ERROR", &e.to_string());
+                        if let Err(write_err) = write_message(&mut writer, &resp) {
+                            error!(error = %write_err, "Failed to write error response, exiting");
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!(error = %e, "Join error on stdin reader, exiting");
+                        break;
+                    }
                 }
-                continue;
             }
-        };
-
-        info!(method = %req.method, id = %req.id, "dispatching request");
-        let resp = dispatcher.dispatch(req).await;
-
-        if let Err(e) = write_message(&mut writer, &resp) {
-            error!(error = %e, "Failed to write response, exiting");
-            break;
+            // Branch 2: streaming notification from a background instrument thread.
+            notif_result = notif_rx.recv() => {
+                match notif_result {
+                    Ok(notif) => {
+                        if let Err(e) = write_notification(&mut writer, &notif) {
+                            error!(error = %e, "Failed to write notification, exiting");
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        warn!(dropped = n, "Notification receiver lagged, dropped notifications");
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        // All senders dropped — background tasks done. Continue
+                        // processing requests until stdin EOF.
+                    }
+                }
+            }
         }
     }
 

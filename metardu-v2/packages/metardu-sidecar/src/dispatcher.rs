@@ -45,12 +45,17 @@ pub type Handler = Box<
 /// Registry of method name -> handler function.
 pub struct Dispatcher {
     handlers: HashMap<String, Handler>,
+    /// Broadcast sender for streaming notifications (instrument events).
+    /// Background instrument threads clone this and push Notification structs
+    /// that the main loop forwards to stdout.
+    pub notif_tx: crate::NotificationSender,
 }
 
 impl Dispatcher {
-    pub fn new() -> Self {
+    pub fn new(notif_tx: crate::NotificationSender) -> Self {
         let mut d = Dispatcher {
             handlers: HashMap::new(),
+            notif_tx,
         };
         d.register_builtins();
         // Register list_methods separately (after builtins, so method_names() returns a complete list)
@@ -209,6 +214,13 @@ impl Dispatcher {
         self.register("geodesy.utm_inverse", |params: Value| async move {
             crate::compute_handlers::handle_utm_inverse(params).await
         });
+        // Geodesy: Lambert Conformal Conic (2SP) — US SPCS zones
+        self.register("geodesy.lcc_forward", |params: Value| async move {
+            crate::compute_handlers::handle_lcc_forward(params).await
+        });
+        self.register("geodesy.lcc_inverse", |params: Value| async move {
+            crate::compute_handlers::handle_lcc_inverse(params).await
+        });
 
         // COGO: Traverse
         self.register("cogo.traverse_misclosure", |params: Value| async move {
@@ -251,6 +263,55 @@ impl Dispatcher {
         self.register("import.rinex_epochs", |params: Value| async move {
             crate::import::handle_rinex_epochs(params).await
         });
+
+        // ---- Instrument connection — live serial, BLE, NTRIP streaming ----
+        // These handlers manage instrument connections. The actual data
+        // streaming happens via background tasks that push Notification
+        // structs through the broadcast channel (notif_tx).
+
+        self.register("instrument.list_ports", |params: Value| async move {
+            crate::instrument::handle_list_ports(params).await
+        });
+
+        self.register("instrument.list_ble_devices", |params: Value| async move {
+            crate::instrument::handle_list_ble_devices(params).await
+        });
+
+        self.register("instrument.scan_ports", |params: Value| async move {
+            crate::instrument::handle_scan_ports(params).await
+        });
+
+        // instrument.connect needs the notification sender for streaming.
+        // We clone notif_tx into the handler closure.
+        {
+            let notif_tx = self.notif_tx.clone();
+            self.register("instrument.connect", move |params: Value| {
+                let notif_tx = notif_tx.clone();
+                async move {
+                    crate::instrument::handle_connect(params, notif_tx).await
+                }
+            });
+        }
+
+        self.register("instrument.disconnect", |params: Value| async move {
+            crate::instrument::handle_disconnect(params).await
+        });
+
+        self.register("instrument.status", |params: Value| async move {
+            crate::instrument::handle_status(params).await
+        });
+
+        // ---- GNSS baseline covariance estimation from satellite geometry ----
+        // PDOP-weighted baseline covariance estimator: takes satellite
+        // elevation/azimuth at two receivers and returns a correlated 3x3
+        // covariance matrix for use in least-squares adjustment.
+        self.register("gnss.estimate_baseline_covariance", |params: Value| async move {
+            crate::instrument::baseline_covariance::handle_estimate_baseline_covariance(params).await
+        });
+
+        self.register("gnss.batch_estimate_covariance", |params: Value| async move {
+            crate::instrument::baseline_covariance::handle_batch_estimate_covariance(params).await
+        });
     }
 
     /// Returns the list of all registered method names.
@@ -268,9 +329,14 @@ impl Dispatcher {
 mod tests {
     use super::*;
 
+    fn test_dispatcher() -> Dispatcher {
+        let (tx, _) = tokio::sync::broadcast::channel(16);
+        Dispatcher::new(tx)
+    }
+
     #[tokio::test]
     async fn test_ping_handler() {
-        let d = Dispatcher::new();
+        let d = test_dispatcher();
         let req = Request {
             id: "test-1".into(),
             method: "ping".into(),
@@ -290,7 +356,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_echo_handler() {
-        let d = Dispatcher::new();
+        let d = test_dispatcher();
         let req = Request {
             id: "test-2".into(),
             method: "echo".into(),
@@ -308,7 +374,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unknown_method_returns_error() {
-        let d = Dispatcher::new();
+        let d = test_dispatcher();
         let req = Request {
             id: "test-3".into(),
             method: "nonexistent".into(),
@@ -326,7 +392,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_methods_includes_builtins() {
-        let d = Dispatcher::new();
+        let d = test_dispatcher();
         let req = Request {
             id: "test-4".into(),
             method: "list_methods".into(),
@@ -347,7 +413,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mavlink_connect_with_mock_drone_link() {
-        let d = Dispatcher::new();
+        let d = test_dispatcher();
         let req = Request {
             id: "test-5".into(),
             method: "mavlink_connect".into(),
@@ -369,7 +435,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_odm_process_validates_params() {
-        let d = Dispatcher::new();
+        let d = test_dispatcher();
         let req = Request {
             id: "test-odm".into(),
             method: "odm_process".into(),

@@ -114,6 +114,15 @@ export interface FlightPlanReportInput {
   };
   footprintDiagramSvg: string;
   flightPatternSvg: string;
+  /**
+   * Optional: a full-resolution survey map (300 DPI PNG bytes, produced by
+   * the desktop main process's sharp rasterizer). When provided, the
+   * diagrams page embeds this raster map full-page INSTEAD of the
+   * simplified vector diagrams — statutory-grade print quality.
+   */
+  surveyMapPng?: Uint8Array;
+  /** Optional caption under the embedded survey map. */
+  surveyMapCaption?: string;
 }
 
 /**
@@ -206,9 +215,9 @@ export async function renderReportToPdf(
   // ─── Page 3: Compliance + battery ───
   renderCompliancePage(ctx, report);
 
-  // ─── Page 4: Diagrams (optional) ───
+  // ─── Page 4: Diagrams / Survey Map (optional) ───
   if (includeDiagrams) {
-    renderDiagramsPage(ctx, report);
+    await renderDiagramsPage(ctx, report);
   }
 
   // Add page numbers to all pages except cover
@@ -658,10 +667,46 @@ function renderCompliancePage(ctx: RenderContext, report: FlightPlanReportInput)
   }
 }
 
-// ─── Page 4: Diagrams ──────────────────────────────────────────────
+// ─── Page 4: Diagrams / Survey Map ─────────────────────────────────
 
-function renderDiagramsPage(ctx: RenderContext, report: FlightPlanReportInput): void {
+/**
+ * Render the diagrams page. When the caller supplies a full-resolution
+ * survey map PNG (from the desktop's sharp rasterizer), embed it
+ * full-page and skip the simplified vector diagrams — the map is the
+ * statutory-grade artifact. Otherwise fall back to the two simplified
+ * vector diagrams (footprint + flight pattern).
+ */
+async function renderDiagramsPage(ctx: RenderContext, report: FlightPlanReportInput): Promise<void> {
   newPage(ctx);
+
+  if (report.surveyMapPng && report.surveyMapPng.length > 0) {
+    drawHeading(ctx, "3. Survey Map", 1);
+
+    const image = await ctx.doc.embedPng(report.surveyMapPng);
+    // Fit the map into the printable area, preserving aspect ratio.
+    const availW = ctx.pageW - 2 * MARGIN;
+    const availH = ctx.pageH - 2 * MARGIN - 70; // heading + caption space
+    const scale = Math.min(availW / image.width, availH / image.height);
+    const w = image.width * scale;
+    const h = image.height * scale;
+    const x = (ctx.pageW - w) / 2;
+    // ctx.y is a bottom-up PDF y (starts at pageH - MARGIN, decreases as
+    // content flows down the page). drawImage's y is the BOTTOM-left corner
+    // in PDF coordinates, so the image's top edge sits at the cursor:
+    //   bottom-left y = cursor - h   (extend downward from the heading).
+    const y = ctx.y - h - 10;
+
+    ctx.currentPage!.drawImage(image, { x, y, width: w, height: h });
+    // Advance past the image (decreasing y = moving down the page).
+    ctx.y = y - 10;
+
+    if (report.surveyMapCaption) {
+      drawText(ctx, report.surveyMapCaption, {
+        x: MARGIN, size: 9, font: ctx.helveticaOblique, color: COLORS.muted,
+      });
+    }
+    return;
+  }
 
   drawHeading(ctx, "3. Diagrams", 1);
 
@@ -822,6 +867,444 @@ function drawFlightPatternDiagram(ctx: RenderContext, report: FlightPlanReportIn
   });
 
   ctx.y = cy - boxH / 2 - 45;
+}
+
+// ─── Single-page statutory plan sheet PDF ────────────────────────
+
+/** Input for a single-page, print-grade plan sheet PDF. */
+export interface SinglePlanPdfInput {
+  /** Plan title (e.g. project name). */
+  title: string;
+  surveyorName?: string;
+  /** ISO date string; formatted as YYYY-MM-DD. */
+  date?: string;
+  /** CRS label, e.g. "Arc 1960 / UTM zone 37S". */
+  coordinateSystemLabel?: string;
+  /** Plan scale denominator (1:D). */
+  scaleDenominator?: number;
+  /**
+   * Sheet size in points (72/inch) — the PDF page is created at exactly
+   * this size, and the 300 DPI PNG is drawn full-bleed, so every PDF
+   * point carries a print-resolution raster cell (no scaling loss).
+   */
+  widthPt: number;
+  heightPt: number;
+  /** 300 DPI plan sheet PNG bytes (rasterized from the plan SVG). */
+  png: Uint8Array;
+}
+
+/**
+ * Render a single-page statutory plan sheet PDF — the exact plan SVG
+ * rasterized at 300 DPI and embedded full-bleed on a page sized to the
+ * sheet. No flight-plan report wrapper, no cover, no extra pages: this
+ * IS the plan sheet as a vector/print-grade PDF for filing.
+ */
+export async function renderSinglePlanPdf(input: SinglePlanPdfInput): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  doc.setTitle(`Survey Plan — ${input.title}`);
+  doc.setAuthor(input.surveyorName ?? "MetaRDU Desktop");
+  doc.setCreator("MetaRDU Desktop v2.0");
+  doc.setSubject(
+    [
+      "Statutory survey plan sheet",
+      input.coordinateSystemLabel ? `CRS: ${input.coordinateSystemLabel}` : null,
+      input.scaleDenominator ? `Scale 1:${input.scaleDenominator}` : null,
+    ]
+      .filter((s): s is string => s !== null)
+      .join(" — "),
+  );
+  doc.setProducer("pdf-lib + MetaRDU");
+  // Record the plan's date in the document metadata — filing software and
+  // reviewers can read the production date without opening the sheet.
+  if (input.date) {
+    const parsed = new Date(input.date);
+    if (!Number.isNaN(parsed.getTime())) {
+      doc.setCreationDate(parsed);
+    }
+  }
+
+  const image = await doc.embedPng(input.png);
+  // Page sized to the sheet in points; the PNG (rasterized at PRINT_DPI
+  // from the point-sized SVG) is drawn full-bleed — 1 PDF pt = 1 plan pt.
+  const page = doc.addPage([input.widthPt, input.heightPt]);
+  page.drawImage(image, { x: 0, y: 0, width: input.widthPt, height: input.heightPt });
+
+  return await doc.save();
+}
+
+// ─── Parcel booklet (multi-parcel statutory compilation) ─────────
+
+/** One parcel's plan sheet inside a booklet. */
+export interface ParcelBookletPageInput {
+  /** Parcel / section label, e.g. "LR 12345/2" or "Parcel 2". */
+  label: string;
+  /** 300 DPI plan PNG bytes for this parcel (already sheet-sized). */
+  png: Uint8Array;
+  /** Plan scale denominator (1:D) shown in the index + caption. */
+  scaleDenominator?: number;
+  /** Output pixel dimensions of the PNG (shown in the caption). */
+  widthPx?: number;
+  heightPx?: number;
+  /** Area in hectares (shown in the index). */
+  areaHectares?: number;
+  /**
+   * Owning project (for multi-project scheme booklets). When any page
+   * carries a project name, the master index gains a Project column and
+   * plan-page headings are prefixed with it.
+   */
+  projectName?: string;
+}
+
+export interface ParcelBookletInput {
+  projectName: string;
+  surveyorName?: string;
+  /** ISO date string; formatted as YYYY-MM-DD. */
+  date?: string;
+  /** CRS label, e.g. "Arc 1960 / UTM zone 37S". */
+  coordinateSystemLabel?: string;
+  /** One plan per parcel, in sheet order. */
+  parcels: ParcelBookletPageInput[];
+}
+
+/**
+ * Truncate text with an ellipsis so a long project name never overflows
+ * its table column (house honesty pattern: truncation is always marked).
+ */
+function truncateToWidth(text: string, font: PDFFont, size: number, maxWidth: number): string {
+  if (font.widthOfTextAtSize(text, size) <= maxWidth) return text;
+  let lo = 0;
+  let hi = text.length;
+  let best = "…";
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const candidate = `${text.slice(0, mid)}…`;
+    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+      best = candidate;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
+}
+
+/**
+ * Render a statutory parcel-plan booklet: a cover/index page followed by
+ * one full-page 300 DPI plan sheet per parcel. Landscape A4 compilation
+ * (each plan PNG is fitted with aspect preserved; the individual PNGs are
+ * written alongside by the batch exporter at full resolution).
+ */
+export async function renderParcelBookletPdf(input: ParcelBookletInput): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  doc.setTitle(`Parcel Plan Booklet — ${input.projectName}`);
+  doc.setAuthor(input.surveyorName ?? "MetaRDU Desktop");
+  doc.setCreator("MetaRDU Desktop v2.0");
+  doc.setSubject("Statutory parcel plan compilation");
+  doc.setProducer("pdf-lib + MetaRDU");
+
+  const helvetica = await doc.embedFont(StandardFonts.Helvetica);
+  const helveticaBold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const helveticaOblique = await doc.embedFont(StandardFonts.HelveticaOblique);
+
+  // Landscape A4.
+  const pageW = PAGE_SIZES.a4.height;
+  const pageH = PAGE_SIZES.a4.width;
+
+  const ctx: RenderContext = {
+    doc,
+    pageW,
+    pageH,
+    helvetica,
+    helveticaBold,
+    helveticaOblique,
+    currentPage: undefined,
+    y: 0,
+  };
+
+  // ─── Cover / index page ───────────────────────────────────────────
+  newPage(ctx);
+  const page = ctx.currentPage!;
+  page.drawRectangle({
+    x: 0, y: ctx.pageH - 8, width: ctx.pageW, height: 8, color: COLORS.accent,
+  });
+
+  ctx.y = ctx.pageH - 70;
+  drawText(ctx, "META RDU — STATUTORY PARCEL PLAN BOOKLET", {
+    x: MARGIN, size: 10, font: ctx.helveticaBold, color: COLORS.accent,
+  });
+  ctx.y -= 34;
+  drawText(ctx, input.projectName, {
+    x: MARGIN, size: 26, font: ctx.helveticaBold, color: COLORS.primary,
+    maxWidth: ctx.pageW - 2 * MARGIN,
+  });
+  ctx.y -= 34;
+  if (input.surveyorName) {
+    drawText(ctx, `Surveyor: ${input.surveyorName}`, {
+      x: MARGIN, size: 11, font: ctx.helvetica, color: COLORS.muted,
+    });
+    ctx.y -= 16;
+  }
+  const dateStr = input.date ?? new Date().toISOString().split("T")[0];
+  drawText(ctx, `Date: ${dateStr}`, { x: MARGIN, size: 11, font: ctx.helvetica, color: COLORS.muted });
+  ctx.y -= 16;
+  if (input.coordinateSystemLabel) {
+    drawText(ctx, `Coordinate system: ${input.coordinateSystemLabel}`, {
+      x: MARGIN, size: 11, font: ctx.helveticaOblique, color: COLORS.muted,
+    });
+    ctx.y -= 16;
+  }
+
+  // Index table. The header bar rectangle is drawn FIRST — pdf-lib paints
+  // in call order, so drawing the rect after the text would cover it.
+  // A Project column appears when any parcel is tagged with a project name
+  // (multi-project scheme booklets).
+  ctx.y -= 16;
+  const hasProjects = input.parcels.some((p) => p.projectName !== undefined);
+  const colDefs: Array<{ key: string; x: number }> = hasProjects
+    ? [
+        { key: "#", x: MARGIN + 12 },
+        { key: "Project", x: MARGIN + 38 },
+        { key: "Parcel", x: MARGIN + 250 },
+        { key: "Scale", x: MARGIN + 420 },
+        { key: "Area", x: MARGIN + 540 },
+        { key: "Sheet", x: MARGIN + 640 },
+      ]
+    : [
+        { key: "#", x: MARGIN + 12 },
+        { key: "Parcel", x: MARGIN + 60 },
+        { key: "Scale", x: MARGIN + 400 },
+        { key: "Area", x: MARGIN + 560 },
+        { key: "Sheet", x: MARGIN + 660 },
+      ];
+  const colX = Object.fromEntries(colDefs.map((c) => [c.key, c.x])) as Record<string, number>;
+  const headerY = ctx.y;
+  page.drawRectangle({
+    x: MARGIN, y: headerY - 3, width: ctx.pageW - 2 * MARGIN, height: 14,
+    color: COLORS.headerFill,
+  });
+  for (const col of colDefs) {
+    page.drawText(col.key, {
+      x: col.x, y: headerY, size: 9, font: ctx.helveticaBold, color: COLORS.white,
+    });
+  }
+  ctx.y -= 24;
+
+  input.parcels.forEach((p, i) => {
+    const rowY = ctx.y;
+    page.drawText(String(i + 1), { x: colX["#"]!, y: rowY, size: 10, font: ctx.helvetica, color: COLORS.primary });
+    if (hasProjects) {
+      // The Project column spans MARGIN+38 → MARGIN+250; cap at 190pt so a
+      // long scheme name is ellipsis-truncated, never overlapping Parcel.
+      page.drawText(truncateToWidth(p.projectName ?? "—", helvetica, 10, 190), {
+        x: colX.Project!, y: rowY, size: 10, font: ctx.helvetica, color: COLORS.muted,
+      });
+    }
+    page.drawText(p.label, { x: colX.Parcel!, y: rowY, size: 10, font: ctx.helveticaBold, color: COLORS.primary });
+    page.drawText(p.scaleDenominator ? `1:${p.scaleDenominator}` : "—", {
+      x: colX.Scale!, y: rowY, size: 10, font: ctx.helvetica, color: COLORS.primary,
+    });
+    page.drawText(p.areaHectares !== undefined ? `${p.areaHectares.toFixed(3)} ha` : "—", {
+      x: colX.Area!, y: rowY, size: 10, font: ctx.helvetica, color: COLORS.primary,
+    });
+    page.drawText(`Sheet ${i + 2}`, { x: colX.Sheet!, y: rowY, size: 10, font: ctx.helvetica, color: COLORS.muted });
+    ctx.y -= 16;
+  });
+
+  // ─── One plan page per parcel ─────────────────────────────────────
+  for (const [i, parcel] of input.parcels.entries()) {
+    newPage(ctx);
+    const headingParts = [parcel.projectName, parcel.label].filter((s): s is string => s !== undefined);
+    drawHeading(ctx, `Sheet ${i + 2} — ${headingParts.join(" — ")}`, 1);
+
+    const image = await ctx.doc.embedPng(parcel.png);
+    const availW = ctx.pageW - 2 * MARGIN;
+    const availH = ctx.pageH - 2 * MARGIN - 70;
+    const scale = Math.min(availW / image.width, availH / image.height);
+    const w = image.width * scale;
+    const h = image.height * scale;
+    const x = (ctx.pageW - w) / 2;
+    // Bottom-up PDF y: drawImage's y is the BOTTOM-left corner, so the
+    // image extends downward from the heading cursor.
+    const y = ctx.y - h - 10;
+    ctx.currentPage!.drawImage(image, { x, y, width: w, height: h });
+    ctx.y = y - 10;
+
+    const dims = parcel.widthPx && parcel.heightPx
+      ? `${parcel.widthPx}×${parcel.heightPx} px @ 300 DPI`
+      : "300 DPI";
+    const scaleNote = parcel.scaleDenominator ? `, scale 1:${parcel.scaleDenominator}` : "";
+    drawText(ctx, `Plan sheet ${i + 1} of ${input.parcels.length} — ${dims}${scaleNote}. Full-resolution PNG saved alongside this PDF.`, {
+      x: MARGIN, size: 8, font: ctx.helveticaOblique, color: COLORS.muted,
+    });
+  }
+
+  // Page numbers (all but the cover).
+  const pages = doc.getPages();
+  for (let i = 1; i < pages.length; i++) {
+    drawPageNumber(pages[i]!, i + 1, pages.length, helvetica, pageW);
+  }
+
+  return await doc.save();
+}
+
+// ─── Statutory survey report (A4 cover + full-res plan sheet) ────
+
+/** Input for a statutory survey report PDF (cover + survey-map page). */
+export interface StatutoryReportInput {
+  /** Project / plan title. */
+  title: string;
+  surveyorName?: string;
+  /** ISO date string; formatted as YYYY-MM-DD. */
+  date?: string;
+  /** CRS label, e.g. "Arc 1960 / UTM zone 37S". */
+  coordinateSystemLabel?: string;
+  /** Plan scale denominator (1:D) shown on the cover + map caption. */
+  scaleDenominator?: number;
+  /** Statutory header (e.g. "REPUBLIC OF KENYA") on the cover. */
+  titleBlockLabel?: string;
+  /** Plan-type label (e.g. "DEED PLAN") on the cover. */
+  planTypeLabel?: string;
+  /** Statutory footer disclaimer (from the country planSheet profile). */
+  footerNote?: string;
+  /** Human summary of the plot (e.g. "4 beacons · 1 boundary"). */
+  summary?: string;
+  /**
+   * The full-resolution 300 DPI plan PNG (rendered via renderSurveyMapPng
+   * with the print-preview's sheet/orientation/scale choices, so the
+   * report's survey-map page IS the sheet the user previewed).
+   */
+  png: Uint8Array;
+  /**
+   * Survey-map page dimensions in points. When provided the map page is
+   * created at exactly this size and the PNG is drawn full-bleed — the
+   * page IS the plan sheet (1 PDF pt = 1 plan pt, no scaling loss).
+   * Defaults to A4 landscape (842×595).
+   */
+  mapWidthPt?: number;
+  mapHeightPt?: number;
+  /** Caption under the embedded survey map. */
+  mapCaption?: string;
+}
+
+/**
+ * Render a statutory survey report PDF: an A4 portrait cover (project,
+ * surveyor, date, CRS, scale, statutory header/plan-type) followed by the
+ * plan sheet itself — the exact 300 DPI PNG rendered with the print-
+ * preview's sheet/orientation/scale choices, embedded full-bleed on a
+ * page sized to the sheet. The survey-map page therefore matches the
+ * previewed sheet pixel-for-pixel.
+ */
+export async function renderStatutoryReportPdf(input: StatutoryReportInput): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  doc.setTitle(`Statutory Survey Report — ${input.title}`);
+  doc.setAuthor(input.surveyorName ?? "MetaRDU Desktop");
+  doc.setCreator("MetaRDU Desktop v2.0");
+  doc.setSubject("Statutory survey report with full-resolution plan sheet");
+  doc.setProducer("pdf-lib + MetaRDU");
+  if (input.date) {
+    const parsed = new Date(input.date);
+    if (!Number.isNaN(parsed.getTime())) {
+      doc.setCreationDate(parsed);
+    }
+  }
+
+  const helvetica = await doc.embedFont(StandardFonts.Helvetica);
+  const helveticaBold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const helveticaOblique = await doc.embedFont(StandardFonts.HelveticaOblique);
+
+  const pageW = PAGE_SIZES.a4.width;
+  const pageH = PAGE_SIZES.a4.height;
+  const ctx: RenderContext = {
+    doc,
+    pageW,
+    pageH,
+    helvetica,
+    helveticaBold,
+    helveticaOblique,
+    currentPage: undefined,
+    y: 0,
+  };
+
+  // ─── Cover page (A4 portrait) ─────────────────────────────────────
+  newPage(ctx);
+  const cover = ctx.currentPage!;
+  cover.drawRectangle({
+    x: 0, y: ctx.pageH - 8, width: ctx.pageW, height: 8, color: COLORS.accent,
+  });
+
+  ctx.y = ctx.pageH - 70;
+  drawText(ctx, "META RDU — STATUTORY SURVEY REPORT", {
+    x: MARGIN, size: 10, font: ctx.helveticaBold, color: COLORS.accent,
+  });
+  ctx.y -= 28;
+  if (input.planTypeLabel) {
+    drawText(ctx, input.planTypeLabel, {
+      x: MARGIN, size: 12, font: ctx.helveticaOblique, color: COLORS.muted,
+    });
+    ctx.y -= 24;
+  }
+  drawText(ctx, input.title, {
+    x: MARGIN, size: 26, font: ctx.helveticaBold, color: COLORS.primary,
+    maxWidth: ctx.pageW - 2 * MARGIN,
+  });
+  ctx.y -= 30;
+  if (input.titleBlockLabel) {
+    drawText(ctx, input.titleBlockLabel, {
+      x: MARGIN, size: 11, font: ctx.helveticaBold, color: COLORS.headerFill,
+    });
+    ctx.y -= 22;
+  }
+
+  ctx.y -= 8;
+  const coverRows: Array<[string, string]> = [];
+  if (input.surveyorName) coverRows.push(["Surveyor", input.surveyorName]);
+  const dateStr = input.date ?? new Date().toISOString().split("T")[0] ?? "";
+  coverRows.push(["Date", dateStr]);
+  if (input.coordinateSystemLabel) coverRows.push(["Coordinate system", input.coordinateSystemLabel]);
+  if (input.scaleDenominator) coverRows.push(["Plan scale", `1:${input.scaleDenominator}`]);
+  if (input.summary) coverRows.push(["Plot", input.summary]);
+  // Map caption flows directly after the metadata rows (it is cover text,
+  // not a footer element), so it sits ABOVE the statutory footer rule and
+  // can never collide with a multi-line footer disclaimer.
+  ctx.y -= 6;
+  if (input.mapCaption) {
+    drawText(ctx, input.mapCaption, {
+      x: MARGIN, size: 9, font: ctx.helveticaOblique, color: COLORS.muted,
+      maxWidth: ctx.pageW - 2 * MARGIN,
+    });
+    ctx.y -= 6;
+  }
+
+  // Footer disclaimer (statutory footer lines from the country profile).
+  // Pinned to the bottom of the page — multi-line footers (e.g. GB's 4-line
+  // Crown-copyright notice) extend downward from here, clear of the caption.
+  if (input.footerNote) {
+    ctx.y = 90;
+    cover.drawLine({
+      start: { x: MARGIN, y: 110 },
+      end: { x: ctx.pageW - MARGIN, y: 110 },
+      thickness: 0.5, color: COLORS.border,
+    });
+    drawText(ctx, input.footerNote, {
+      x: MARGIN, size: 8, font: ctx.helveticaOblique, color: COLORS.muted,
+      maxWidth: ctx.pageW - 2 * MARGIN,
+    });
+  }
+
+  // ─── Survey-map page (sized to the plan sheet in points) ──────────
+  // The page IS the sheet the user previewed: created at exactly the
+  // sheet's point dimensions with the 300 DPI PNG drawn full-bleed, so
+  // every PDF point carries a print-resolution raster cell and the page
+  // matches the print-preview pixel-for-pixel. No heading, no page
+  // number — the sheet already carries its own statutory title block,
+  // scale bar, and footer.
+  const mapW = input.mapWidthPt ?? 842;   // A4 landscape fallback
+  const mapH = input.mapHeightPt ?? 595;
+  const mapPage = doc.addPage([mapW, mapH]);
+  const image = await ctx.doc.embedPng(input.png);
+  mapPage.drawImage(image, { x: 0, y: 0, width: mapW, height: mapH });
+
+  return await doc.save();
 }
 
 // ─── Page numbers ──────────────────────────────────────────────────

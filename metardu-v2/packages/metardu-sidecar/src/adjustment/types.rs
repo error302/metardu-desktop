@@ -3,21 +3,23 @@
 use serde::{Deserialize, Serialize};
 
 /// Observation type — determines the linearization form.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 pub enum ObservationKind {
     /// Horizontal distance between two points (1D observation, 2 unknowns).
+    #[default]
     Distance,
     /// Horizontal direction (angle measured from a reference azimuth).
-    /// (Phase 4B — not yet implemented in the linearizer.)
+    /// Each station has an unknown orientation (the zero-direction of the
+    /// instrument setup) which is solved alongside the coordinates.
     Direction,
-    /// Azimuth from one point to another.
-    /// (Phase 4B — not yet implemented.)
+    /// Geodetic azimuth from one point to another (1D observation).
     Azimuth,
-    /// Elevation difference between two points (1D observation, 1 unknown per point: height).
-    /// (Phase 4B — not yet implemented.)
+    /// Elevation difference between two points (1D observation).
     HeightDifference,
-    /// 3D GNSS baseline vector (3 observations per baseline).
-    /// (Phase 4C — not yet implemented.)
+    /// 3D GNSS baseline vector between two points.
+    /// Observed: [dE, dN, dH] in metres.  The three components are
+    /// correlated through satellite geometry and atmosphere, so the
+    /// observation carries a full 3×3 covariance block.
     GnssBaseline,
 }
 
@@ -26,14 +28,37 @@ pub enum ObservationKind {
 pub struct Observation {
     pub kind: ObservationKind,
     /// Indices of the points involved, into the parameter vector.
-    /// For Distance: [from, to].
-    /// For Direction: [from, to] (with the station as a separate config).
+    /// For Distance/Azimuth/Direction/HeightDifference: [from, to].
     /// For GnssBaseline: [from, to].
     pub point_indices: Vec<usize>,
-    /// The observed value(s). For Distance: [d_metres]. For GnssBaseline: [dx, dy, dz].
+    /// The observed value(s).
+    ///   Distance:            [d_metres]
+    ///   Direction:           [direction_radians]
+    ///   Azimuth:             [azimuth_radians]
+    ///   HeightDifference:    [dh_metres]
+    ///   GnssBaseline:        [dE, dN, dH] metres
     pub observed: Vec<f64>,
-    /// A priori standard deviation(s) in metres (or metres/metre for baseline components).
+    /// A priori standard deviation(s) in the same unit as observed.
+    /// For GnssBaseline: [sigma_dE, sigma_dN, sigma_dH].
     pub sigma: Vec<f64>,
+    /// For `Direction` observations only: index into the adjustment's
+    /// `orientation_parameters` list identifying this station's unknown
+    /// orientation (the reference azimuth of the instrument setup).
+    /// Ignored for all other observation kinds. `None` is rejected for
+    /// `Direction` observations.
+    #[serde(default)]
+    pub orientation_param: Option<usize>,
+    /// Full variance-covariance matrix for this observation, stored as a
+    /// flattened row-major vector of size `observed.len()²`.
+    ///
+    /// For single-component observations this is typically left empty;
+    /// the solver derives a diagonal covariance from `sigma`.
+    ///
+    /// For multi-component observations like `GnssBaseline` (3×3), this
+    /// encodes the correlation between the baseline components.  When
+    /// non-empty, the `sigma` field is ignored for this observation.
+    #[serde(default)]
+    pub covariance: Vec<f64>,
 }
 
 /// An a priori estimate of an unknown parameter.
@@ -78,6 +103,11 @@ pub struct AdjustmentResult {
     pub passes_global_test: bool,
     /// True if any observation has |w| > 3.29 (potential blunder).
     pub has_flagged_blunder: bool,
+    /// Adjusted station orientation values (radians), one per entry in the
+    /// input `orientation_parameters` (free orientations only; fixed ones
+    /// echo their input). Empty when no orientations were supplied.
+    #[serde(default)]
+    pub adjusted_orientations: Vec<f64>,
 }
 
 /// Error returned by the adjustment engine.

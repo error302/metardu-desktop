@@ -7,8 +7,9 @@
  */
 
 import React, { useState } from "react";
-import { KENYA } from "@metardu/country-config";
 import { useSurveyState } from "../SurveyStateContext.js";
+import { COUNTRY_OPTIONS, getCountryOption } from "../countries.js";
+import { AutoExportBanner } from "./AutoExportBanner.js";
 import {
   runSettingOutWorkflow,
   type SettingOutWorkflowOutput,
@@ -19,6 +20,7 @@ import {
 
 export const SettingOutView: React.FC = () => {
   const { setSurveyOutput } = useSurveyState();
+  const [countryCode, setCountryCode] = useState("KE");
   const [designPoints, setDesignPoints] = useState<DesignPoint[]>([
     { id: "F1", easting: 257100, northing: 9857700, type: "foundation" },
     { id: "F2", easting: 257110, northing: 9857700, type: "foundation" },
@@ -38,10 +40,10 @@ export const SettingOutView: React.FC = () => {
         designPoints,
         controlPoints,
         asBuilt,
-        country: KENYA,
+        country: getCountryOption(countryCode).config,
       });
       setResult(output);
-      setSurveyOutput(output, "setting-out", "SettingOutView", "KE");
+      setSurveyOutput(output, "setting-out", "SettingOutView", countryCode);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -64,6 +66,15 @@ export const SettingOutView: React.FC = () => {
         Generate stakeout instructions from design points, then verify as-built positions against the country's construction tolerance.
       </p>
 
+      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <label>Country:</label>
+        <select value={countryCode} onChange={(e) => setCountryCode(e.target.value)} style={{ minWidth: "200px" }}>
+          {COUNTRY_OPTIONS.map((o) => (
+            <option key={o.code} value={o.code}>{o.name}</option>
+          ))}
+        </select>
+      </div>
+
       <div style={{ display: "flex", gap: "8px" }}>
         <button className="primary" onClick={run}>Generate Stakeout Plan</button>
         <button onClick={addAsBuilt} style={{ fontSize: "var(--text-sm)" }}>Load Mock As-Built (5mm offset)</button>
@@ -74,6 +85,8 @@ export const SettingOutView: React.FC = () => {
           Error: {error}
         </div>
       )}
+
+      <AutoExportBanner />
 
       {result && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>

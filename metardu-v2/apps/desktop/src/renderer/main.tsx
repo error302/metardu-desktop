@@ -55,6 +55,20 @@ const MapView = lazy(() => import("./views/MapView.js").then(m => ({ default: m.
 const ExportPanel = lazy(() => import("./views/ExportPanel.js").then(m => ({ default: m.ExportPanel })));
 const ImportPanel = lazy(() => import("./views/ImportPanel.js").then(m => ({ default: m.ImportPanel })));
 const SigningPanel = lazy(() => import("./views/SigningPanel.js").then(m => ({ default: m.SigningPanel })));
+const SyncPanel = lazy(() => import("./views/SyncPanel.js").then(m => ({ default: m.SyncPanel })));
+const ProjectsPanel = lazy(() => import("./views/ProjectsPanel.js").then(m => ({ default: m.ProjectsPanel })));
+const TraverseView = lazy(() => import("./views/TraverseView.js").then(m => ({ default: m.TraverseView })));
+const COGOView = lazy(() => import("./views/COGOView.js").then(m => ({ default: m.COGOView })));
+const DeedPlanView = lazy(() => import("./views/DeedPlanView.js").then(m => ({ default: m.DeedPlanView })));
+const GNSSView = lazy(() => import("./views/GNSSView.js").then(m => ({ default: m.GNSSView })));
+const FlightPlanningView = lazy(() => import("./views/FlightPlanningView.js").then(m => ({ default: m.FlightPlanningView })));
+const SubdivisionView = lazy(() => import("./views/SubdivisionView.js").then(m => ({ default: m.SubdivisionView })));
+const FieldBookView = lazy(() => import("./views/FieldBookView.js").then(m => ({ default: m.FieldBookView })));
+const LSAView = lazy(() => import("./views/LSAView.js").then(m => ({ default: m.LSAView })));
+const RoadDesignView = lazy(() => import("./views/RoadDesignView.js").then(m => ({ default: m.RoadDesignView })));
+const OfficeManagementView = lazy(() => import("./views/OfficeManagementView.js").then(m => ({ default: m.OfficeManagementView })));
+const LULCView = lazy(() => import("./views/LULCView.js").then(m => ({ default: m.LULCView })));
+const VersionHistoryView = lazy(() => import("./views/VersionHistoryView.js").then(m => ({ default: m.VersionHistoryView })));
 
 // Loading fallback for lazy views — small spinner, not a full-screen blocker.
 const ViewLoading: React.FC = () => (
@@ -79,6 +93,21 @@ root.render(
               case "export":       return <ExportPanel />;
               case "import":       return <ImportPanel />;
               case "signing":      return <SigningPanel />;
+              case "sync":         return <SyncPanel />;
+              case "projects":     return <ProjectsPanel />;
+              case "traverse":     return <TraverseView />;
+              case "cogo":         return <COGOView />;
+              case "deedplan":     return <DeedPlanView />;
+              case "gnss":         return <GNSSView />;
+              case "flight":
+              case "drone":        return <FlightPlanningView />;
+              case "subdivision":  return <SubdivisionView />;
+              case "fieldbook":    return <FieldBookView />;
+              case "lsa":          return <LSAView />;
+              case "roaddesign":   return <RoadDesignView />;
+              case "officemgmt":   return <OfficeManagementView />;
+              case "lulc":          return <LULCView />;
+              case "history":       return <VersionHistoryView />;
               default:             return null;
             }
           })();

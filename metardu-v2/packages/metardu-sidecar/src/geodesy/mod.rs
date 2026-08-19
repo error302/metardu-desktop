@@ -27,7 +27,10 @@ pub mod projection;
 // Re-export the main public API at the module root for convenience.
 pub use ecef::{geodetic_to_ecef, ecef_to_geodetic, Ellipsoid, ECEF};
 pub use helmert::{helmert_transform, HelmertParams, TransformConvention};
-pub use projection::{transverse_mercator_forward, transverse_mercator_inverse, utm_forward, utm_inverse, TMParams};
+pub use projection::{
+    lambert_conformal_conic_forward, lambert_conformal_conic_inverse, transverse_mercator_forward,
+    transverse_mercator_inverse, utm_forward, utm_inverse, LCCParams, TMParams,
+};
 
 /// Common datum definitions used by Kenya and other target countries.
 ///

@@ -241,6 +241,47 @@ export const UNITED_ARAB_EMIRATES: CountrySurveyConfig = {
     "DLD Title Deed & JOP submission requirements",
     "Dubai Local Vertical Datum definition",
   ],
-  version: "0.1.0",
+  planSheet: {
+    defaultSheetSize: "a3",
+    defaultOrientation: "landscape",
+    titleBlockLabel: "DUBAI LAND DEPARTMENT",
+    planTypeLabel: "CADASTRAL PLAN",
+    footerNote:
+      "Prepared to Dubai Land Department cadastral standards. " +
+      "Coordinates in WGS84 / UTM zone 40N (EPSG:32640).",
+    titleBlockLayout: {
+      // DLD cadastral plan fields (Law No. 7 of 2006, Art. 9 — Title Deed
+      // block): title deed/property id, area, plot, community, emirate.
+      variant: "standard",
+      fieldRows: [
+        { label: "TITLE DEED NO." },
+        { label: "PROPERTY ID" },
+        { label: "PLOT NO." },
+        { label: "COMMUNITY" },
+        { label: "EMIRATE" },
+        { label: "AREA (sq m)" },
+        { label: "SCALE", value: "{{scale}}" },
+        { label: "DATE", value: "{{date}}" },
+      ],
+      certification: {
+        heading: "CERTIFICATION",
+        lines: [
+          "This cadastral plan is prepared in accordance with the rules of the",
+          "Dubai Land Department and Dubai Municipality Survey Department.",
+        ],
+      },
+      seal: {
+        position: "bottom-right",
+        caption: "LICENSED SURVEYOR — DM SURVEYOR LICENSE NO.",
+      },
+      statutoryFooterLines: [
+        "This cadastral plan is prepared to Dubai Land Department / Dubai",
+        "Municipality standards (Law No. 7 of 2006, as amended) and is valid only",
+        "for the property described. Reproduction without DLD authority is",
+        "prohibited. Coordinates in WGS84 / UTM zone 40N (EPSG:32640).",
+      ],
+    },
+  },
+  version: "0.1.3",
   lastReviewed: "2026-07-19",
 };

@@ -27,8 +27,11 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SidecarClient } from "@metardu/electron-integration";
-import { INTEGRATION_EXPORTERS, importFieldDataAsync, signPdf, verifyPdf, importPrivateKeyBase64, type RinexEpochResult, type SurveyorIdentity, type DigitalSignature, type VerificationResult } from "@metardu/engine-flight-planning";
-import { getCountryConfig, type CountryCode } from "@metardu/country-config";
+import { INTEGRATION_EXPORTERS, importFieldDataAsync, signPdf, verifyPdf, importPrivateKeyBase64, generateForm3Pdf, type RinexEpochResult, type SurveyorIdentity, type DigitalSignature, type VerificationResult, type Form3Input } from "@metardu/engine-flight-planning";
+import { getCountryConfig, crsLabelForCountry, type CountryCode, type TitleBlockLayout } from "@metardu/country-config";
+import { registerSyncIpcHandlers } from "./sync.js";
+import { registerProjectIpcHandlers } from "./projects.js";
+import { registerInstrumentIpcHandlers } from "./instrument.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -191,6 +194,85 @@ async function startSidecar(): Promise<SidecarClient> {
   return client;
 }
 
+// ─── Projected → WGS84 dispatch (shared by export + map overlay) ──
+// Per ADR-0005 invariant A1: the actual projection math lives in the
+// sidecar (Rust). This builds the inverse-projection callback for a
+// country's primary SRID by dispatching on the zone's projection method:
+//   - Lambert Conformal Conic (US SPCS TX/CA/NY) → geodesy.lcc_inverse
+//   - Transverse Mercator (ZA Lo belts, AU MGA, GB BNG, DE GK) →
+//     geodesy.tm_inverse, or geodesy.utm_inverse for UTM-named zones
+// Returns null when the zone is unsupported or the sidecar is offline.
+function makeProjectToWgs84(
+  countryCode: string,
+): ((easting: number, northing: number) => Promise<{ lat: number; lon: number }>) | null {
+  if (!sidecar || !sidecar.isRunning()) return null;
+  const config = getCountryConfig(countryCode as CountryCode);
+  const srid = config.geodeticFramework.primarySRID;
+  const zone = config.geodeticFramework.projectionZones.find((z: { srid: number }) => z.srid === srid);
+  if (!zone) return null;
+
+  if (zone.method === "Lambert Conformal Conic") {
+    if (zone.standard_parallel_1_deg === undefined || zone.standard_parallel_2_deg === undefined) {
+      console.error(
+        `[geo] LCC zone ${zone.srid} missing standard parallels — cannot reproject to WGS84`,
+      );
+      return null;
+    }
+    return async (easting: number, northing: number) => {
+      return sidecar!.call<{ lat: number; lon: number }>(
+        "geodesy.lcc_inverse",
+        {
+          easting,
+          northing,
+          standard_parallel_1_deg: zone.standard_parallel_1_deg,
+          standard_parallel_2_deg: zone.standard_parallel_2_deg,
+          latitude_of_origin_deg: zone.latitude_of_origin_deg,
+          central_meridian_deg: zone.central_meridian_deg,
+          false_easting_m: zone.false_easting_m,
+          false_northing_m: zone.false_northing_m,
+          ellipsoid: zone.ellipsoid,
+        },
+      );
+    };
+  }
+
+  if (zone.method === "Transverse Mercator") {
+    const zoneMatch = zone.name.match(/UTM zone (\d+)([NS])/i);
+    if (zoneMatch) {
+      const utmZone = parseInt(zoneMatch[1]!, 10);
+      const isSouthern = zoneMatch[2]!.toUpperCase() === "S";
+      return async (easting: number, northing: number) => {
+        return sidecar!.call<{ lat: number; lon: number }>(
+          "geodesy.utm_inverse",
+          { easting, northing, zone: utmZone, is_southern: isSouthern, ellipsoid: zone.ellipsoid },
+        );
+      };
+    }
+    return async (easting: number, northing: number) => {
+      return sidecar!.call<{ lat: number; lon: number }>(
+        "geodesy.tm_inverse",
+        {
+          easting,
+          northing,
+          central_meridian_deg: zone.central_meridian_deg,
+          latitude_of_origin_deg: zone.latitude_of_origin_deg,
+          false_easting_m: zone.false_easting_m,
+          false_northing_m: zone.false_northing_m,
+          scale_factor: zone.scale_factor,
+          ellipsoid: zone.ellipsoid,
+        },
+      );
+    };
+  }
+
+  // Unsupported projection method (e.g. Cassini-Soldner legacy zones) —
+  // no automatic WGS84 reprojection.
+  console.warn(
+    `[geo] zone ${zone.srid} uses unsupported method '${zone.method}' — WGS84 reprojection unavailable`,
+  );
+  return null;
+}
+
 // ─── IPC handlers ─────────────────────────────────────────────────
 // Every IPC handler is a thin wrapper around a sidecar RPC call. The
 // preload bridge exposes these as `window.metardu.sidecar.call(method, params)`.
@@ -234,36 +316,13 @@ function registerIpcHandlers(): void {
       throw new Error(`Unknown export format: ${format}. Available: ${INTEGRATION_EXPORTERS.map((e) => e.format).join(", ")}`);
     }
 
-    // Wire the projectToWgs84 callback to the sidecar if outputWgs84 is requested.
-    // Per ADR-0005 invariant A1: the actual projection math lives in the
-    // sidecar (Rust). This callback is the bridge — the engine never does
-    // projection math itself.
-    if (options.outputWgs84 && sidecar && sidecar.isRunning()) {
-      const countryCode = options.countryCode as string;
-      const config = getCountryConfig(countryCode as CountryCode);
-      const srid = config.geodeticFramework.primarySRID;
-      const zone = config.geodeticFramework.projectionZones.find((z: { srid: number }) => z.srid === srid);
-
-      if (zone) {
-        // UTM zones use the zone number + hemisphere.
-        // The country-config's projectionZones have a `name` field like
-        // "Arc 1960 / UTM zone 37S" — we extract the zone number from
-        // the name. Future work: add explicit utmZone field to ProjectionZone.
-        const zoneMatch = zone.name.match(/UTM zone (\d+)([NS])/i);
-        if (zoneMatch) {
-          const utmZone = parseInt(zoneMatch[1]!, 10);
-          const isSouthern = zoneMatch[2]!.toUpperCase() === "S";
-          const ellipsoid = zone.ellipsoid;
-
-          options.projectToWgs84 = async (easting: number, northing: number) => {
-            const result = await sidecar!.call<{ lat: number; lon: number }>(
-              "geodesy.utm_inverse",
-              { easting, northing, zone: utmZone, is_southern: isSouthern, ellipsoid },
-            );
-            return result;
-          };
-        }
-      }
+    // Wire the projectToWgs84 callback to the sidecar if outputWgs84 is
+    // requested. Per ADR-0005 invariant A1: the projection math lives in
+    // the sidecar (Rust) — this callback is the bridge, never in-engine
+    // math. Shared with the map overlay via makeProjectToWgs84.
+    if (options.outputWgs84) {
+      const toWgs84 = makeProjectToWgs84(options.countryCode as string);
+      if (toWgs84) options.projectToWgs84 = toWgs84;
     }
 
     // Call the exporter.
@@ -369,7 +428,390 @@ function registerIpcHandlers(): void {
     const pdfBytes = Uint8Array.from(atob(pdfBytesBase64), (c) => c.charCodeAt(0));
     return verifyPdf(pdfBytes, signature);
   });
-}
+
+  // ─── Geo helpers (projected → WGS84 for map overlays) ────────────────
+  // The MapView converts the active project's projected coordinates
+  // (easting/northing in the country's primary SRID) to WGS84 lat/lon for
+  // display on the OpenLayers basemap. Same sidecar dispatch as export.
+  ipcMain.handle("metardu:geo:projectToWgs84", async (
+    _event,
+    countryCode: string,
+    points: Array<{ easting: number; northing: number }>,
+  ): Promise<Array<{ lat: number; lon: number }>> => {
+    const toWgs84 = makeProjectToWgs84(countryCode);
+    if (!toWgs84) {
+      throw new Error(
+        `WGS84 reprojection unavailable for country '${countryCode}' — ` +
+        `sidecar offline or unsupported projection method.`,
+      );
+    }
+    const results = await Promise.all(points.map((p) => toWgs84(p.easting, p.northing)));
+    return results.map((r) => ({ lat: r.lat, lon: r.lon }));
+  });
+
+  // ─── 300 DPI map export (survey plan → PNG via sharp) ───────────────
+  // The renderer sends the active project's survey output; the main process
+  // extracts the plan geometry, builds a point-sized SVG, rasterizes it at
+  // 300 DPI with sharp, and (for exportPng) shows a Save-As dialog. The
+  // renderer never touches sharp/fs — invariants preserved.
+  // Full CRS name for the plan title strip / {{crs}} token — shared
+  // datum-deduped source of truth (crsLabelForCountry in country-config),
+  // so the US SPCS ZONE field never double-prints the datum. The try/catch
+  // keeps unknown codes returning undefined (same contract as before).
+  const resolveCrsLabel = (countryCode?: string): string | undefined => {
+    if (!countryCode) return undefined;
+    try {
+      return crsLabelForCountry(countryCode as CountryCode);
+    } catch {
+      return undefined;
+    }
+  };
+
+  // Per-country statutory plan-sheet profile (from the config's planSheet
+  // field) — drives title-block text + footer disclaimer on the 300 DPI
+  // plan sheets and the ExportPanel defaults.
+  const resolvePlanSheet = (countryCode?: string): {
+    titleBlockLabel: string | undefined;
+    planTypeLabel: string | undefined;
+    footerNote: string | undefined;
+    titleBlockLayout: TitleBlockLayout | undefined;
+  } => {
+    if (!countryCode) return { titleBlockLabel: undefined, planTypeLabel: undefined, footerNote: undefined, titleBlockLayout: undefined };
+    try {
+      const ps = getCountryConfig(countryCode as CountryCode).planSheet;
+      if (!ps) return { titleBlockLabel: undefined, planTypeLabel: undefined, footerNote: undefined, titleBlockLayout: undefined };
+      return {
+        titleBlockLabel: ps.titleBlockLabel,
+        planTypeLabel: ps.planTypeLabel,
+        footerNote: ps.footerNote,
+        titleBlockLayout: ps.titleBlockLayout,
+      };
+    } catch {
+      return { titleBlockLabel: undefined, planTypeLabel: undefined, footerNote: undefined, titleBlockLayout: undefined };
+    }
+  };
+
+  ipcMain.handle("metardu:map:renderPng", async (
+    _event,
+    input: {
+      surveyOutput: unknown;
+      projectName: string;
+      countryCode?: string;
+      surveyorName?: string;
+      date?: string;
+      sheetSize?: string;
+      orientation?: "landscape" | "portrait";
+      scaleDenominator?: number;
+    },
+  ) => {
+    const { renderSurveyMapPng } = await import("./map-export.js");
+    const result = await renderSurveyMapPng({
+      surveyOutput: input.surveyOutput,
+      projectName: input.projectName,
+      coordinateSystemLabel: resolveCrsLabel(input.countryCode),
+      surveyorName: input.surveyorName,
+      date: input.date,
+      sheetSize: input.sheetSize,
+      orientation: input.orientation,
+      scaleDenominator: input.scaleDenominator,
+      ...resolvePlanSheet(input.countryCode),
+    });
+    return {
+      pngBase64: Buffer.from(result.pngBytes).toString("base64"),
+      widthPx: result.widthPx,
+      heightPx: result.heightPx,
+      scaleDenominator: result.scaleDenominator,
+      fitsSheet: result.fitsSheet,
+      summary: result.summary,
+    };
+  });
+
+  ipcMain.handle("metardu:map:exportPng", async (
+    _event,
+    input: {
+      surveyOutput: unknown;
+      projectName: string;
+      countryCode?: string;
+      surveyorName?: string;
+      date?: string;
+      sheetSize?: string;
+      orientation?: "landscape" | "portrait";
+      scaleDenominator?: number;
+    },
+  ) => {
+    const { exportSurveyMapPng } = await import("./map-export.js");
+    const result = await exportSurveyMapPng(mainWindow, {
+      surveyOutput: input.surveyOutput,
+      projectName: input.projectName,
+      coordinateSystemLabel: resolveCrsLabel(input.countryCode),
+      surveyorName: input.surveyorName,
+      date: input.date,
+      sheetSize: input.sheetSize,
+      orientation: input.orientation,
+      scaleDenominator: input.scaleDenominator,
+      ...resolvePlanSheet(input.countryCode),
+    });
+    if (!result) {
+      return { canceled: true };
+    }
+    return {
+      canceled: false,
+      filePath: result.filePath,
+      bytes: result.pngBytes.length,
+      widthPx: result.widthPx,
+      heightPx: result.heightPx,
+      scaleDenominator: result.scaleDenominator,
+      fitsSheet: result.fitsSheet,
+      summary: result.summary,
+    };
+  });
+
+  // ─── Single-page plan sheet PDF export (print grade, no report wrapper) ─
+  // Renders the exact plan sheet (same SVG builder + 300 DPI rasterization
+  // as exportPng) into a single-page PDF sized to the sheet, then shows a
+  // Save-As dialog. Surveyors get the filing-grade plan without the
+  // flight-plan report wrapper.
+  ipcMain.handle("metardu:map:exportPdf", async (
+    _event,
+    input: {
+      surveyOutput: unknown;
+      projectName: string;
+      countryCode?: string;
+      surveyorName?: string;
+      date?: string;
+      sheetSize?: string;
+      orientation?: "landscape" | "portrait";
+      scaleDenominator?: number;
+    },
+  ) => {
+    const { exportSurveyMapPdf } = await import("./map-export.js");
+    const result = await exportSurveyMapPdf(mainWindow, {
+      surveyOutput: input.surveyOutput,
+      projectName: input.projectName,
+      coordinateSystemLabel: resolveCrsLabel(input.countryCode),
+      surveyorName: input.surveyorName,
+      date: input.date,
+      sheetSize: input.sheetSize,
+      orientation: input.orientation,
+      scaleDenominator: input.scaleDenominator,
+      ...resolvePlanSheet(input.countryCode),
+    });
+    if (!result) {
+      return { canceled: true };
+    }
+    return {
+      canceled: false,
+      filePath: result.filePath,
+      bytes: result.pdfBytes.length,
+      widthPx: result.widthPx,
+      heightPx: result.heightPx,
+      scaleDenominator: result.scaleDenominator,
+      fitsSheet: result.fitsSheet,
+      summary: result.summary,
+    };
+  });
+
+  // ─── Statutory survey report PDF (cover + survey-map page) ─────────
+  // Renders the exact plan sheet (same SVG builder + 300 DPI rasterization
+  // as exportPng, honouring the print-preview's sheet/orientation/scale
+  // choices) and embeds it full-bleed as the survey-map page of a
+  // statutory report (A4 cover + plan sheet), then shows a Save-As dialog.
+  // The report's map page is therefore pixel-identical to the preview.
+  ipcMain.handle("metardu:map:exportReport", async (
+    _event,
+    input: {
+      surveyOutput: unknown;
+      projectName: string;
+      countryCode?: string;
+      surveyorName?: string;
+      date?: string;
+      sheetSize?: string;
+      orientation?: "landscape" | "portrait";
+      scaleDenominator?: number;
+    },
+  ) => {
+    const { exportStatutoryReport } = await import("./map-export.js");
+    const result = await exportStatutoryReport(mainWindow, {
+      surveyOutput: input.surveyOutput,
+      projectName: input.projectName,
+      coordinateSystemLabel: resolveCrsLabel(input.countryCode),
+      surveyorName: input.surveyorName,
+      date: input.date,
+      sheetSize: input.sheetSize,
+      orientation: input.orientation,
+      scaleDenominator: input.scaleDenominator,
+      ...resolvePlanSheet(input.countryCode),
+    });
+    if (!result) {
+      return { canceled: true };
+    }
+    return {
+      canceled: false,
+      filePath: result.filePath,
+      bytes: result.pdfBytes.length,
+      widthPx: result.widthPx,
+      heightPx: result.heightPx,
+      scaleDenominator: result.scaleDenominator,
+      fitsSheet: result.fitsSheet,
+      summary: result.summary,
+    };
+  });
+
+  // ─── Auto-export on workflow completion (no dialog) ──────────────────
+  // Fired by the renderer the moment a workflow run finishes. Writes the
+  // statutory plan (single 300 DPI PNG, or a booklet for multi-parcel
+  // outputs) into userData/auto-exports/<slug>-<stamp>/ — the country's
+  // plan-sheet profile (title block, layout, footer) is resolved here
+  // exactly as the dialog exporters use it, so the sheet is identical to
+  // a manual export without requiring the ExportPanel visit.
+  ipcMain.handle("metardu:map:autoExport", async (
+    _event,
+    input: {
+      surveyOutput: unknown;
+      projectName: string;
+      countryCode?: string;
+      surveyorName?: string;
+      date?: string;
+      sheetSize?: string;
+      orientation?: "landscape" | "portrait";
+      scaleDenominator?: number;
+    },
+  ) => {
+    const { autoExportSurveyPlan } = await import("./map-export.js");
+    const planSheet = resolvePlanSheet(input.countryCode);
+    const countrySheet = (() => {
+      if (!input.countryCode) return undefined;
+      try {
+        return getCountryConfig(input.countryCode as CountryCode).planSheet;
+      } catch {
+        return undefined;
+      }
+    })();
+    return autoExportSurveyPlan({
+      surveyOutput: input.surveyOutput,
+      projectName: input.projectName,
+      coordinateSystemLabel: resolveCrsLabel(input.countryCode),
+      surveyorName: input.surveyorName,
+      date: input.date ?? new Date().toISOString().split("T")[0],
+      // Renderer may pass the project's remembered sheet choices; fall
+      // back to the country's statutory defaults when absent.
+      sheetSize: input.sheetSize ?? countrySheet?.defaultSheetSize,
+      orientation: input.orientation ?? countrySheet?.defaultOrientation,
+      scaleDenominator: input.scaleDenominator,
+      ...planSheet,
+    });
+  });
+
+  // ─── Batch parcel booklet export (multi-parcel projects) ────────────
+  // Splits the output into one plan per parcel, rasterizes each at 300 DPI,
+  // compiles a booklet PDF (cover/index + one plan page per parcel), and
+  // writes the individual PNGs beside the PDF.
+  ipcMain.handle("metardu:map:exportBooklet", async (
+    _event,
+    input: {
+      surveyOutput: unknown;
+      projectName: string;
+      countryCode?: string;
+      surveyorName?: string;
+      date?: string;
+      sheetSize?: string;
+      orientation?: "landscape" | "portrait";
+      scaleDenominator?: number;
+    },
+  ) => {
+    const { exportParcelBooklet } = await import("./map-export.js");
+    const result = await exportParcelBooklet(mainWindow, {
+      surveyOutput: input.surveyOutput,
+      projectName: input.projectName,
+      coordinateSystemLabel: resolveCrsLabel(input.countryCode),
+      surveyorName: input.surveyorName,
+      date: input.date,
+      sheetSize: input.sheetSize,
+      orientation: input.orientation,
+      scaleDenominator: input.scaleDenominator,
+      ...resolvePlanSheet(input.countryCode),
+    });
+    if (!result) {
+      return { canceled: true };
+    }
+    return {
+      canceled: false,
+      bookletPath: result.bookletPath,
+      pageCount: result.pageCount,
+      pngFiles: result.pngFiles,
+      reportFiles: result.reportFiles,
+    };
+  });
+
+  // ─── Multi-project scheme booklet (ProjectsPanel batch export) ───────
+  // Every parcel of every selected project gets a 300 DPI plan sheet using
+  // that project's own country plan-sheet profile; all sheets compile into
+  // one booklet with a master index grouped by project.
+  ipcMain.handle("metardu:map:exportProjectsBooklet", async (
+    _event,
+    input: {
+      projects: Array<{
+        name: string;
+        countryCode?: string;
+        surveyOutput: unknown;
+      }>;
+      surveyorName?: string;
+      date?: string;
+      sheetSize?: string;
+      orientation?: "landscape" | "portrait";
+      scaleDenominator?: number;
+    },
+  ) => {
+    const { exportProjectsBooklet } = await import("./map-export.js");
+    const result = await exportProjectsBooklet(mainWindow, {
+      projects: input.projects.map((p) => ({
+        name: p.name,
+        surveyOutput: p.surveyOutput,
+        coordinateSystemLabel: resolveCrsLabel(p.countryCode),
+        ...resolvePlanSheet(p.countryCode),
+      })),
+      surveyorName: input.surveyorName,
+      date: input.date,
+      sheetSize: input.sheetSize,
+      orientation: input.orientation,
+      scaleDenominator: input.scaleDenominator,
+    });
+    if (!result) {
+      return { canceled: true };
+    }
+    return {
+      canceled: false,
+      bookletPath: result.bookletPath,
+      pageCount: result.pageCount,
+      pngFiles: result.pngFiles,
+      reportFiles: result.reportFiles,
+    };
+  });
+
+  // ─── Generate Form 3 PDF (for signing) ───────────────────────────────────────
+  ipcMain.handle("metardu:form3:generate", async (
+    _event,
+    input: Form3Input,
+  ): Promise<{ pdfBytesBase64: string }> => {
+    const output = await generateForm3Pdf(input);
+    const pdfBase64 = btoa(String.fromCharCode(...new Uint8Array(output.pdfBytes)));
+    return { pdfBytesBase64: pdfBase64 };
+  });
+
+  // ─── Instrument connection (live serial, BLE, NTRIP streaming) ───────────
+  registerInstrumentIpcHandlers(() => mainWindow, () => sidecar);
+
+  // ─── Sync with metardu web (vision: Access/Web field data syncs to Desktop) ─
+  // The SyncClient singleton lives in main (it owns the network + queue).
+  // Status is broadcast to the renderer so the AppShell badge stays live.
+  registerSyncIpcHandlers(() => mainWindow);
+
+  // ─── Project store (persisted local layer that sync reconciles) ──────────
+  // Real project objects stored to userData/projects.json; every mutation
+  // broadcasts so the shell toolbar + SurveyStateContext stay live.
+  registerProjectIpcHandlers(() => mainWindow);
+  }
+
 
 // ─── App lifecycle ────────────────────────────────────────────────
 app.whenReady().then(async () => {

@@ -9,21 +9,19 @@
  *   - Visual: SurveyCanvas SVG showing the TIN + contours + spot heights
  *     (pan with mouse drag, zoom with mouse wheel)
  *
- * Country: Kenya (Arc 1960 / UTM 37S).
+ * Country: selectable — defaults to Kenya (Arc 1960 / UTM 37S).
  */
 
 import React, { useState } from "react";
-import { KENYA, type CountrySurveyConfig } from "@metardu/country-config";
 import { runTopographicWorkflow, type TopoPoint, type TopoWorkflowOutput } from "@metardu/engine-flight-planning";
 import { SurveyCanvas, type SurveyPoint, type SurveyContour, type SurveyTriangle } from "@metardu/ui-components";
 import { useSurveyState } from "../SurveyStateContext.js";
-
-const COUNTRIES: Record<string, CountrySurveyConfig> = {
-  KE: KENYA,
-};
+import { COUNTRY_OPTIONS, getCountryOption } from "../countries.js";
+import { AutoExportBanner } from "./AutoExportBanner.js";
 
 export const TopographicView: React.FC = () => {
   const { setSurveyOutput } = useSurveyState();
+  const [countryCode, setCountryCode] = useState("KE");
   const [csvInput, setCsvInput] = useState(
     "P1,257100,9857700,100.0,TOP\nP2,257110,9857700,101.5,TOP\nP3,257110,9857710,102.0,TOP\nP4,257100,9857710,100.5,TOP\nP5,257105,9857705,101.0,TOP"
   );
@@ -53,13 +51,13 @@ export const TopographicView: React.FC = () => {
         points,
         contourInterval,
         spotHeightEvery,
-        country: COUNTRIES.KE!,
+        country: getCountryOption(countryCode).config,
         planTitle: "Topographic Survey",
         surveyor: { name: "Surveyor", regNo: "LS/0000", dateOfSurvey: new Date().toISOString().split("T")[0]! },
       });
       setResult(output);
       // Push to shared survey state so ExportPanel can access it.
-      setSurveyOutput(output, "topographic", "TopographicView", "KE");
+      setSurveyOutput(output, "topographic", "TopographicView", countryCode);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -70,8 +68,16 @@ export const TopographicView: React.FC = () => {
       <h2 style={{ fontSize: "var(--text-xl)", color: "var(--accent-primary)", fontFamily: "var(--font-mono)" }}>Topographic Survey</h2>
       <p style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>
         Import field points, generate a TIN, extract contours, and compute elevation statistics.
-        Country: Kenya (Arc 1960 / UTM 37S).
       </p>
+
+      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <label>Country:</label>
+        <select value={countryCode} onChange={(e) => setCountryCode(e.target.value)} style={{ minWidth: "200px" }}>
+          {COUNTRY_OPTIONS.map((o) => (
+            <option key={o.code} value={o.code}>{o.name}</option>
+          ))}
+        </select>
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
         <div>
@@ -104,6 +110,8 @@ export const TopographicView: React.FC = () => {
           Error: {error}
         </div>
       )}
+
+      <AutoExportBanner />
 
       {result && (
         <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: "12px" }}>

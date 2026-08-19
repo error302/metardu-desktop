@@ -18,7 +18,8 @@ use crate::dispatcher::HandlerError;
 use crate::geodesy::ecef::{ecef_to_geodetic, geodetic_to_ecef, ECEF, Ellipsoid};
 use crate::geodesy::helmert::{helmert_transform, HelmertParams, TransformConvention};
 use crate::geodesy::projection::{
-    transverse_mercator_forward, transverse_mercator_inverse, utm_forward, utm_inverse, TMParams,
+    lambert_conformal_conic_forward, lambert_conformal_conic_inverse, transverse_mercator_forward,
+    transverse_mercator_inverse, utm_forward, utm_inverse, LCCParams, TMParams,
 };
 use crate::geodesy::datums;
 use serde::{Deserialize, Serialize};
@@ -231,6 +232,74 @@ pub async fn handle_utm_inverse(
     Ok(serde_json::json!({ "lat": lat, "lon": lon }))
 }
 
+// ─── Geodesy: Lambert Conformal Conic (2SP) ───────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct LccForwardParams {
+    pub lat: f64,
+    pub lon: f64,
+    pub standard_parallel_1_deg: f64,
+    pub standard_parallel_2_deg: f64,
+    pub latitude_of_origin_deg: f64,
+    pub central_meridian_deg: f64,
+    pub false_easting_m: f64,
+    pub false_northing_m: f64,
+    #[serde(default = "default_ellipsoid_name")]
+    pub ellipsoid: String,
+}
+
+pub async fn handle_lcc_forward(
+    params: serde_json::Value,
+) -> Result<serde_json::Value, HandlerError> {
+    let p: LccForwardParams = serde_json::from_value(params)
+        .map_err(|e| HandlerError::InvalidParams(e.to_string()))?;
+    let ell = lookup_ellipsoid(&p.ellipsoid)?;
+    let lcc = LCCParams {
+        standard_parallel_1_deg: p.standard_parallel_1_deg,
+        standard_parallel_2_deg: p.standard_parallel_2_deg,
+        latitude_of_origin_deg: p.latitude_of_origin_deg,
+        central_meridian_deg: p.central_meridian_deg,
+        false_easting_m: p.false_easting_m,
+        false_northing_m: p.false_northing_m,
+        ellipsoid: ell,
+    };
+    let (e, n) = lambert_conformal_conic_forward(p.lat, p.lon, &lcc);
+    Ok(serde_json::json!({ "easting": e, "northing": n }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LccInverseParams {
+    pub easting: f64,
+    pub northing: f64,
+    pub standard_parallel_1_deg: f64,
+    pub standard_parallel_2_deg: f64,
+    pub latitude_of_origin_deg: f64,
+    pub central_meridian_deg: f64,
+    pub false_easting_m: f64,
+    pub false_northing_m: f64,
+    #[serde(default = "default_ellipsoid_name")]
+    pub ellipsoid: String,
+}
+
+pub async fn handle_lcc_inverse(
+    params: serde_json::Value,
+) -> Result<serde_json::Value, HandlerError> {
+    let p: LccInverseParams = serde_json::from_value(params)
+        .map_err(|e| HandlerError::InvalidParams(e.to_string()))?;
+    let ell = lookup_ellipsoid(&p.ellipsoid)?;
+    let lcc = LCCParams {
+        standard_parallel_1_deg: p.standard_parallel_1_deg,
+        standard_parallel_2_deg: p.standard_parallel_2_deg,
+        latitude_of_origin_deg: p.latitude_of_origin_deg,
+        central_meridian_deg: p.central_meridian_deg,
+        false_easting_m: p.false_easting_m,
+        false_northing_m: p.false_northing_m,
+        ellipsoid: ell,
+    };
+    let (lat, lon) = lambert_conformal_conic_inverse(p.easting, p.northing, &lcc);
+    Ok(serde_json::json!({ "lat": lat, "lon": lon }))
+}
+
 // ─── COGO: Traverse ──────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -417,6 +486,8 @@ pub struct AdjustmentParams {
     pub parameters: Vec<ParameterPrior>,
     pub observations: Vec<Observation>,
     #[serde(default)]
+    pub orientation_parameters: Vec<ParameterPrior>,
+    #[serde(default)]
     pub config: AdjustmentConfig,
 }
 
@@ -425,7 +496,12 @@ pub async fn handle_adjustment_run(
 ) -> Result<serde_json::Value, HandlerError> {
     let p: AdjustmentParams = serde_json::from_value(params)
         .map_err(|e| HandlerError::InvalidParams(e.to_string()))?;
-    let result = adjust_least_squares(&p.parameters, &p.observations, &p.config)
+    let result = adjust_least_squares(
+        &p.parameters,
+        &p.observations,
+        &p.config,
+        &p.orientation_parameters,
+    )
         .map_err(|e| HandlerError::Internal(e.to_string()))?;
     Ok(serde_json::to_value(result).map_err(|e| HandlerError::Internal(e.to_string()))?)
 }

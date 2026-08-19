@@ -21,6 +21,8 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import Database from "better-sqlite3";
 import { geoPackageExporter } from "../geopackage-export.js";
 import { INTEGRATION_EXPORTERS } from "../index.js";
@@ -122,8 +124,7 @@ function reopenGpkg(bytes: Uint8Array): Database.Database {
   // But for tests, we use the better-sqlite3 deserialization API.
   const db = new Database(":memory:");
   // better-sqlite3 doesn't have a direct deserialize API in v13;
-  // use the `loadExtension`-free approach via temp file.
-  // Actually, the simplest is to write to /tmp and reopen.
+  // use the `loadExtension`-free approach via a cross-platform temp file.
   throw new Error("not reached — overridden below");
 }
 
@@ -132,7 +133,7 @@ function reopenGpkg(bytes: Uint8Array): Database.Database {
  * Returns the Database handle; caller must close it.
  */
 function openGpkgFromBytes(bytes: Uint8Array): { db: Database.Database; cleanup: () => void } {
-  const tmpPath = `/tmp/metardu-test-${Date.now()}-${Math.random().toString(36).slice(2)}.gpkg`;
+  const tmpPath = path.join(tmpdir(), `metardu-test-${Date.now()}-${Math.random().toString(36).slice(2)}.gpkg`);
   const fs = require("node:fs");
   fs.writeFileSync(tmpPath, Buffer.from(bytes));
   const db = new Database(tmpPath);

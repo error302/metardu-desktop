@@ -287,6 +287,52 @@ export const AUSTRALIA: CountrySurveyConfig = {
     "NSW LRS Plan of Survey template (A3)",
     "Strata Schemes Development Act 2015 (NSW)",
   ],
-  version: "0.1.0",
+  planSheet: {
+    // NSW deposited plans are lodged on large-format sheets — A1/A0 for
+    // scheme and subdivision lodgments with NSW LRS (standard A3 remains
+    // available). Per the user's market brief, AU defaults to large format.
+    defaultSheetSize: "a1",
+    defaultOrientation: "landscape",
+    titleBlockLabel: "COMMONWEALTH OF AUSTRALIA — NEW SOUTH WALES",
+    planTypeLabel: "DEPOSITED PLAN (D.P.)",
+    footerNote:
+      "Prepared in accordance with the Surveying and Spatial Information Act 2002 (NSW) and ICSM standards. " +
+      "Coordinates in GDA2020 / MGA zones.",
+    titleBlockLayout: {
+      // Field grid mirrors PLAN_OF_SURVEY.titleBlockFields (NSW LRS Plan
+      // of Survey template, Surveying and Spatial Information Act 2002 s.21).
+      variant: "standard",
+      fieldRows: [
+        { label: "PLAN NUMBER (D.P.)" },
+        { label: "EDITION" },
+        { label: "COUNCIL" },
+        { label: "SUBURB / LOCALITY" },
+        { label: "PARISH" },
+        { label: "COUNTY" },
+        { label: "SCALE", value: "{{scale}}" },
+        { label: "DATE OF SURVEY", value: "{{date}}" },
+        { label: "SURVEYOR", value: "{{surveyor}}" },
+      ],
+      certification: {
+        heading: "SURVEYOR'S CERTIFICATE",
+        lines: [
+          "I certify that this plan has been prepared in accordance with the",
+          "Surveying and Spatial Information Act 2002 (NSW) and the NSW Land",
+          "Registry Services requirements for lodged plans of survey.",
+        ],
+      },
+      seal: {
+        position: "bottom-right",
+        caption: "REGISTERED SURVEYOR — BOSSI REG. NO.",
+      },
+      statutoryFooterLines: [
+        "This deposited plan is lodged under the Surveying and Spatial Information",
+        "Act 2002 (NSW) and remains the property of NSW Land Registry Services until",
+        "registration. Reproduction of a lodged plan without the Registrar-General's",
+        "authority is an offence. Coordinates in GDA2020 / MGA (EPSG:7855-7856).",
+      ],
+    },
+  },
+  version: "0.1.3",
   lastReviewed: "2026-07-19",
 };

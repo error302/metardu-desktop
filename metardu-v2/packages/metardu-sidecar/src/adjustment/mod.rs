@@ -50,12 +50,20 @@
 //!      for linear problems).
 //!   6. Compute residuals, redundancy numbers, chi-square test, Baarda.
 //!
-//! # Status
+//! # Implemented observation kinds
 //!
-//! This is the **first cut** — distances and 2D coordinates only. The
-//! full engine (directions, azimuths, GNSS vectors, height differences,
-//! constrained/free networks) will be built in subsequent phases as the
-//! workflow modules need them.
+//! - **Distance** — horizontal slope distance (1 component)
+//! - **Direction** — measured direction at a station with an unknown
+//!   orientation parameter (1 component)
+//! - **Azimuth** — geodetic azimuth between two points (1 component)
+//! - **HeightDifference** — leveling observation (1 component)
+//! - **GnssBaseline** — 3D GNSS baseline vector with full3×3
+//!   covariance block for correlated ΔE/ΔN/ΔH components
+//!
+//! All kinds support mixed networks (e.g. distances + GNSS baselines
+//! in the same adjustment).  The stochastic model is block-diagonal:
+//! independent between observations, but fully correlated within each
+//! multi-component observation (GNSS baselines).
 
 pub mod linear;
 pub mod types;

@@ -1,0 +1,35 @@
+{
+  "name": "Lambert Conformal Conic (2SP) forward and inverse — NAD83(2011) / Texas South Central (EPSG::6360)",
+  "country": "US",
+  "computation": "projection-lcc-forward-inverse",
+  "source": {
+    "document": "EPSG::6360 — NAD83(2011) / Texas South Central (metres)",
+    "page": "EPSG registry; EPSG Geomatics Guidance Note 7-2 §1.3.2.1 (Lambert Conic Conformal 2SP)",
+    "file": "https://epsg.org/crs_6360/NAD83-2011-Texas-South-Central.html",
+    "notes": "Lambert Conformal Conic 2SP. Standard parallels 27°50'N / 31°53'N, latitude of origin 27°50'N, central meridian 99°W, false easting 600000 m, false northing 4000000 m, GRS80 ellipsoid. The ftUS variant is EPSG::6589 — the metre CRS is used so the sidecar's metre-native LCC matches false_easting_m/false_northing_m."
+  },
+  "projection": {
+    "method": "Lambert Conformal Conic (2SP, EPSG::9802)",
+    "datum": "NAD83(2011)",
+    "ellipsoid": "GRS80 (a=6378137.0 m, 1/f=298.257222101)",
+    "standard_parallel_1_deg": 27.8333333333,
+    "standard_parallel_2_deg": 31.8833333333,
+    "latitude_of_origin_deg": 27.8333333333,
+    "central_meridian_deg": -99.0,
+    "false_easting_m": 600000.0,
+    "false_northing_m": 4000000.0
+  },
+  "cases": [
+    {
+      "name": "San Antonio (29.4241°N, 98.4936°W → SPCS)",
+      "input_geographic": { "lat": 29.4241, "lon": -98.4936 },
+      "expected_projected": { "easting": 649111.0529, "northing": 4176348.9526 },
+      "precision_m": 0.01,
+      "notes": "Cross-checked with scripts/verify_lcc.py (independent Python LCC), which is itself validated against the EPSG GN7-2 worked example (NAD27 / Texas South Central: 28°30'N, 96°W → E=2,963,503.91 ftUS, N=254,759.80 ftUS)."
+    }
+  ],
+  "roundtrip_test": {
+    "description": "Forward then inverse must reproduce the input geographic coordinates to within 1e-9 deg (~0.1 mm).",
+    "precision_deg": 1e-9
+  }
+}

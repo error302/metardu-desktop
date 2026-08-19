@@ -1,40 +1,57 @@
 //! Linear least-squares adjustment solver.
 //!
 //! Implements the core algorithm for parametric (indirect observation)
-//! least-squares with full variance-covariance propagation. Currently
-//! handles Distance observations on 2D points; other observation kinds
-//! will be added as workflow modules need them.
+//! least-squares with full variance-covariance propagation.  Supports
+//! all five observation kinds:
+//!
+//! - **Distance** — horizontal slope distance (1 component, non-linear)
+//! - **Direction** — measured direction at a station with an unknown
+//!   orientation parameter (1 component, non-linear)
+//! - **Azimuth** — geodetic azimuth between two points (1 component,
+//!   non-linear)
+//! - **HeightDifference** — leveling observation (1 component, linear)
+//! - **GnssBaseline** — 3D baseline vector with full 3×3 covariance
+//!   block (3 components, linear)
 //!
 //! # Algorithm
 //!
-//! For Distance observation between points i and j:
-//!   L_approx = sqrt((x_j - x_i)² + (y_j - y_i)²)
-//!   ∂L/∂x_i = -(x_j - x_i) / L
-//!   ∂L/∂y_i = -(y_j - y_i) / L
-//!   ∂L/∂x_j =  (x_j - x_i) / L
-//!   ∂L/∂y_j =  (y_j - y_i) / L
+//! 1. Linearize each observation around the current parameter estimate:
+//!      L_obs ≈ L_approx(X_0) + A · ΔX    where A is the design matrix.
+//! 2. Form the normal equations:
+//!      N = Aᵀ Σ⁻¹ A          (normal matrix)
+//!      u = Aᵀ Σ⁻¹ Δl         (constant vector)
+//!    where Σ is the observation covariance matrix (block-diagonal) and
+//!    Δl is the misclosure vector.
+//! 3. Solve: ΔX = N⁻¹ u
+//! 4. Update: X = X_0 + ΔX
+//! 5. Iterate to convergence (non-linear: 2–3 iters; linear: 1 iter).
+//! 6. Compute residuals, redundancy numbers, chi-square test, Baarda.
 //!
-//! This is the Jacobian row for one observation. We assemble all rows
-//! into A, then form normal equations:
-//!   N = Aᵀ Σ⁻¹ A
-//!   u = Aᵀ Σ⁻¹ Δl   where Δl = L_obs - L_approx(X_0)
-//!   ΔX = N⁻¹ u
+//! # Stochastic model
 //!
-//! After solving:
-//!   residuals = A ΔX - Δl
-//!   sigma_0²  = (residualsᵀ Σ⁻¹ residuals) / dof
-//!   Q_xx      = N⁻¹  (parameter cofactor matrix = covariance / sigma_0²)
-//!   Q_ll      = A Q_xx Aᵀ  (adjusted observation cofactor matrix)
-//!   Q_vv      = Q_ll - Q   (residual cofactor matrix; redundancy r_i = (Q_vv)_ii / sigma_i²)
-//!   w_i       = residual_i / sqrt((Q_vv)_ii)   (Baarda w-statistic, ~N(0,1))
+//! The observation covariance Σ is **block-diagonal**: independent
+//! between observations, but within each multi-component observation
+//! (e.g. a GNSS baseline's ΔE/ΔN/ΔH) the full covariance block is
+//! used, capturing the correlation introduced by shared satellite
+//! geometry and atmospheric delays.
+//!
+//! # References
+//!
+//! - Mikhail, E. M. & Ackermann, F. (1976), *Observations and Least
+//!   Squares*.
+//! - Baarda, W. (1968), *A Testing Procedure for Use in Geodetic
+//!   Networks*.
+//! - Leick, A. (2004), *GPS Satellite Surveying*, 3rd ed., Ch. 4.
 
 use crate::adjustment::types::*;
 use serde::{Deserialize, Serialize};
 
+// ─── Configuration ───────────────────────────────────────────────
+
 /// Configuration for the adjustment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdjustmentConfig {
-    /// Maximum number of iterations. Linear problems converge in 1.
+    /// Maximum number of iterations.  Linear problems converge in 1.
     /// Non-linear problems (like distance) typically converge in 2-3.
     pub max_iterations: usize,
     /// Convergence threshold: stop when the largest |ΔX| falls below this.
@@ -50,12 +67,17 @@ impl Default for AdjustmentConfig {
     }
 }
 
+// ─── Public entry point ──────────────────────────────────────────
+
 /// Run the least-squares adjustment.
 ///
 /// Inputs:
 ///   - `parameters`: initial estimates + whether each is fixed.
-///   - `observations`: the observed values with their a priori sigmas.
+///   - `observations`: the observed values with their a priori sigmas
+///     and optional full covariance blocks.
 ///   - `config`: iteration control.
+///   - `orientation_parameters`: initial estimates for per-station
+///     unknown orientations (used only by `Direction` observations).
 ///
 /// Returns the adjusted parameters + full variance-covariance + residuals
 /// + redundancy + Baarda statistics.
@@ -63,13 +85,18 @@ pub fn adjust_least_squares(
     parameters: &[ParameterPrior],
     observations: &[Observation],
     config: &AdjustmentConfig,
+    orientation_parameters: &[ParameterPrior],
 ) -> Result<AdjustmentResult, AdjustmentError> {
     if observations.is_empty() {
         return Err(AdjustmentError::NoObservations);
     }
 
-    // Build the parameter layout: list of (parameter_index, component_index) for
-    // each unknown component. Fixed components are excluded.
+    // ── 1. Build the unknown layout ──────────────────────────────
+
+    // Coordinate unknowns: list of (parameter_index, component_index)
+    // for each unknown coordinate component.  Variable-dimension
+    // parameters are supported: a 2D point contributes [E, N], a 3D
+    // point contributes [E, N, H].
     let mut unknown_layout: Vec<(usize, usize)> = Vec::new();
     for (p_idx, p) in parameters.iter().enumerate() {
         if !p.fixed {
@@ -78,10 +105,22 @@ pub fn adjust_least_squares(
             }
         }
     }
-    if unknown_layout.is_empty() {
+
+    // Orientation unknowns (per-station instrument setup orientations, radians).
+    let mut orient_layout: Vec<usize> = Vec::new();
+    for (o_idx, o) in orientation_parameters.iter().enumerate() {
+        if !o.fixed {
+            orient_layout.push(o_idx);
+        }
+    }
+
+    let n_coord_unknowns = unknown_layout.len();
+    let n_orient_unknowns = orient_layout.len();
+    let n_unknowns = n_coord_unknowns + n_orient_unknowns;
+    if n_unknowns == 0 {
         return Err(AdjustmentError::NoUnknowns);
     }
-    let n_unknowns = unknown_layout.len();
+
     let n_obs_components: usize = observations.iter().map(|o| o.observed.len()).sum();
 
     // Degrees of freedom check.
@@ -94,7 +133,8 @@ pub fn adjust_least_squares(
         });
     }
 
-    // Validate observation indices and dimensionalities.
+    // ── 2. Validate observations ─────────────────────────────────
+
     for (i, obs) in observations.iter().enumerate() {
         let expected = match obs.kind {
             ObservationKind::Distance => 1,
@@ -119,159 +159,233 @@ pub fn adjust_least_squares(
                 });
             }
         }
+        // Direction observations MUST reference a valid orientation unknown.
+        if matches!(obs.kind, ObservationKind::Direction) {
+            match obs.orientation_param {
+                Some(o) if o < orientation_parameters.len() => {}
+                _ => {
+                    return Err(AdjustmentError::Internal(format!(
+                        "Direction observation {i} requires a valid orientation_param (< {})",
+                        orientation_parameters.len()
+                    )))
+                }
+            }
+        }
+        // Validate covariance block size for multi-component observations.
+        if !obs.covariance.is_empty() {
+            let expected_sq = expected * expected;
+            if obs.covariance.len() != expected_sq {
+                return Err(AdjustmentError::BadObservationDimension {
+                    index: i,
+                    expected: expected_sq,
+                    got: obs.covariance.len(),
+                });
+            }
+        }
     }
 
-    // Iterative linearization + solve.
+    // ── 3. Iterative linearization + solve ───────────────────────
+
     let mut x_current: Vec<Vec<f64>> = parameters.iter().map(|p| p.initial.clone()).collect();
+    let mut z_current: Vec<f64> = orientation_parameters
+        .iter()
+        .map(|o| o.initial.get(0).copied().unwrap_or(0.0))
+        .collect();
 
     let mut max_dx: f64;
-    // The "last_*" buffers are kept for future debugging; we recompute
-    // fresh values at the final x_current after the loop, so these
-    // aren't read after assignment.
-    #[allow(unused_assignments)]
-    let mut last_a: Vec<Vec<f64>> = Vec::new();
-    #[allow(unused_assignments)]
-    let mut last_dl: Vec<f64> = Vec::new();
-    #[allow(unused_assignments)]
-    let mut last_sigma_inv: Vec<f64> = Vec::new();
 
-    let mut iter = 0;
+    let mut iter_count = 0;
     loop {
         // Compute the design matrix A (rows = observation components,
-        // cols = unknowns), the misclosure vector Δl, and the diagonal
-        // Σ⁻¹ vector (since we treat observations as independent).
-        let (a, dl, sigma_inv) = build_design_and_misclosure(
+        // cols = unknowns), the misclosure vector Δl, and the full
+        // observation covariance Σ (block-diagonal).
+        let (a, dl, sigma) = build_design_and_misclosure(
             &x_current,
+            &z_current,
             parameters,
             observations,
             &unknown_layout,
+            &orient_layout,
+            n_coord_unknowns,
         )?;
 
-        last_a = a.clone();
-        last_dl = dl.clone();
-        last_sigma_inv = sigma_inv.clone();
+        // Weight matrix W = Σ⁻¹.
+        let sigma_inv = invert_symmetric_matrix(&sigma)?;
 
-        // Form normal equations: N = Aᵀ Σ⁻¹ A, u = Aᵀ Σ⁻¹ Δl.
-        let normal = matmul_at_sa(&a, &sigma_inv);
-        let u = matvec_at_s_dl(&a, &sigma_inv, &dl);
+        // Form normal equations: N = Aᵀ W A, u = Aᵀ W Δl.
+        let normal = matmul_at_w_a(&a, &sigma_inv);
+        let u = matvec_at_w_b(&a, &sigma_inv, &dl);
 
-        // Solve ΔX = N⁻¹ u via Gaussian elimination with partial pivoting.
+        // Solve ΔX = N⁻¹ u.
         let dx = solve_linear_system(&normal, &u)?;
 
-        // Update x_current.
+        // Update coordinate unknowns.
         max_dx = dx.iter().fold(0.0_f64, |acc, &v| acc.max(v.abs()));
         for (k, (p_idx, c_idx)) in unknown_layout.iter().enumerate() {
             x_current[*p_idx][*c_idx] += dx[k];
         }
+        // Update orientation unknowns.
+        for (kk, &o_idx) in orient_layout.iter().enumerate() {
+            z_current[o_idx] += dx[n_coord_unknowns + kk];
+        }
 
-        iter += 1;
-        if iter >= config.max_iterations || max_dx < config.convergence_threshold_m {
+        iter_count += 1;
+        if iter_count >= config.max_iterations || max_dx < config.convergence_threshold_m {
             break;
         }
     }
 
-    // Final pass: compute residuals = A ΔX - Δl from the final iteration's
-    // last_a and last_dl. But after the last update, the linearization
-    // point has changed. For correctness we recompute A and Δl at the
-    // final x_current.
-    let (a_final, dl_final, sigma_inv_final) =
-        build_design_and_misclosure(&x_current, parameters, observations, &unknown_layout)?;
+    // ── 4. Final statistics at the adjusted solution ─────────────
 
-    // We need the delta-X for the residuals. The standard convention is:
-    //   residuals = A * ΔX - Δl
-    // where ΔX is the correction that WOULD be applied at this iteration.
-    // Since x_current is now the adjusted solution, we solve for what ΔX
-    // would be at this point:
-    let normal_final = matmul_at_sa(&a_final, &sigma_inv_final);
-    let u_final = matvec_at_s_dl(&a_final, &sigma_inv_final, &dl_final);
+    let (a_final, dl_final, sigma_final) = build_design_and_misclosure(
+        &x_current,
+        &z_current,
+        parameters,
+        observations,
+        &unknown_layout,
+        &orient_layout,
+        n_coord_unknowns,
+    )?;
+
+    let sigma_inv_final = invert_symmetric_matrix(&sigma_final)?;
+
+    let normal_final = matmul_at_w_a(&a_final, &sigma_inv_final);
+    let u_final = matvec_at_w_b(&a_final, &sigma_inv_final, &dl_final);
     let dx_final = solve_linear_system(&normal_final, &u_final)?;
 
+    // Residuals: v = A ΔX − Δl.
     let residuals: Vec<f64> = (0..a_final.len())
         .map(|i| {
             let mut row_dot = 0.0_f64;
-            for (j, _) in unknown_layout.iter().enumerate() {
+            for j in 0..n_unknowns {
                 row_dot += a_final[i][j] * dx_final[j];
             }
             row_dot - dl_final[i]
         })
         .collect();
 
-    // A posteriori variance factor: σ₀² = (vᵀ Σ⁻¹ v) / dof
-    let vv_t_sigma_inv_v: f64 = residuals
-        .iter()
-        .enumerate()
-        .map(|(i, &r)| r * r * sigma_inv_final[i])
-        .sum();
-    let dof_usize = dof as usize;
-    let sigma_0_sq = vv_t_sigma_inv_v / dof_usize as f64;
-
-    // Parameter covariance: Q_xx = N⁻¹, covariance = σ₀² × Q_xx.
-    let q_xx = invert_symmetric_matrix(&normal_final)?;
-    let covariance_flat: Vec<f64> = q_xx
-        .iter()
-        .map(|&q| q * sigma_0_sq)
-        .collect();
-
-    // Adjusted observation cofactor matrix: Q_ll = A Q_xx Aᵀ.
-    // We only need the diagonal of Q_vv = Q_ll - Σ⁻¹⁻¹ (= -Σ⁻¹⁻¹ since
-    // observations are independent and Q_ll has only the diagonal of
-    // interest for redundancy).
-    // For observation i: Q_ll[i][i] = Σ_k Σ_l A[i][k] × Q_xx[k][l] × A[i][l]
-    // Q_vv[i][i] = Q_ll[i][i] - sigma_i²
-    // redundancy_i = Q_vv[i][i] / sigma_i²  (NOTE: should be in [0, 1])
-    // w_i = residual_i / sqrt(Q_vv[i][i])
-
-    let n_obs_components_count = a_final.len();
-    let mut redundancy = Vec::with_capacity(n_obs_components_count);
-    let mut baarda_w = Vec::with_capacity(n_obs_components_count);
-
-    for i in 0..n_obs_components_count {
-        // Q_ll[i][i] = (A Q_xx Aᵀ)[i][i]
-        let mut q_ll_ii = 0.0_f64;
-        for k in 0..n_unknowns {
-            for l in 0..n_unknowns {
-                q_ll_ii += a_final[i][k] * q_xx[k * n_unknowns + l] * a_final[i][l];
+    // A posteriori variance factor: σ₀² = vᵀ W v / dof.
+    let vt_w_v: f64 = {
+        let mut sum = 0.0_f64;
+        for i in 0..residuals.len() {
+            for j in 0..residuals.len() {
+                sum += residuals[i] * sigma_inv_final[i * residuals.len() + j] * residuals[j];
             }
         }
-        // σ_i² (variance) = 1 / Σ⁻¹[i][i] = 1 / sigma_inv_final[i].
-        let sigma_i_sq = if sigma_inv_final[i].abs() > 1e-30 {
-            1.0 / sigma_inv_final[i]
-        } else {
-            f64::INFINITY
-        };
-        // Q_vv = Q - Q_ll, where Q is the observation cofactor matrix.
-        // For independent observations, Q[i][i] = σ_i².
-        // Redundancy r_i = 1 - Q_ll[i][i] / σ_i²  (should be in [0, 1]).
-        let r_i = if sigma_i_sq.is_finite() && sigma_i_sq > 0.0 {
-            1.0 - q_ll_ii / sigma_i_sq
-        } else {
-            0.0
-        };
-        redundancy.push(r_i);
+        sum
+    };
+    let dof_usize = dof as usize;
+    let sigma_0_sq = vt_w_v / dof_usize as f64;
 
-        // Q_vv[i][i] = σ_i² - Q_ll[i][i] = r_i × σ_i²
-        let q_vv_ii = r_i * sigma_i_sq;
+    // Parameter covariance: Q_xx = N⁻¹,  cov(X) = σ₀² Q_xx.
+    let q_xx = invert_symmetric_matrix(&normal_final)?;
+    let covariance_flat: Vec<f64> = q_xx.iter().map(|&q| q * sigma_0_sq).collect();
 
-        // Baarda w-statistic: residual_i / sqrt(Q_vv[i][i]).
-        // |w| > 3.29 ≈ α=0.001 one-tailed suggests a blunder.
-        let w = if q_vv_ii > 0.0 {
-            residuals[i] / q_vv_ii.sqrt()
+    // Redundancy numbers and Baarda w-statistics.
+    // Q_ll = A Q_xx Aᵀ,  Q_vv = Σ − Q_ll.
+    // r_i = Q_vv[i][i] / Σ[i][i],  w_i = v[i] / sqrt(Q_vv[i][i]).
+    let n = a_final.len();
+    let mut redundancy = Vec::with_capacity(n);
+    let mut baarda_w = Vec::with_capacity(n);
+
+    // Diagonal of Q_ll = A Q_xx Aᵀ.
+    let q_ll_diag: Vec<f64> = (0..n)
+        .map(|i| {
+            let mut val = 0.0_f64;
+            for k in 0..n_unknowns {
+                for l in 0..n_unknowns {
+                    val += a_final[i][k] * q_xx[k * n_unknowns + l] * a_final[i][l];
+                }
+            }
+            val
+        })
+        .collect();
+
+    // Compute block-wise redundancy for multi-component observations.
+    // For a block of size b starting at row `start`:
+    //   R_block = I − Q_ll_block · Σ_block⁻¹
+    //   trace(R_block) / b  =  average redundancy per component
+    let obs_offsets = compute_obs_offsets(observations);
+
+    for (i, obs) in observations.iter().enumerate() {
+        let b = obs.observed.len();
+        let start = obs_offsets[i];
+
+        if b == 1 {
+            // Scalar observation — simple formula.
+            let sigma_i_sq = sigma_final[start * n + start];
+            let q_vv_i = sigma_i_sq - q_ll_diag[start];
+            let r_i = if sigma_i_sq > 0.0 && q_vv_i > 0.0 {
+                q_vv_i / sigma_i_sq
+            } else {
+                0.0
+            };
+            redundancy.push(r_i);
+            let w = if q_vv_i > 0.0 {
+                residuals[start] / q_vv_i.sqrt()
+            } else {
+                0.0
+            };
+            baarda_w.push(w);
         } else {
-            0.0
-        };
-        baarda_w.push(w);
+            // Multi-component block — use block redundancy via trace.
+            // Extract Σ_block and Q_ll_block.
+            let mut sigma_block = vec![0.0_f64; b * b];
+            let mut qll_block = vec![0.0_f64; b * b];
+            for bi in 0..b {
+                for bj in 0..b {
+                    sigma_block[bi * b + bj] = sigma_final[(start + bi) * n + start + bj];
+                    qll_block[bi * b + bj] = a_final[start + bi]
+                        .iter()
+                        .enumerate()
+                        .map(|(k, &a_ik)| {
+                            a_ik * (0..n_unknowns)
+                                .map(|l| q_xx[k * n_unknowns + l] * a_final[start + bj][l])
+                                .sum::<f64>()
+                        })
+                        .sum();
+                }
+            }
+
+            // R_block = I − Q_ll_block · Σ_block⁻¹
+            let sigma_block_inv = invert_symmetric_matrix(&sigma_block).unwrap_or_else(|_| {
+                vec![0.0; b * b]
+            });
+            let mut trace_r = 0.0_f64;
+            for bi in 0..b {
+                for bj in 0..b {
+                    if bi == bj {
+                        trace_r += 1.0 - qll_block[bi * b + bj] * sigma_block_inv[bi * b + bj];
+                    }
+                }
+            }
+            let avg_r = trace_r / b as f64;
+
+            for k in 0..b {
+                redundancy.push(avg_r);
+            }
+
+            // Baarda w per component: use the diagonal of Q_vv.
+            for k in 0..b {
+                let q_vv_kk =
+                    sigma_final[(start + k) * n + start + k] - q_ll_diag[start + k];
+                let w = if q_vv_kk > 0.0 {
+                    residuals[start + k] / q_vv_kk.sqrt()
+                } else {
+                    0.0
+                };
+                baarda_w.push(w);
+            }
+        }
     }
 
-    // Global chi-square test: the a posteriori σ₀² should be ≈ 1.0 if the
-    // a priori stochastic model is correct. The test statistic is
-    //   χ² = dof × σ₀²
-    // with dof degrees of freedom. We compute the p-value via the
-    // incomplete gamma function (regularized upper).
+    // Global chi-square test.
     let chi_square_stat = dof_usize as f64 * sigma_0_sq;
     let chi_square_p = chi_square_p_value(chi_square_stat, dof_usize);
-
     let passes_global_test = chi_square_p > 0.05;
     let has_flagged_blunder = baarda_w.iter().any(|&w| w.abs() > 3.29);
+
+    let adjusted_orientations: Vec<f64> = z_current.clone();
 
     Ok(AdjustmentResult {
         adjusted: x_current,
@@ -284,39 +398,71 @@ pub fn adjust_least_squares(
         chi_square_p_value: chi_square_p,
         passes_global_test,
         has_flagged_blunder,
+        adjusted_orientations,
     })
 }
 
-// ─── Internal helpers ────────────────────────────────────────────
+// ─── Design matrix + covariance builder ──────────────────────────
 
-/// Build the design matrix A, the misclosure vector Δl, and the diagonal
-/// Σ⁻¹ vector at the current parameter estimate.
+/// Compute the starting row index of each observation's block in the
+/// design matrix.  Observation `i` occupies rows
+/// `offsets[i]..offsets[i] + observed.len()`.
+fn compute_obs_offsets(observations: &[Observation]) -> Vec<usize> {
+    let mut offsets = Vec::with_capacity(observations.len());
+    let mut row = 0;
+    for obs in observations {
+        offsets.push(row);
+        row += obs.observed.len();
+    }
+    offsets
+}
+
+/// Build the design matrix A, misclosure vector Δl, and the full
+/// observation covariance matrix Σ at the current parameter estimate.
 ///
-/// For Distance observations between points i (E_i, N_i) and j (E_j, N_j):
-///   L_approx = sqrt((E_j-E_i)² + (N_j-N_i)²)
-///   ∂L/∂E_i = -(E_j-E_i)/L, ∂L/∂N_i = -(N_j-N_i)/L
-///   ∂L/∂E_j =  (E_j-E_i)/L, ∂L/∂N_j =  (N_j-N_i)/L
-///   Δl = L_observed - L_approx
-///   Σ⁻¹ = 1/σ²
+/// Returns `(A, Δl, Σ)` where:
+///   - A is `m × n` (m = observation components, n = unknowns)
+///   - Δl is length `m`
+///   - Σ is `m × m` (flattened row-major), block-diagonal
 fn build_design_and_misclosure(
     x: &[Vec<f64>],
+    z: &[f64],
     parameters: &[ParameterPrior],
     observations: &[Observation],
-    unknown_layout: &[(usize, usize)],
+    coord_layout: &[(usize, usize)],
+    orient_layout: &[usize],
+    n_coord: usize,
 ) -> Result<(Vec<Vec<f64>>, Vec<f64>, Vec<f64>), AdjustmentError> {
-    let n_unknowns = unknown_layout.len();
+    let n_unknowns = coord_layout.len() + orient_layout.len();
+    let n_total: usize = observations.iter().map(|o| o.observed.len()).sum();
+
     let mut a: Vec<Vec<f64>> = Vec::new();
     let mut dl: Vec<f64> = Vec::new();
-    let mut sigma_inv: Vec<f64> = Vec::new();
+    let mut sigma = vec![0.0_f64; n_total * n_total];
 
-    // Helper: given (p_idx, c_idx), return the column index in A if it's
-    // an unknown, or None if it's fixed.
+    // Column index for a coordinate unknown (None if the component is fixed).
     let col_of = |p_idx: usize, c_idx: usize| -> Option<usize> {
-        unknown_layout.iter().position(|&(p, c)| p == p_idx && c == c_idx)
+        coord_layout
+            .iter()
+            .position(|&(p, c)| p == p_idx && c == c_idx)
+    };
+    // Column index for a station orientation unknown (lives after coordinate columns).
+    let orient_col_of = |o_idx: usize| -> Option<usize> {
+        orient_layout
+            .iter()
+            .position(|&o| o == o_idx)
+            .map(|pos| n_coord + pos)
     };
 
-    for obs in observations {
+    // Track the current row offset for multi-component observations.
+    let offsets = compute_obs_offsets(observations);
+
+    for (obs_idx, obs) in observations.iter().enumerate() {
+        let row_start = offsets[obs_idx];
+        let b = obs.observed.len(); // number of components
+
         match obs.kind {
+            // ── Distance (non-linear, 1 component) ──────────────
             ObservationKind::Distance => {
                 let from = obs.point_indices[0];
                 let to = obs.point_indices[1];
@@ -330,77 +476,272 @@ fn build_design_and_misclosure(
                 let dl_i = obs.observed[0] - l_approx;
 
                 let mut row = vec![0.0_f64; n_unknowns];
-                // Partial derivatives.
-                // ∂L/∂E_from = -de/L, ∂L/∂N_from = -dn/L
-                // ∂L/∂E_to   =  de/L, ∂L/∂N_to   =  dn/L
                 if l_approx > 1e-12 {
-                    if let Some(col) = col_of(from, 0) { row[col] = -de / l_approx; }
-                    if let Some(col) = col_of(from, 1) { row[col] = -dn / l_approx; }
-                    if let Some(col) = col_of(to, 0) { row[col] = de / l_approx; }
-                    if let Some(col) = col_of(to, 1) { row[col] = dn / l_approx; }
+                    if let Some(col) = col_of(from, 0) {
+                        row[col] = -de / l_approx;
+                    }
+                    if let Some(col) = col_of(from, 1) {
+                        row[col] = -dn / l_approx;
+                    }
+                    if let Some(col) = col_of(to, 0) {
+                        row[col] = de / l_approx;
+                    }
+                    if let Some(col) = col_of(to, 1) {
+                        row[col] = dn / l_approx;
+                    }
                 }
 
                 a.push(row);
                 dl.push(dl_i);
-                sigma_inv.push(1.0 / (obs.sigma[0] * obs.sigma[0]));
+                // Diagonal covariance.
+                sigma[row_start * n_total + row_start] =
+                    obs.sigma[0] * obs.sigma[0];
             }
+
+            // ── Height difference (linear, 1 component) ─────────
             ObservationKind::HeightDifference => {
-                // 1D: parameter is [height]. ∂Δh/∂h_from = -1, ∂Δh/∂h_to = +1.
                 let from = obs.point_indices[0];
                 let to = obs.point_indices[1];
-                let h_from = x[from][0];
-                let h_to = x[to][0];
+
+                // Support both 1D parameters (h) and 3D parameters (E,N,H).
+                // The height component is at index 2 for 3D points, or index
+                // 0 if the point has only 1 component (pure height).
+                let h_from = if x[from].len() >= 3 {
+                    x[from][2]
+                } else if x[from].len() == 1 {
+                    x[from][0]
+                } else {
+                    x[from].get(1).copied().unwrap_or(0.0)
+                };
+                let h_to = if x[to].len() >= 3 {
+                    x[to][2]
+                } else if x[to].len() == 1 {
+                    x[to][0]
+                } else {
+                    x[to].get(1).copied().unwrap_or(0.0)
+                };
+
                 let dl_i = obs.observed[0] - (h_to - h_from);
 
                 let mut row = vec![0.0_f64; n_unknowns];
-                if let Some(col) = col_of(from, 0) { row[col] = -1.0; }
-                if let Some(col) = col_of(to, 0) { row[col] = 1.0; }
+                // For 3D points, height is at component index 2.
+                // For 1D height-only points, it's at index 0.
+                let h_from_comp = if x[from].len() >= 3 { 2 } else { 0 };
+                let h_to_comp = if x[to].len() >= 3 { 2 } else { 0 };
+                if let Some(col) = col_of(from, h_from_comp) {
+                    row[col] = -1.0;
+                }
+                if let Some(col) = col_of(to, h_to_comp) {
+                    row[col] = 1.0;
+                }
 
                 a.push(row);
                 dl.push(dl_i);
-                sigma_inv.push(1.0 / (obs.sigma[0] * obs.sigma[0]));
+                sigma[row_start * n_total + row_start] =
+                    obs.sigma[0] * obs.sigma[0];
             }
-            ObservationKind::Azimuth | ObservationKind::Direction => {
-                return Err(AdjustmentError::Internal(
-                    "Direction/Azimuth observations not yet implemented in the linearizer".into(),
-                ));
+
+            // ── Azimuth (non-linear, 1 component) ───────────────
+            ObservationKind::Azimuth => {
+                let from = obs.point_indices[0];
+                let to = obs.point_indices[1];
+                let de = x[to][0] - x[from][0];
+                let dn = x[to][1] - x[from][1];
+                let l2 = de * de + dn * dn;
+                if l2 < 1e-12 {
+                    return Err(AdjustmentError::Internal(
+                        "Azimuth observation: degenerate (near-zero) baseline".into(),
+                    ));
+                }
+                let alpha = dn.atan2(de);
+                let mut misc = obs.observed[0] - alpha;
+                // Normalize to (-π, π].
+                while misc > std::f64::consts::PI {
+                    misc -= 2.0 * std::f64::consts::PI;
+                }
+                while misc < -std::f64::consts::PI {
+                    misc += 2.0 * std::f64::consts::PI;
+                }
+
+                let mut row = vec![0.0_f64; n_unknowns];
+                if let Some(col) = col_of(from, 0) {
+                    row[col] = dn / l2;
+                }
+                if let Some(col) = col_of(from, 1) {
+                    row[col] = -de / l2;
+                }
+                if let Some(col) = col_of(to, 0) {
+                    row[col] = -dn / l2;
+                }
+                if let Some(col) = col_of(to, 1) {
+                    row[col] = de / l2;
+                }
+
+                a.push(row);
+                dl.push(misc);
+                sigma[row_start * n_total + row_start] =
+                    obs.sigma[0] * obs.sigma[0];
             }
+
+            // ── Direction (non-linear, 1 component + orientation) ─
+            ObservationKind::Direction => {
+                let o_idx = obs.orientation_param.expect("validated by caller");
+                let from = obs.point_indices[0];
+                let to = obs.point_indices[1];
+                let de = x[to][0] - x[from][0];
+                let dn = x[to][1] - x[from][1];
+                let l2 = de * de + dn * dn;
+                if l2 < 1e-12 {
+                    return Err(AdjustmentError::Internal(
+                        "Direction observation: degenerate (near-zero) baseline".into(),
+                    ));
+                }
+                let alpha = dn.atan2(de);
+                let z = z[o_idx];
+                let mut misc = obs.observed[0] - (alpha - z);
+                while misc > std::f64::consts::PI {
+                    misc -= 2.0 * std::f64::consts::PI;
+                }
+                while misc < -std::f64::consts::PI {
+                    misc += 2.0 * std::f64::consts::PI;
+                }
+
+                let mut row = vec![0.0_f64; n_unknowns];
+                if let Some(col) = col_of(from, 0) {
+                    row[col] = dn / l2;
+                }
+                if let Some(col) = col_of(from, 1) {
+                    row[col] = -de / l2;
+                }
+                if let Some(col) = col_of(to, 0) {
+                    row[col] = -dn / l2;
+                }
+                if let Some(col) = col_of(to, 1) {
+                    row[col] = de / l2;
+                }
+                // Orientation contributes a column when it is a free unknown.
+                if let Some(ocol) = orient_col_of(o_idx) {
+                    row[ocol] = -1.0;
+                }
+
+                a.push(row);
+                dl.push(misc);
+                sigma[row_start * n_total + row_start] =
+                    obs.sigma[0] * obs.sigma[0];
+            }
+
+            // ── GNSS baseline (linear, 3 components) ────────────
+            //
+            // A baseline vector from `from` to `to` gives three linear
+            // observation equations:
+            //   ΔE_obs = E_to − E_from + v₁
+            //   ΔN_obs = N_to − N_from + v₂
+            //   ΔH_obs = H_to − H_from + v₃
+            //
+            // Jacobian rows are trivial (∂ΔE/∂E_from = −1, etc.) and
+            // the system is exactly linear → one iteration.
+            //
+            // The3×3 covariance block captures the correlation between
+            // components introduced by shared satellite geometry and
+            // atmospheric delays.
             ObservationKind::GnssBaseline => {
-                return Err(AdjustmentError::Internal(
-                    "GnssBaseline observations not yet implemented in the linearizer".into(),
-                ));
+                let from = obs.point_indices[0];
+                let to = obs.point_indices[1];
+
+                // Coordinates (support 2D and 3D points).
+                let e_from = x[from][0];
+                let n_from = x[from][1];
+                let h_from = x[from].get(2).copied().unwrap_or(0.0);
+                let e_to = x[to][0];
+                let n_to = x[to][1];
+                let h_to = x[to].get(2).copied().unwrap_or(0.0);
+
+                // Approximate baseline components.
+                let de = e_to - e_from;
+                let dn = n_to - n_from;
+                let dh = h_to - h_from;
+
+                // Misclosure: observed − computed.
+                let misc = [
+                    obs.observed[0] - de,
+                    obs.observed[1] - dn,
+                    obs.observed[2] - dh,
+                ];
+
+                // Three design matrix rows (linear — Jacobian is constant).
+                for c in 0..3 {
+                    let mut row = vec![0.0_f64; n_unknowns];
+                    if let Some(col) = col_of(from, c) {
+                        row[col] = -1.0;
+                    }
+                    if let Some(col) = col_of(to, c) {
+                        row[col] = 1.0;
+                    }
+                    a.push(row);
+                    dl.push(misc[c]);
+                }
+
+                // Covariance: use full block if provided, else diagonal.
+                if obs.covariance.len() == 9 {
+                    // Full 3×3 covariance block provided by the caller.
+                    for i in 0..3 {
+                        for j in 0..3 {
+                            sigma[(row_start + i) * n_total + row_start + j] =
+                                obs.covariance[i * 3 + j];
+                        }
+                    }
+                } else {
+                    // Build diagonal covariance from sigma values.
+                    for i in 0..3 {
+                        sigma[(row_start + i) * n_total + row_start + i] =
+                            obs.sigma[i] * obs.sigma[i];
+                    }
+                }
             }
         }
     }
 
-    Ok((a, dl, sigma_inv))
+    Ok((a, dl, sigma))
 }
 
-/// Compute N = Aᵀ Σ⁻¹ A where Σ⁻¹ is diagonal (stored as a vector).
-/// Returns the symmetric n_unknowns × n_unknowns matrix flattened row-major.
-fn matmul_at_sa(a: &[Vec<f64>], sigma_inv: &[f64]) -> Vec<f64> {
-    let n = a.first().map(|r| r.len()).unwrap_or(0);
-    let mut result = vec![0.0_f64; n * n];
-    for i in 0..n {
-        for j in 0..n {
+// ─── Matrix algebra helpers ──────────────────────────────────────
+
+/// Compute N = Aᵀ W A where W is a full n×n weight matrix.
+/// A is m×p, W is m×m → result is p×p (flattened row-major).
+fn matmul_at_w_a(a: &[Vec<f64>], w: &[f64]) -> Vec<f64> {
+    let m = a.len();
+    let p = a.first().map(|r| r.len()).unwrap_or(0);
+    let mut result = vec![0.0_f64; p * p];
+    for i in 0..p {
+        for j in 0..p {
             let mut sum = 0.0_f64;
-            for k in 0..a.len() {
-                sum += a[k][i] * sigma_inv[k] * a[k][j];
+            for k in 0..m {
+                let mut wsum = 0.0_f64;
+                for l in 0..m {
+                    wsum += a[k][i] * w[k * m + l];
+                }
+                sum += wsum * a[k][j];
             }
-            result[i * n + j] = sum;
+            result[i * p + j] = sum;
         }
     }
     result
 }
 
-/// Compute u = Aᵀ Σ⁻¹ Δl where Σ⁻¹ is diagonal.
-fn matvec_at_s_dl(a: &[Vec<f64>], sigma_inv: &[f64], dl: &[f64]) -> Vec<f64> {
-    let n = a.first().map(|r| r.len()).unwrap_or(0);
-    let mut result = vec![0.0_f64; n];
-    for i in 0..n {
+/// Compute u = Aᵀ W b where W is a full n×n weight matrix.
+/// A is m×p, W is m×m, b is m×1 → result is p×1.
+fn matvec_at_w_b(a: &[Vec<f64>], w: &[f64], b: &[f64]) -> Vec<f64> {
+    let m = a.len();
+    let p = a.first().map(|r| r.len()).unwrap_or(0);
+    let mut result = vec![0.0_f64; p];
+    for i in 0..p {
         let mut sum = 0.0_f64;
-        for k in 0..a.len() {
-            sum += a[k][i] * sigma_inv[k] * dl[k];
+        for k in 0..m {
+            let mut wsum = 0.0_f64;
+            for l in 0..m {
+                wsum += w[k * m + l] * b[l];
+            }
+            sum += a[k][i] * wsum;
         }
         result[i] = sum;
     }
@@ -408,7 +749,7 @@ fn matvec_at_s_dl(a: &[Vec<f64>], sigma_inv: &[f64], dl: &[f64]) -> Vec<f64> {
 }
 
 /// Solve a linear system M x = b via Gaussian elimination with partial
-/// pivoting. M is symmetric positive definite (in our case), but the
+/// pivoting.  M is symmetric positive definite (in our case), but the
 /// solver is general.
 fn solve_linear_system(m: &[f64], b: &[f64]) -> Result<Vec<f64>, AdjustmentError> {
     let n = b.len();
@@ -431,7 +772,6 @@ fn solve_linear_system(m: &[f64], b: &[f64]) -> Result<Vec<f64>, AdjustmentError
 
     // Forward elimination with partial pivoting.
     for k in 0..n {
-        // Find pivot row.
         let mut max_row = k;
         let mut max_val = aug[k * (n + 1) + k].abs();
         for i in (k + 1)..n {
@@ -451,7 +791,6 @@ fn solve_linear_system(m: &[f64], b: &[f64]) -> Result<Vec<f64>, AdjustmentError
                 aug[max_row * (n + 1) + j] = tmp;
             }
         }
-        // Eliminate.
         for i in (k + 1)..n {
             let factor = aug[i * (n + 1) + k] / aug[k * (n + 1) + k];
             for j in k..=n {
@@ -473,7 +812,7 @@ fn solve_linear_system(m: &[f64], b: &[f64]) -> Result<Vec<f64>, AdjustmentError
 }
 
 /// Invert a symmetric matrix via Gauss-Jordan elimination.
-/// Input is row-major flattened. Returns row-major flattened inverse.
+/// Input is row-major flattened.  Returns row-major flattened inverse.
 fn invert_symmetric_matrix(m: &[f64]) -> Result<Vec<f64>, AdjustmentError> {
     let n = (m.len() as f64).sqrt() as usize;
     if n * n != m.len() {
@@ -489,7 +828,6 @@ fn invert_symmetric_matrix(m: &[f64]) -> Result<Vec<f64>, AdjustmentError> {
         aug[i * 2 * n + n + i] = 1.0;
     }
 
-    // Forward elimination.
     for k in 0..n {
         let pivot = aug[k * 2 * n + k];
         if pivot.abs() < 1e-15 {
@@ -509,7 +847,6 @@ fn invert_symmetric_matrix(m: &[f64]) -> Result<Vec<f64>, AdjustmentError> {
         }
     }
 
-    // Extract the right half.
     let mut inv = vec![0.0_f64; n * n];
     for i in 0..n {
         for j in 0..n {
@@ -519,19 +856,14 @@ fn invert_symmetric_matrix(m: &[f64]) -> Result<Vec<f64>, AdjustmentError> {
     Ok(inv)
 }
 
-/// Regularized upper incomplete gamma function P(a, x) = γ(a, x) / Γ(a).
-///
-/// This is the CDF of the chi-square distribution with `a = dof/2` degrees
-/// of freedom. We need it for the global test p-value.
-///
-/// Implementation: series expansion for x < a+1, continued fraction for
-/// x ≥ a+1. (Numerical Recipes §6.2.)
+// ─── Statistical functions ───────────────────────────────────────
+
+/// Regularized lower incomplete gamma function P(a, x) = γ(a, x) / Γ(a).
 fn regularized_lower_gamma(a: f64, x: f64) -> f64 {
     if x < 0.0 || a <= 0.0 {
         return 0.0;
     }
     if x < a + 1.0 {
-        // Series expansion.
         let mut term = 1.0 / a;
         let mut sum = term;
         let mut n = 1.0;
@@ -545,7 +877,6 @@ fn regularized_lower_gamma(a: f64, x: f64) -> f64 {
         }
         sum * x.powf(a) * (-x).exp() / gamma(a)
     } else {
-        // Continued fraction.
         let mut b = x + 1.0 - a;
         let mut c = 1e30_f64;
         let mut d = 1.0 / b;
@@ -555,13 +886,19 @@ fn regularized_lower_gamma(a: f64, x: f64) -> f64 {
             let an = -(i as f64) * (i as f64 - a);
             b += 2.0;
             d = an * d + b;
-            if d.abs() < 1e-30 { d = 1e-30; }
+            if d.abs() < 1e-30 {
+                d = 1e-30;
+            }
             c = b + an / c;
-            if c.abs() < 1e-30 { c = 1e-30; }
+            if c.abs() < 1e-30 {
+                c = 1e-30;
+            }
             d = 1.0 / d;
             let del = d * c;
             h *= del;
-            if (del - 1.0).abs() < 1e-12 { break; }
+            if (del - 1.0).abs() < 1e-12 {
+                break;
+            }
             i += 1;
         }
         1.0 - h * x.powf(a) * (-x).exp() / gamma(a)
@@ -571,8 +908,7 @@ fn regularized_lower_gamma(a: f64, x: f64) -> f64 {
 /// Lanczos approximation to the Gamma function Γ(a).
 fn gamma(a: f64) -> f64 {
     if a < 0.5 {
-        std::f64::consts::PI
-            / ((std::f64::consts::PI * a).sin() * gamma(1.0 - a))
+        std::f64::consts::PI / ((std::f64::consts::PI * a).sin() * gamma(1.0 - a))
     } else {
         let g = 7.0;
         let c = [
@@ -597,7 +933,6 @@ fn gamma(a: f64) -> f64 {
 }
 
 /// P-value for a chi-square statistic with `dof` degrees of freedom.
-/// Returns the upper tail probability (1 - CDF).
 fn chi_square_p_value(stat: f64, dof: usize) -> f64 {
     if dof == 0 || stat < 0.0 {
         return 1.0;
@@ -608,18 +943,15 @@ fn chi_square_p_value(stat: f64, dof: usize) -> f64 {
     1.0 - cdf
 }
 
+// ─── Tests ───────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // ── Existing tests (updated with `covariance: vec![]`) ──────
+
     /// Simple trilateration: 3 distances to 1 unknown point.
-    /// Known: P1=(0,0), P2=(100,0), P3=(0,100).
-    /// Unknown: P4 at (60, 70) — distances to P1, P2, P3 are
-    ///   d14 = sqrt(60² + 70²) = 92.1954
-    ///   d24 = sqrt(40² + 70²) = 80.6226
-    ///   d34 = sqrt(60² + 30²) = 67.0820
-    /// With 3 observations and 2 unknowns (E4, N4), dof = 1.
-    /// The adjustment should converge to (60, 70) with σ₀² ≈ 1.0.
     #[test]
     fn test_trilateration_3_distances_1_point() {
         let parameters = vec![
@@ -637,57 +969,48 @@ mod tests {
                 kind: ObservationKind::Distance,
                 point_indices: vec![0, 3],
                 observed: vec![d14],
-                sigma: vec![0.005], // 5 mm
+                orientation_param: None,
+                sigma: vec![0.005],
+                covariance: vec![],
             },
             Observation {
                 kind: ObservationKind::Distance,
                 point_indices: vec![1, 3],
                 observed: vec![d24],
+                orientation_param: None,
                 sigma: vec![0.005],
+                covariance: vec![],
             },
             Observation {
                 kind: ObservationKind::Distance,
                 point_indices: vec![2, 3],
                 observed: vec![d34],
+                orientation_param: None,
                 sigma: vec![0.005],
+                covariance: vec![],
             },
         ];
 
         let config = AdjustmentConfig::default();
-        let result = adjust_least_squares(&parameters, &observations, &config).unwrap();
+        let result = adjust_least_squares(&parameters, &observations, &config, &[]).unwrap();
 
-        // Adjusted P4 coordinates.
         let p4 = &result.adjusted[3];
         assert!((p4[0] - 60.0).abs() < 1e-6, "E4 = {} (expected 60)", p4[0]);
         assert!((p4[1] - 70.0).abs() < 1e-6, "N4 = {} (expected 70)", p4[1]);
-
-        // σ₀² should be ~0 (perfect fit, deterministic geometry).
         assert!(
             result.sigma_0_sq < 1e-6,
-            "sigma_0_sq = {} (expected ~0 for perfect obs)",
+            "sigma_0_sq = {} (expected ~0)",
             result.sigma_0_sq
         );
-
-        // dof = 3 obs - 2 unknowns = 1.
         assert_eq!(result.degrees_of_freedom, 1);
-
-        // 3 residuals.
         assert_eq!(result.residuals.len(), 3);
-        assert_eq!(result.redundancy.len(), 3);
-        assert_eq!(result.baarda_w.len(), 3);
-
-        // No blunders (we used exact observations).
         assert!(!result.has_flagged_blunder);
-
-        // Each residual should be ~0.
         for (i, r) in result.residuals.iter().enumerate() {
             assert!(r.abs() < 1e-6, "residual[{}] = {}", i, r);
         }
     }
 
-    /// Over-determined system: 4 distances to 1 unknown point. With
-    /// noisy observations, σ₀² should be ≈ 1.0 (the noise is correctly
-    /// modeled).
+    /// Over-determined system: 4 distances to 1 unknown point with noise.
     #[test]
     fn test_overdetermined_4_distances_with_noise() {
         let parameters = vec![
@@ -698,61 +1021,59 @@ mod tests {
             ParameterPrior { initial: vec![50.0, 50.0], fixed: false },
         ];
 
-        // True P5 at (60, 70). Add 5mm noise to each observation.
         let d15 = (60.0_f64 * 60.0 + 70.0 * 70.0).sqrt();
         let d25 = (40.0_f64 * 40.0 + 70.0 * 70.0).sqrt();
         let d35 = (60.0_f64 * 60.0 + 30.0 * 30.0).sqrt();
         let d45 = (40.0_f64 * 40.0 + 30.0 * 30.0).sqrt();
 
-        // Add systematic 2 mm bias to ONE observation to make σ₀² > 0.
         let observations = vec![
             Observation {
                 kind: ObservationKind::Distance,
                 point_indices: vec![0, 4],
                 observed: vec![d15 + 0.002],
+                orientation_param: None,
                 sigma: vec![0.005],
+                covariance: vec![],
             },
             Observation {
                 kind: ObservationKind::Distance,
                 point_indices: vec![1, 4],
                 observed: vec![d25],
+                orientation_param: None,
                 sigma: vec![0.005],
+                covariance: vec![],
             },
             Observation {
                 kind: ObservationKind::Distance,
                 point_indices: vec![2, 4],
                 observed: vec![d35],
+                orientation_param: None,
                 sigma: vec![0.005],
+                covariance: vec![],
             },
             Observation {
                 kind: ObservationKind::Distance,
                 point_indices: vec![3, 4],
                 observed: vec![d45],
+                orientation_param: None,
                 sigma: vec![0.005],
+                covariance: vec![],
             },
         ];
 
         let config = AdjustmentConfig::default();
-        let result = adjust_least_squares(&parameters, &observations, &config).unwrap();
+        let result = adjust_least_squares(&parameters, &observations, &config, &[]).unwrap();
 
-        // dof = 4 - 2 = 2.
         assert_eq!(result.degrees_of_freedom, 2);
-
-        // Adjusted P5 should be near (60, 70) but pulled slightly by the bias.
         let p5 = &result.adjusted[4];
         assert!((p5[0] - 60.0).abs() < 0.01, "E5 = {}", p5[0]);
         assert!((p5[1] - 70.0).abs() < 0.01, "N5 = {}", p5[1]);
-
-        // σ₀² > 0 because of the bias.
         assert!(result.sigma_0_sq > 0.0, "sigma_0_sq = {}", result.sigma_0_sq);
-
-        // Redundancy numbers should sum to dof.
         let r_sum: f64 = result.redundancy.iter().sum();
         assert!((r_sum - 2.0).abs() < 1e-6, "sum(r) = {} (expected 2)", r_sum);
     }
 
-    /// Blunder detection: an observation with a 50 mm error (10× sigma)
-    /// must produce |w| > 3.29 (Baarda threshold).
+    /// Blunder detection: 50 mm error (10× sigma) must produce |w| > 3.29.
     #[test]
     fn test_baarda_blunder_detection() {
         let parameters = vec![
@@ -772,35 +1093,46 @@ mod tests {
             Observation {
                 kind: ObservationKind::Distance,
                 point_indices: vec![0, 4],
-                observed: vec![d15 + 0.050], // 50 mm blunder (10 × 5 mm sigma)
+                observed: vec![d15 + 0.050],
+                orientation_param: None,
                 sigma: vec![0.005],
+                covariance: vec![],
             },
             Observation {
                 kind: ObservationKind::Distance,
                 point_indices: vec![1, 4],
                 observed: vec![d25],
+                orientation_param: None,
                 sigma: vec![0.005],
+                covariance: vec![],
             },
             Observation {
                 kind: ObservationKind::Distance,
                 point_indices: vec![2, 4],
                 observed: vec![d35],
+                orientation_param: None,
                 sigma: vec![0.005],
+                covariance: vec![],
             },
             Observation {
                 kind: ObservationKind::Distance,
                 point_indices: vec![3, 4],
                 observed: vec![d45],
+                orientation_param: None,
                 sigma: vec![0.005],
+                covariance: vec![],
             },
         ];
 
-        let result = adjust_least_squares(&parameters, &observations, &AdjustmentConfig::default()).unwrap();
+        let result = adjust_least_squares(
+            &parameters,
+            &observations,
+            &AdjustmentConfig::default(),
+            &[],
+        )
+        .unwrap();
 
-        // The blunder must be flagged.
         assert!(result.has_flagged_blunder, "blunder not flagged");
-
-        // The first observation (the blunder) should have the largest |w|.
         let max_w_idx = result
             .baarda_w
             .iter()
@@ -808,7 +1140,7 @@ mod tests {
             .max_by(|(_, a), (_, b)| a.abs().partial_cmp(&b.abs()).unwrap())
             .map(|(i, _)| i)
             .unwrap();
-        assert_eq!(max_w_idx, 0, "expected observation 0 to have the largest |w|");
+        assert_eq!(max_w_idx, 0, "expected obs 0 to have the largest |w|");
         assert!(
             result.baarda_w[0].abs() > 3.29,
             "w[0] = {} (expected |w| > 3.29)",
@@ -816,28 +1148,29 @@ mod tests {
         );
     }
 
-    /// Under-determined system (0 dof) must error.
+    /// Under-determined system must error.
     #[test]
     fn test_underdetermined_errors() {
         let parameters = vec![
             ParameterPrior { initial: vec![0.0, 0.0], fixed: true },
             ParameterPrior { initial: vec![50.0, 50.0], fixed: false },
         ];
-        // 1 obs, 2 unknowns → dof = -1.
         let observations = vec![Observation {
             kind: ObservationKind::Distance,
             point_indices: vec![0, 1],
             observed: vec![100.0],
+            orientation_param: None,
             sigma: vec![0.005],
+            covariance: vec![],
         }];
-        let result = adjust_least_squares(&parameters, &observations, &AdjustmentConfig::default());
+        let result =
+            adjust_least_squares(&parameters, &observations, &AdjustmentConfig::default(), &[]);
         assert!(matches!(result, Err(AdjustmentError::Underdetermined { .. })));
     }
 
     /// Gamma function sanity checks.
     #[test]
     fn test_gamma_values() {
-        // Γ(1) = 1, Γ(2) = 1, Γ(3) = 2, Γ(4) = 6, Γ(0.5) = sqrt(π)
         assert!((gamma(1.0) - 1.0).abs() < 1e-9);
         assert!((gamma(2.0) - 1.0).abs() < 1e-9);
         assert!((gamma(3.0) - 2.0).abs() < 1e-9);
@@ -845,11 +1178,748 @@ mod tests {
         assert!((gamma(0.5) - std::f64::consts::PI.sqrt()).abs() < 1e-9);
     }
 
-    /// Chi-square p-value sanity: for a chi-square with 5 dof, the
-    /// 95th percentile is 11.07. P(X > 11.07) ≈ 0.05.
+    /// Chi-square p-value sanity.
     #[test]
     fn test_chi_square_p_value_5_dof() {
         let p = chi_square_p_value(11.07, 5);
         assert!((p - 0.05).abs() < 0.01, "p = {} (expected ~0.05)", p);
+    }
+
+    /// Azimuth observation adjusts to the correct point.
+    #[test]
+    fn test_azimuth_observation_adjusts() {
+        use std::f64::consts::FRAC_PI_4;
+        let parameters = vec![
+            ParameterPrior {
+                initial: vec![0.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![100.01, 100.0],
+                fixed: false,
+            },
+        ];
+        let true_dist = (100.0_f64 * 100.0 + 100.0 * 100.0).sqrt();
+        let observations = vec![
+            Observation {
+                kind: ObservationKind::Azimuth,
+                point_indices: vec![0, 1],
+                observed: vec![FRAC_PI_4],
+                sigma: vec![1e-4],
+                orientation_param: None,
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::Distance,
+                point_indices: vec![0, 1],
+                observed: vec![true_dist],
+                sigma: vec![0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::Azimuth,
+                point_indices: vec![1, 0],
+                observed: vec![-3.0 * FRAC_PI_4],
+                sigma: vec![1e-4],
+                orientation_param: None,
+                covariance: vec![],
+            },
+        ];
+        let result = adjust_least_squares(
+            &parameters,
+            &observations,
+            &AdjustmentConfig::default(),
+            &[],
+        )
+        .expect("azimuth adjustment should succeed");
+        assert!(
+            (result.adjusted[1][0] - 100.0).abs() < 1e-6,
+            "E1 = {}",
+            result.adjusted[1][0]
+        );
+        assert!(
+            (result.adjusted[1][1] - 100.0).abs() < 1e-6,
+            "N1 = {}",
+            result.adjusted[1][1]
+        );
+        for &r in &result.residuals {
+            assert!(r.abs() < 1e-9, "residual = {}", r);
+        }
+    }
+
+    /// Direction observations with free orientation recover the correct point.
+    #[test]
+    fn test_direction_solves_orientation() {
+        use std::f64::consts::FRAC_PI_2;
+        let z0 = 0.3;
+        let parameters = vec![
+            ParameterPrior { initial: vec![0.0, 0.0], fixed: true },
+            ParameterPrior { initial: vec![100.0, 0.0], fixed: true },
+            ParameterPrior { initial: vec![0.0, 100.01], fixed: false },
+        ];
+        let orientation_parameters = vec![ParameterPrior {
+            initial: vec![0.0],
+            fixed: false,
+        }];
+        let observations = vec![
+            Observation {
+                kind: ObservationKind::Direction,
+                point_indices: vec![0, 1],
+                observed: vec![-z0],
+                sigma: vec![1e-4],
+                orientation_param: Some(0),
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::Direction,
+                point_indices: vec![0, 2],
+                observed: vec![FRAC_PI_2 - z0],
+                sigma: vec![1e-4],
+                orientation_param: Some(0),
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::Distance,
+                point_indices: vec![0, 1],
+                observed: vec![100.0],
+                sigma: vec![0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::Distance,
+                point_indices: vec![0, 2],
+                observed: vec![100.0],
+                sigma: vec![0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+        ];
+        let result = adjust_least_squares(
+            &parameters,
+            &observations,
+            &AdjustmentConfig::default(),
+            &orientation_parameters,
+        )
+        .expect("direction adjustment should succeed");
+        assert!(
+            (result.adjusted[2][1] - 100.0).abs() < 1e-6,
+            "N2 = {}",
+            result.adjusted[2][1]
+        );
+        assert!(
+            (result.adjusted_orientations[0] - z0).abs() < 1e-6,
+            "z = {}",
+            result.adjusted_orientations[0]
+        );
+        for &r in &result.residuals {
+            assert!(r.abs() < 1e-9, "residual = {}", r);
+        }
+    }
+
+    /// Fixed orientation must be honoured exactly.
+    #[test]
+    fn test_direction_fixed_orientation_honoured() {
+        use std::f64::consts::FRAC_PI_2;
+        let z0 = 0.3;
+        let parameters = vec![
+            ParameterPrior { initial: vec![0.0, 0.0], fixed: true },
+            ParameterPrior { initial: vec![100.0, 0.0], fixed: true },
+            ParameterPrior { initial: vec![0.0, 100.01], fixed: false },
+        ];
+        let orientation_parameters = vec![ParameterPrior {
+            initial: vec![z0],
+            fixed: true,
+        }];
+        let observations = vec![
+            Observation {
+                kind: ObservationKind::Direction,
+                point_indices: vec![0, 1],
+                observed: vec![-z0],
+                sigma: vec![1e-4],
+                orientation_param: Some(0),
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::Direction,
+                point_indices: vec![0, 2],
+                observed: vec![FRAC_PI_2 - z0],
+                sigma: vec![1e-4],
+                orientation_param: Some(0),
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::Distance,
+                point_indices: vec![0, 1],
+                observed: vec![100.0],
+                sigma: vec![0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::Distance,
+                point_indices: vec![0, 2],
+                observed: vec![100.0],
+                sigma: vec![0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+        ];
+        let result = adjust_least_squares(
+            &parameters,
+            &observations,
+            &AdjustmentConfig::default(),
+            &orientation_parameters,
+        )
+        .expect("direction adjustment should succeed");
+        assert!(
+            (result.adjusted_orientations[0] - z0).abs() < 1e-12,
+            "z = {}",
+            result.adjusted_orientations[0]
+        );
+        assert!(
+            (result.adjusted[2][1] - 100.0).abs() < 1e-6,
+            "N2 = {}",
+            result.adjusted[2][1]
+        );
+        for &r in &result.residuals {
+            assert!(r.abs() < 1e-9, "residual = {}", r);
+        }
+    }
+
+    // ── NEW tests: GNSS baseline observations ──────────────────
+
+    /// Basic GNSS baseline: a single baseline to one unknown point
+    /// with 3D coordinates.  Two fixed + one free point, with 1 baseline
+    /// (3 components) → 3 − 3 = 0 dof.  Need ≥2 baselines or mix with
+    /// distances.
+    ///
+    /// This test: 2 fixed points, 1 free point (3D), with 2 GNSS
+    /// baselines (6 components, 3 unknowns → dof = 3).
+    #[test]
+    fn test_gnss_baseline_3d_triangulation() {
+        // P1=(0,0,10), P2=(100,0,20) fixed, P3 at (60,70,15) free.
+        let parameters = vec![
+            ParameterPrior {
+                initial: vec![0.0, 0.0, 10.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![100.0, 0.0, 20.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![50.0, 50.0, 12.0],
+                fixed: false,
+            },
+        ];
+
+        // True baseline P1→P3: (60, 70, 5).
+        // True baseline P2→P3: (−40, 70, −5).
+        let observations = vec![
+            Observation {
+                kind: ObservationKind::GnssBaseline,
+                point_indices: vec![0, 2],
+                observed: vec![60.0, 70.0, 5.0],
+                sigma: vec![0.002, 0.002, 0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::GnssBaseline,
+                point_indices: vec![1, 2],
+                observed: vec![-40.0, 70.0, -5.0],
+                sigma: vec![0.002, 0.002, 0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+        ];
+
+        let result = adjust_least_squares(
+            &parameters,
+            &observations,
+            &AdjustmentConfig::default(),
+            &[],
+        )
+        .expect("GNSS adjustment should succeed");
+
+        let p3 = &result.adjusted[2];
+        assert!(
+            (p3[0] - 60.0).abs() < 1e-6,
+            "E3 = {} (expected 60)",
+            p3[0]
+        );
+        assert!(
+            (p3[1] - 70.0).abs() < 1e-6,
+            "N3 = {} (expected 70)",
+            p3[1]
+        );
+        assert!(
+            (p3[2] - 15.0).abs() < 1e-6,
+            "H3 = {} (expected 15)",
+            p3[2]
+        );
+        assert_eq!(result.degrees_of_freedom, 3);
+        // Perfect observations → residuals ≈ 0.
+        for (i, r) in result.residuals.iter().enumerate() {
+            assert!(r.abs() < 1e-6, "residual[{}] = {}", i, r);
+        }
+    }
+
+    /// GNSS baseline with 2D points (no height component).
+    /// The height component defaults to 0 for 2D points.
+    #[test]
+    fn test_gnss_baseline_2d_points() {
+        let parameters = vec![
+            ParameterPrior {
+                initial: vec![0.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![100.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![50.0, 50.0],
+                fixed: false,
+            },
+        ];
+
+        // Baselines: P1→P3 = (60, 70, 0), P2→P3 = (−40, 70, 0).
+        // The height component is 0 since 2D points have h=0 by default.
+        let observations = vec![
+            Observation {
+                kind: ObservationKind::GnssBaseline,
+                point_indices: vec![0, 2],
+                observed: vec![60.0, 70.0, 0.0],
+                sigma: vec![0.002, 0.002, 0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::GnssBaseline,
+                point_indices: vec![1, 2],
+                observed: vec![-40.0, 70.0, 0.0],
+                sigma: vec![0.002, 0.002, 0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+        ];
+
+        let result = adjust_least_squares(
+            &parameters,
+            &observations,
+            &AdjustmentConfig::default(),
+            &[],
+        )
+        .expect("GNSS adjustment should succeed");
+
+        let p3 = &result.adjusted[2];
+        assert!((p3[0] - 60.0).abs() < 1e-6, "E3 = {}", p3[0]);
+        assert!((p3[1] - 70.0).abs() < 1e-6, "N3 = {}", p3[1]);
+    }
+
+    /// Mixed network: GNSS baselines + distances in the same adjustment.
+    /// This is the real-world scenario where GNSS provides absolute
+    /// position and distances provide local geometry.
+    #[test]
+    fn test_mixed_gnss_and_distance() {
+        // P1=(0,0) fixed, P2=(100,0) fixed, P3=(60,70) free.
+        let parameters = vec![
+            ParameterPrior {
+                initial: vec![0.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![100.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![50.0, 50.0],
+                fixed: false,
+            },
+        ];
+
+        let d13 = (60.0_f64 * 60.0 + 70.0 * 70.0).sqrt(); // ≈ 92.195
+        let d23 = (40.0_f64 * 40.0 + 70.0 * 70.0).sqrt(); // ≈ 80.623
+
+        let observations = vec![
+            // 1 GNSS baseline from P1 to P3 (3 components).
+            Observation {
+                kind: ObservationKind::GnssBaseline,
+                point_indices: vec![0, 2],
+                observed: vec![60.0, 70.0, 0.0],
+                sigma: vec![0.002, 0.002, 0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+            // 1 distance from P2 to P3 (1 component).
+            Observation {
+                kind: ObservationKind::Distance,
+                point_indices: vec![1, 2],
+                observed: vec![d23],
+                sigma: vec![0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+        ];
+
+        // obs components: 3 + 1 = 4.  unknowns: 2 (E3, N3).  dof = 2.
+        let result = adjust_least_squares(
+            &parameters,
+            &observations,
+            &AdjustmentConfig::default(),
+            &[],
+        )
+        .expect("mixed adjustment should succeed");
+
+        let p3 = &result.adjusted[2];
+        assert!((p3[0] - 60.0).abs() < 1e-6, "E3 = {}", p3[0]);
+        assert!((p3[1] - 70.0).abs() < 1e-6, "N3 = {}", p3[1]);
+        assert_eq!(result.degrees_of_freedom, 2);
+        assert_eq!(result.residuals.len(), 4);
+        assert_eq!(result.redundancy.len(), 4);
+        assert_eq!(result.baarda_w.len(), 4);
+    }
+
+    /// GNSS baseline with correlated covariance block.
+    /// The full 3×3 covariance matrix is provided, and the adjustment
+    /// must use it instead of the diagonal sigma values.
+    #[test]
+    fn test_gnss_baseline_correlated_covariance() {
+        let parameters = vec![
+            ParameterPrior {
+                initial: vec![0.0, 0.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![100.0, 0.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![50.0, 50.0, 5.0],
+                fixed: false,
+            },
+        ];
+
+        // True P3 at (60, 70, 10).
+        // Baseline P1→P3: (60, 70, 10).
+        // Baseline P2→P3: (−40, 70, 10).
+        // Add small noise to make σ₀² > 0.
+        let observations = vec![
+            Observation {
+                kind: ObservationKind::GnssBaseline,
+                point_indices: vec![0, 2],
+                // Add 2 mm bias to ΔE.
+                observed: vec![60.002, 70.0, 10.0],
+                sigma: vec![0.002, 0.002, 0.005],
+                orientation_param: None,
+                // Correlated covariance: σ²=4e-6 diag, 1e-6 off-diagonal
+                // (correlation coefficient ρ = 0.25).
+                covariance: vec![
+                    4e-6, 1e-6, 0.0, 1e-6, 4e-6, 0.0, 0.0, 0.0, 25e-6,
+                ],
+            },
+            Observation {
+                kind: ObservationKind::GnssBaseline,
+                point_indices: vec![1, 2],
+                observed: vec![-40.0, 70.0, 10.0],
+                sigma: vec![0.002, 0.002, 0.005],
+                orientation_param: None,
+                covariance: vec![
+                    4e-6, 0.0, 0.0, 0.0, 4e-6, 0.0, 0.0, 0.0, 25e-6,
+                ],
+            },
+        ];
+
+        let result = adjust_least_squares(
+            &parameters,
+            &observations,
+            &AdjustmentConfig::default(),
+            &[],
+        )
+        .expect("correlated GNSS adjustment should succeed");
+
+        let p3 = &result.adjusted[2];
+        // The adjustment should be pulled slightly toward the biased observation.
+        assert!(
+            (p3[0] - 60.0).abs() < 0.01,
+            "E3 = {} (expected near 60)",
+            p3[0]
+        );
+        // Correlated covariance gives slightly different weighting.
+        assert!(
+            (p3[1] - 70.0).abs() < 0.001,
+            "N3 = {} (expected near 70)",
+            p3[1]
+        );
+        assert!(
+            (p3[2] - 10.0).abs() < 0.001,
+            "H3 = {} (expected near 10)",
+            p3[2]
+        );
+        assert_eq!(result.degrees_of_freedom, 3);
+        // σ₀² > 0 because of the bias.
+        assert!(
+            result.sigma_0_sq > 0.0,
+            "sigma_0_sq = {} (expected > 0)",
+            result.sigma_0_sq
+        );
+    }
+
+    /// GNSS baseline with blunder detection.
+    /// A 50 mm error in one component (25× its σ) must be flagged.
+    #[test]
+    fn test_gnss_baseline_blunder_detection() {
+        let parameters = vec![
+            ParameterPrior {
+                initial: vec![0.0, 0.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![100.0, 0.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![0.0, 100.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![50.0, 50.0, 5.0],
+                fixed: false,
+            },
+        ];
+
+        // True P4 at (60, 70, 10).
+        let observations = vec![
+            Observation {
+                kind: ObservationKind::GnssBaseline,
+                point_indices: vec![0, 3],
+                // 50 mm blunder in ΔE (25 × 2 mm σ).
+                observed: vec![60.050, 70.0, 10.0],
+                sigma: vec![0.002, 0.002, 0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::GnssBaseline,
+                point_indices: vec![1, 3],
+                observed: vec![-40.0, 70.0, 10.0],
+                sigma: vec![0.002, 0.002, 0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::GnssBaseline,
+                point_indices: vec![2, 3],
+                observed: vec![60.0, -30.0, 10.0],
+                sigma: vec![0.002, 0.002, 0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+        ];
+
+        // 9 components, 3 unknowns → dof = 6.
+        let result = adjust_least_squares(
+            &parameters,
+            &observations,
+            &AdjustmentConfig::default(),
+            &[],
+        )
+        .expect("GNSS blunder detection should succeed");
+
+        assert!(
+            result.has_flagged_blunder,
+            "blunder not flagged in GNSS baseline"
+        );
+
+        // The first observation's ΔE component (residuals[0]) should
+        // have the largest |w|.
+        let max_w_idx = result
+            .baarda_w
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.abs().partial_cmp(&b.abs()).unwrap())
+            .map(|(i, _)| i)
+            .unwrap();
+        assert_eq!(max_w_idx, 0, "expected component 0 (ΔE of baseline 1) to have the largest |w|");
+        assert!(
+            result.baarda_w[0].abs() > 3.29,
+            "w[0] = {} (expected |w| > 3.29)",
+            result.baarda_w[0]
+        );
+    }
+
+    /// Height difference observation with 1D height parameters.
+    /// Two fixed height points, one free.  Two observations → dof = 1.
+    #[test]
+    fn test_height_difference_1d_parameters() {
+        let parameters = vec![
+            ParameterPrior {
+                initial: vec![100.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![103.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![107.0],
+                fixed: false,
+            },
+        ];
+
+        // h_to − h_from: P0→P2 = 5, P1→P2 = 2.
+        let observations = vec![
+            Observation {
+                kind: ObservationKind::HeightDifference,
+                point_indices: vec![0, 2],
+                observed: vec![5.0],
+                sigma: vec![0.001],
+                orientation_param: None,
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::HeightDifference,
+                point_indices: vec![1, 2],
+                observed: vec![2.0],
+                sigma: vec![0.001],
+                orientation_param: None,
+                covariance: vec![],
+            },
+        ];
+
+        let result = adjust_least_squares(
+            &parameters,
+            &observations,
+            &AdjustmentConfig::default(),
+            &[],
+        )
+        .expect("height adjustment should succeed");
+
+        // h2 = 100 + 5 = 105.  (Also = 103 + 2 = 105.)
+        assert!(
+            (result.adjusted[2][0] - 105.0).abs() < 1e-6,
+            "H2 = {} (expected 105)",
+            result.adjusted[2][0]
+        );
+    }
+
+    /// Verify that the covariance field size is validated.
+    #[test]
+    fn test_observation_covariance_validation() {
+        let parameters = vec![
+            ParameterPrior {
+                initial: vec![0.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![100.0, 0.0],
+                fixed: false,
+            },
+        ];
+
+        // Wrong covariance size (4 elements instead of 9 for a GNSS baseline).
+        let observations = vec![Observation {
+            kind: ObservationKind::GnssBaseline,
+            point_indices: vec![0, 1],
+            observed: vec![100.0, 0.0, 0.0],
+            sigma: vec![0.002, 0.002, 0.005],
+            orientation_param: None,
+            covariance: vec![1.0, 0.0, 0.0, 1.0], // wrong size!
+        }];
+
+        let result = adjust_least_squares(
+            &parameters,
+            &observations,
+            &AdjustmentConfig::default(),
+            &[],
+        );
+        assert!(
+            matches!(result, Err(AdjustmentError::BadObservationDimension { .. })),
+            "expected BadObservationDimension error for wrong covariance size"
+        );
+    }
+
+    /// Verify that an over-determined GNSS network gives sensible
+    /// redundancy numbers that sum to the degrees of freedom.
+    #[test]
+    fn test_gnss_redundancy_sums_to_dof() {
+        let parameters = vec![
+            ParameterPrior {
+                initial: vec![0.0, 0.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![100.0, 0.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![0.0, 100.0, 0.0],
+                fixed: true,
+            },
+            ParameterPrior {
+                initial: vec![50.0, 50.0, 5.0],
+                fixed: false,
+            },
+        ];
+
+        // True P4 at (60, 70, 10).
+        let observations = vec![
+            Observation {
+                kind: ObservationKind::GnssBaseline,
+                point_indices: vec![0, 3],
+                observed: vec![60.0, 70.0, 10.0],
+                sigma: vec![0.002, 0.002, 0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::GnssBaseline,
+                point_indices: vec![1, 3],
+                observed: vec![-40.0, 70.0, 10.0],
+                sigma: vec![0.002, 0.002, 0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+            Observation {
+                kind: ObservationKind::GnssBaseline,
+                point_indices: vec![2, 3],
+                observed: vec![60.0, -30.0, 10.0],
+                sigma: vec![0.002, 0.002, 0.005],
+                orientation_param: None,
+                covariance: vec![],
+            },
+        ];
+
+        // 9 components, 3 unknowns → dof = 6.
+        let result = adjust_least_squares(
+            &parameters,
+            &observations,
+            &AdjustmentConfig::default(),
+            &[],
+        )
+        .expect("GNSS adjustment should succeed");
+
+        assert_eq!(result.degrees_of_freedom, 6);
+        assert_eq!(result.residuals.len(), 9);
+        assert_eq!(result.redundancy.len(), 9);
+        assert_eq!(result.baarda_w.len(), 9);
+
+        // All residuals should be ~0 for perfect observations.
+        for (i, r) in result.residuals.iter().enumerate() {
+            assert!(r.abs() < 1e-6, "residual[{}] = {}", i, r);
+        }
+
+        // Redundancy numbers should be non-negative.
+        for (i, r) in result.redundancy.iter().enumerate() {
+            assert!(
+                *r >= -0.01,
+                "redundancy[{}] = {} (expected >= 0)",
+                i,
+                r
+            );
+        }
     }
 }

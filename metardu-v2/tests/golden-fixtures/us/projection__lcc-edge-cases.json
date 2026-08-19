@@ -1,0 +1,89 @@
+{
+  "name": "Lambert Conformal Conic (2SP) edge cases — negative-n inverse quadrant fix and the degenerate single-parallel branch",
+  "country": "SYNTHETIC",
+  "computation": "projection-lcc-forward-inverse-edge-cases",
+  "synthetic": true,
+  "source": {
+    "document": "Snyder, J. P. (1987) USGS PP-1395 §14; EPSG Geomatics Guidance Note 7-2 §1.3.2.1 (Lambert Conic Conformal 2SP) inverse",
+    "page": "PP-1395 §14 (forward/inverse); EPSG GN7-2 §1.3.2.1 inverse (ρ = ±√…, sign of n)",
+    "file": "scripts/verify_lcc.py (independent Python reference, validated against the EPSG GN7-2 worked example)",
+    "notes": "SYNTHETIC edge-case zones — not real country-config zones, so this fixture is skipped by the registry cross-check. These cases exercise code paths the real US SPCS zones (all n > 0) cannot reach: (1) southern-hemisphere 2SP with n < 0, which previously made the inverse recover θ ∓ π (a ~π/|n| ≈ 280° longitude error) until the inverse was fixed to θ = atan2(sign(n)·(E−FE), sign(n)·(ρ₀−(N−FN))); (2) an equatorial straddle with small |n| ≈ 0.088; (3) the degenerate φ₁ = φ₂ branch in both hemispheres. All values cross-checked with scripts/verify_lcc.py."
+  },
+  "projection": {
+    "method": "Lambert Conformal Conic (2SP, EPSG::9802) — synthetic edge-case variants",
+    "datum": "synthetic (GRS80 ellipsoid)",
+    "ellipsoid": "GRS80 (a=6378137.0 m, 1/f=298.257222101)",
+    "standard_parallel_1_deg": 34.0,
+    "standard_parallel_2_deg": 34.0,
+    "latitude_of_origin_deg": 0.0,
+    "central_meridian_deg": -96.0,
+    "false_easting_m": 0.0,
+    "false_northing_m": 0.0
+  },
+  "cases": [
+    {
+      "name": "Southern 2SP (35°S / 45°S) — n ≈ −0.6436 < 0",
+      "zone": {
+        "standard_parallel_1_deg": -35.0,
+        "standard_parallel_2_deg": -45.0,
+        "latitude_of_origin_deg": -35.0,
+        "central_meridian_deg": 120.0,
+        "false_easting_m": 0.0,
+        "false_northing_m": 10000000.0
+      },
+      "input_geographic": { "lat": -40.0, "lon": 122.0 },
+      "expected_projected": { "easting": 170125.7707, "northing": 9444543.9277 },
+      "precision_m": 0.01,
+      "notes": "n < 0 ⇒ F < 0 ⇒ ρ < 0. The raw atan2(E−FE, ρ₀−(N−FN)) returned θ ∓ π (a 279.7 km longitude drift) before the sign(n) θ fix."
+    },
+    {
+      "name": "Equatorial straddle (5°N / 15°S) — n ≈ −0.0876 < 0, small |n|",
+      "zone": {
+        "standard_parallel_1_deg": 5.0,
+        "standard_parallel_2_deg": -15.0,
+        "latitude_of_origin_deg": -5.0,
+        "central_meridian_deg": 30.0,
+        "false_easting_m": 500000.0,
+        "false_northing_m": 1000000.0
+      },
+      "input_geographic": { "lat": -8.0, "lon": 33.0 },
+      "expected_projected": { "easting": 826173.6312, "northing": 672348.5418 },
+      "precision_m": 0.01,
+      "notes": "Small negative n stresses the θ quadrant fix with |1/n| large."
+    },
+    {
+      "name": "Single parallel φ₁=φ₂=34°N — degenerate branch, n = sin 34° ≈ +0.5592 > 0",
+      "zone": {
+        "standard_parallel_1_deg": 34.0,
+        "standard_parallel_2_deg": 34.0,
+        "latitude_of_origin_deg": 0.0,
+        "central_meridian_deg": -96.0,
+        "false_easting_m": 0.0,
+        "false_northing_m": 0.0
+      },
+      "input_geographic": { "lat": 35.0, "lon": -95.0 },
+      "expected_projected": { "easting": 91300.6176, "northing": 4093336.2213 },
+      "precision_m": 0.01,
+      "notes": "φ₁ = φ₂ triggers the EPSG 1SP limit n = sin φ₁ instead of the ln m / ln t ratio."
+    },
+    {
+      "name": "Single parallel φ₁=φ₂=34°S — degenerate branch, n ≈ −0.5592 < 0",
+      "zone": {
+        "standard_parallel_1_deg": -34.0,
+        "standard_parallel_2_deg": -34.0,
+        "latitude_of_origin_deg": -30.0,
+        "central_meridian_deg": 150.0,
+        "false_easting_m": 0.0,
+        "false_northing_m": 10000000.0
+      },
+      "input_geographic": { "lat": -35.0, "lon": 152.0 },
+      "expected_projected": { "easting": 182592.5387, "northing": 9443377.9337 },
+      "precision_m": 0.01,
+      "notes": "Degenerate branch AND n < 0 — the only case exercising both code paths at once."
+    }
+  ],
+  "roundtrip_test": {
+    "description": "Forward then inverse must reproduce the input geographic coordinates to within 1e-9 deg (~0.1 mm).",
+    "precision_deg": 1e-9
+  }
+}

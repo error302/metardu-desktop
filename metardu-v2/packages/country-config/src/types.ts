@@ -2,9 +2,9 @@
  * CountrySurveyConfig — the contract every country config implements.
  *
  * Master plan Section 4.1, ADR-0004. This is the abstraction that lets
- * us add a sixth country later without touching workflow code — new
- * agent brief becomes "implement country-config/<country>.ts against
- * the attached regulations," not "rebuild the cadastral module."
+ * us add a new country without touching workflow code — new agent
+ * brief becomes "implement country-config/<country>.ts against the
+ * attached regulations," not "rebuild the cadastral module."
  *
  * The interface is deliberately a plain data shape (no methods). Each
  * country's config is a single const object that can be statically
@@ -12,7 +12,7 @@
  */
 
 /** ISO 3166-1 alpha-2 country code. */
-export type CountryCode = "KE" | "AU" | "GB" | "ZA" | "AE";
+export type CountryCode = "KE" | "AU" | "GB" | "ZA" | "AE" | "DE" | "US" | "GH";
 
 /** Reference to a regulatory body (may be multiple for federal countries). */
 export interface RegulatoryBodyRef {
@@ -58,6 +58,16 @@ export interface ProjectionZone {
   scale_factor: number;
   /** Ellipsoid name, e.g. "Clarke 1866". */
   ellipsoid: string;
+  /**
+   * First standard parallel in decimal degrees — required for
+   * Lambert Conformal Conic zones (EPSG 2SP method).
+   */
+  standard_parallel_1_deg?: number;
+  /**
+   * Second standard parallel in decimal degrees — required for
+   * Lambert Conformal Conic zones (EPSG 2SP method).
+   */
+  standard_parallel_2_deg?: number;
 }
 
 /** Legacy-to-modern datum transform (e.g. Cassini → UTM for Kenya). */
@@ -169,6 +179,110 @@ export interface SectionalTitleConfig {
   source: string;
 }
 
+/**
+ * Title-block layout style. Different markets letter their statutory
+ * plans differently (ZA SG diagram, US ALTA/NSPS, GB HMLR filed plan);
+ * the renderer keys its block structure + typography off this.
+ */
+export type TitleBlockVariant =
+  /** Conventional centered header + field grid (KE/AU/AE/DE default). */
+  | "standard"
+  /** Surveyor-General diagram lettering (ZA). */
+  | "sg-diagram"
+  /** ALTA/NSPS plat with SPCS zone + PLSS designation text (US). */
+  | "us-alta"
+  /** HM Land Registry filed-plan styling (GB — no surveyor seal). */
+  | "hmlr-title-plan";
+
+/**
+ * A single statutory field row in the title block, e.g.
+ * { label: "SG DIAGRAM NO." } or { label: "SCALE", value: "{{scale}}" }.
+ * Values support {{title}}, {{surveyor}}, {{date}}, {{scale}}, {{crs}},
+ * {{planType}} tokens that the renderer fills at draw time.
+ */
+export interface TitleBlockFieldRow {
+  /** Field label, e.g. "SG DIAGRAM NO.", "SPCS ZONE", "GEMARKUNG". */
+  label: string;
+  /** Static value or {{token}}; blank renders an underline for manual fill. */
+  value?: string;
+}
+
+/** Statutory certification block (heading + body lines). */
+export interface CertificationBlock {
+  /** Block heading, e.g. "CERTIFICATION OF SURVEYOR" or "APPROVED". */
+  heading: string;
+  /** Body lines of the certification statement. */
+  lines: string[];
+}
+
+/** Where the surveyor's seal is placed on the sheet. */
+export interface SealPlacement {
+  /**
+   * "none" for registry-issued documents that carry no surveyor seal
+   * (GB HMLR title plans, AE Dubai Title Deeds).
+   */
+  position: "bottom-right" | "bottom-left" | "none";
+  /** Caption under the seal, e.g. "REGISTERED LAND SURVEYOR". */
+  caption?: string;
+}
+
+/**
+ * Per-market statutory title-block layout rendered into the plan SVG.
+ * Mirrors each market's statutoryDocuments[].titleBlockFields so the
+ * sheet carries the exact fields the filing authority expects.
+ */
+export interface TitleBlockLayout {
+  /** Layout style driving lettering + block structure. */
+  variant: TitleBlockVariant;
+  /** Statutory field rows (filled with {{token}} values where known). */
+  fieldRows: TitleBlockFieldRow[];
+  /** Certification block (required for surveyor-sealed documents). */
+  certification?: CertificationBlock;
+  /** Surveyor seal placement ("none" for registry-issued documents). */
+  seal: SealPlacement;
+  /** Extra statutory footer lines (e.g. GB Ordnance Survey copyright). */
+  statutoryFooterLines?: string[];
+}
+
+/**
+ * Per-country statutory print-plan profile — drives the 300 DPI survey
+ * plan renderer (map-svg/map-export) and the ExportPanel defaults.
+ *
+ * Every value cites the market's plan convention so the generated sheet
+ * is filed as-is rather than as a generic A4 export.
+ */
+export interface PlanSheetProfile {
+  /**
+   * Default ISO/ANSI sheet for statutory plans, e.g. "a4", "a3", "a1",
+   * "letter". Must match the map-svg SHEET_SIZES_PT registry.
+   */
+  defaultSheetSize: string;
+  /** Default paper orientation for the plan sheet. */
+  defaultOrientation: "landscape" | "portrait";
+  /**
+   * Statutory header printed centered in the title strip, e.g.
+   * "REPUBLIC OF KENYA" or "SURVEYOR-GENERAL, REPUBLIC OF SOUTH AFRICA".
+   */
+  titleBlockLabel: string;
+  /**
+   * Plan-type label prefixed to the plan title, e.g. "DEED PLAN",
+   * "SG DIAGRAM", "ALTA/NSPS LAND TITLE SURVEY".
+   */
+  planTypeLabel: string;
+  /**
+   * Statutory footer disclaimer printed under the scale line, citing the
+   * governing legislation and coordinate system (invariant B1 traceable).
+   */
+  footerNote: string;
+  /**
+   * Per-market statutory title-block layout: field grid, certification
+   * block, and surveyor seal placement rendered into the plan SVG so the
+   * sheet is filed as-is. All implemented countries must define one
+   * (enforced by tests).
+   */
+  titleBlockLayout: TitleBlockLayout;
+}
+
 /** The full country config. */
 export interface CountrySurveyConfig {
   /** ISO 3166-1 alpha-2. */
@@ -187,6 +301,11 @@ export interface CountrySurveyConfig {
   professionalBody: ProfessionalBodyRef;
   /** Sectional title regime (null if not applicable). */
   sectionalPropertyRegime?: SectionalTitleConfig;
+  /**
+   * Statutory print-plan profile for the 300 DPI plan renderer. All
+   * implemented countries must define one (enforced by tests).
+   */
+  planSheet?: PlanSheetProfile;
   /** Source documents that MUST be in docs/regulatory-sources/<country>/ before any renderer is built. */
   sourceDocsRequired: string[];
   /** Config version — bumped when any value changes. */

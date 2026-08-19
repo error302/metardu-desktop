@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from "react";
+import type { Form3Input } from "@metardu/engine-flight-planning";
 import { PenTool, CheckCircle, XCircle, Shield } from "lucide-react";
 
 interface SignResult {
@@ -30,14 +31,17 @@ export const SigningPanel: React.FC = () => {
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const apis = (window as unknown as {
-    metardu?: {
-      signing?: {
-        signPdf: (pdfBytesBase64: string, privateKeyBase64: string, surveyor: { name: string; registrationNumber: string; professionalBody: string; country: string }) => Promise<SignResult>;
-        verifyPdf: (pkcs7Base64: string, pdfBytesBase64: string) => Promise<VerifyResult>;
-      };
-    };
-  }).metardu?.signing;
+   const apis = (window as unknown as {
+     metardu?: {
+       signing?: {
+         signPdf: (pdfBytesBase64: string, privateKeyBase64: string, surveyor: { name: string; registrationNumber: string; professionalBody: string; country: string }) => Promise<SignResult>;
+         verifyPdf: (pkcs7Base64: string, pdfBytesBase64: string) => Promise<VerifyResult>;
+       };
+       form3?: {
+         generateForm3Pdf: (input: Form3Input) => Promise<{ pdfBytesBase64: string }>;
+       };
+     };
+   }).metardu;
 
   const handleSign = useCallback(async () => {
     if (!apis?.signPdf) { setError("Signing not available — run in Electron app."); return; }

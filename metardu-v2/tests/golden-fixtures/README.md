@@ -64,6 +64,27 @@ can't cite a source, the fixture is invalid — see invariant B1 in
 | `kenya/projection__utm37s-forward-inverse.json` | ✅ Verified | EPSG::21037 |
 | `kenya/cogo__traverse-bowditch-small.json` | ✅ Verified | Hand-computed, 4-station closed traverse |
 | `kenya/cogo__area-shoelace-vs-ellipsoidal.json` | ✅ Verified | Known parcel, planar vs ellipsoidal |
+| `us/projection__lambert-texas-south-central.json` | ✅ Verified | EPSG::6360 (metre CRS; ftUS is 6589) |
+| `us/projection__lambert-california-5.json` | ✅ Verified | EPSG::6335 |
+| `us/projection__lambert-new-york-long-island.json` | ✅ Verified | EPSG::6539 |
+| `us/projection__lcc-edge-cases.json` | ✅ Verified | Synthetic probes — Snyder PP-1395 §14 + EPSG GN7-2 §1.3.2.1 |
+
+US LCC fixtures are verified by `scripts/verify_lcc.py` (independent
+Python implementation cross-checked against the EPSG GN7-2 §1.3.2.1
+worked example) and enforced in the sidecar's Rust tests
+(`geodesy/projection.rs`). The TS harness (`us-golden-fixtures.test.ts`)
+asserts well-formedness and that the fixture zone parameters match
+`country-config`'s United States registry.
+
+`us/projection__lcc-edge-cases.json` is a **synthetic** fixture — its
+zones (southern 2SP, equatorial straddle, single-parallel φ₁=φ₂ in both
+hemispheres) do not exist in any country config, so the harness skips
+its registry cross-check but still validates every case's zone shape.
+It exists to pin the edge paths the real US SPCS zones (all n > 0)
+cannot reach: the negative-n inverse quadrant fix
+(θ = atan2(sign(n)·(E−FE), sign(n)·(ρ₀−(N−FN))), which previously
+returned θ ∓ π ≈ 280° of longitude error for southern zones) and the
+degenerate φ₁=φ₂ branch (`n = sin φ₁`).
 
 ## Fixtures still to add (Phase 4+)
 
