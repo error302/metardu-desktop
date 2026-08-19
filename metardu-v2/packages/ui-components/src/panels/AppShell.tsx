@@ -409,6 +409,8 @@ export const AppShell: React.FC<{
           t: "topo", n: "engineering", q: "sectional",
           x: "export", i: "import", u: "sync",
           y: "signing", h: "history",
+          b: "fieldbook", j: "lsa", k: "subdivision",
+          r: "roaddesign", w: "officemgmt",
         };
         if (m[e.key.toLowerCase()]) { e.preventDefault(); setView(m[e.key.toLowerCase()]); }
         lastKey.current = null; return;
