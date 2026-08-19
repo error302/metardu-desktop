@@ -338,9 +338,20 @@ function chainSegments(
 
 /**
  * Grid-based point decimation that preserves terrain features.
- * Divides the bounding box into a grid, keeping the point with the
- * most extreme elevation per cell (ridges, valleys, peaks).
- * Also keeps boundary points to preserve the convex hull.
+ *
+ * Strategy:
+ *   1. Compute bounding box + grid cells (sqrt(targetCount) × sqrt(targetCount))
+ *   2. Per cell: keep the most extreme elevation (peak or valley)
+ *   3. Per cell: keep the point closest to each edge neighbor cell's
+ *      extreme (preserves ridgelines and valley bottoms across cells)
+ *   4. Always keep convex-hull boundary points (preserves the survey extent)
+ *   5. If still over target, uniform sample the remainder
+ *
+ * This preserves:
+ *   - Peaks and valleys (extreme elevation per cell)
+ *   - Ridgelines and valley bottoms (cross-cell edge points)
+ *   - Survey boundary (convex hull points)
+ *   - Steep slopes (both min and max when range > threshold)
  */
 function gridDecimate(
   points: ContourInputPoint[],
@@ -362,7 +373,8 @@ function gridDecimate(
   const rangeY = maxY - minY || 1;
 
   // Determine grid size: sqrt(targetCount) × sqrt(targetCount) ≈ targetCount cells.
-  const gridDim = Math.ceil(Math.sqrt(targetCount));
+  // Use 0.6 factor to leave room for boundary + edge points.
+  const gridDim = Math.ceil(Math.sqrt(targetCount * 0.6));
   const cellW = rangeX / gridDim;
   const cellH = rangeY / gridDim;
 
@@ -376,12 +388,65 @@ function gridDecimate(
     cells.get(key)!.push(p);
   }
 
-  // For each cell, keep the point with the most extreme elevation
-  // (highest or lowest — preserves ridges and valleys).
-  const result: ContourInputPoint[] = [];
+  // Identify convex-hull boundary points (keep all of them).
+  const boundarySet = new Set<string>();
+  if (points.length >= 3) {
+    // Simple convex hull via gift-wrapping (O(n·h) — fine for our use case).
+    const pts = points.map((p, i) => ({ ...p, idx: i }));
+    pts.sort((a, b) => a.easting - b.easting || a.northing - b.northing);
+    const hull: typeof pts = [];
+
+    // Lower hull.
+    for (const p of pts) {
+      while (hull.length >= 2) {
+        const a = hull[hull.length - 2]!;
+        const b = hull[hull.length - 1]!;
+        const cross = (b.easting - a.easting) * (p.northing - a.northing) -
+                      (b.northing - a.northing) * (p.easting - a.easting);
+        if (cross <= 0) { hull.pop(); } else break;
+      }
+      hull.push(p);
+    }
+
+    // Upper hull.
+    const lowerLen = hull.length + 1;
+    for (let i = pts.length - 2; i >= 0; i--) {
+      const p = pts[i]!;
+      while (hull.length >= lowerLen) {
+        const a = hull[hull.length - 2]!;
+        const b = hull[hull.length - 1]!;
+        const cross = (b.easting - a.easting) * (p.northing - a.northing) -
+                      (b.northing - a.northing) * (p.easting - a.easting);
+        if (cross <= 0) { hull.pop(); } else break;
+      }
+      hull.push(p);
+    }
+    hull.pop(); // Remove duplicate start point.
+
+    for (const p of hull) {
+      boundarySet.add(`${points[p.idx]!.easting.toFixed(6)},${points[p.idx]!.northing.toFixed(6)}`);
+    }
+  }
+
+  const ptKey = (p: ContourInputPoint) => `${p.easting.toFixed(6)},${p.northing.toFixed(6)}`;
+  const isBoundary = (p: ContourInputPoint) => boundarySet.has(ptKey(p));
+
+  // Collect selected points.
+  const selected = new Map<string, ContourInputPoint>();
+  const add = (p: ContourInputPoint) => {
+    const k = ptKey(p);
+    if (!selected.has(k)) selected.set(k, p);
+  };
+
+  // 1. Always keep boundary points.
+  for (const p of points) {
+    if (isBoundary(p)) add(p);
+  }
+
+  // 2. Per cell: keep extreme elevation points.
   for (const cellPoints of cells.values()) {
     if (cellPoints.length === 1) {
-      result.push(cellPoints[0]!);
+      add(cellPoints[0]!);
       continue;
     }
 
@@ -394,22 +459,77 @@ function gridDecimate(
     }
 
     // Always keep the most extreme point.
-    result.push(maxP.elevation >= minP.elevation ? maxP : minP);
+    add(maxP.elevation >= minP.elevation ? maxP : minP);
 
-    // If the cell has significant elevation range AND we haven't exceeded
-    // the target, keep the other extreme too (preserves steep slopes).
-    if (Math.abs(maxP.elevation - minP.elevation) > 0.5 && minP !== maxP && result.length < targetCount * 0.8) {
-      result.push(minP);
+    // If the cell has significant elevation range, keep both extremes
+    // (preserves steep slopes and ridgelines).
+    if (Math.abs(maxP.elevation - minP.elevation) > 0.5 && minP !== maxP) {
+      add(minP);
     }
   }
 
-  // If still over target, take a uniform sample.
-  if (result.length > targetCount) {
-    const step = Math.ceil(result.length / targetCount);
-    return result.filter((_, i) => i % step === 0);
+  // 3. Per cell: keep the point closest to each neighboring cell's extreme
+  //    (preserves ridgelines that cross cell boundaries).
+  const cellKeys = [...cells.keys()];
+  for (const key of cellKeys) {
+    const [cx, cy] = key.split(",").map(Number);
+    const cellPts = cells.get(key)!;
+
+    // Check 4-connected neighbors.
+    for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+      const nk = `${cx! + dx},${cy! + dy}`;
+      const neighborPts = cells.get(nk);
+      if (!neighborPts || neighborPts.length === 0) continue;
+
+      // Find neighbor's extreme point.
+      let neighborExtreme = neighborPts[0]!;
+      for (const p of neighborPts) {
+        if (p.elevation > neighborExtreme.elevation) neighborExtreme = p;
+      }
+
+      // Find the point in this cell closest to the neighbor's extreme.
+      let closest = cellPts[0]!;
+      let closestDist = Infinity;
+      for (const p of cellPts) {
+        const d = (p.easting - neighborExtreme.easting) ** 2 +
+                  (p.northing - neighborExtreme.northing) ** 2;
+        if (d < closestDist) { closestDist = d; closest = p; }
+      }
+      add(closest);
+    }
   }
 
-  return result;
+  // 4. If still under target, fill with centroid of remaining points per cell.
+  const result = [...selected.values()];
+  if (result.length < targetCount * 0.9) {
+    for (const cellPoints of cells.values()) {
+      if (result.length >= targetCount) break;
+
+      // Compute cell centroid.
+      let sumE = 0, sumN = 0, sumH = 0;
+      for (const p of cellPoints) {
+        sumE += p.easting;
+        sumN += p.northing;
+        sumH += p.elevation;
+      }
+      const centroid: ContourInputPoint = {
+        easting: sumE / cellPoints.length,
+        northing: sumN / cellPoints.length,
+        elevation: sumH / cellPoints.length,
+      };
+      add(centroid);
+    }
+  }
+
+  const final = [...selected.values()];
+
+  // 5. If still over target, uniform sample.
+  if (final.length > targetCount) {
+    const step = Math.ceil(final.length / targetCount);
+    return final.filter((_, i) => i % step === 0);
+  }
+
+  return final;
 }
 
 // ─── Main Entry Point ────────────────────────────────────────────

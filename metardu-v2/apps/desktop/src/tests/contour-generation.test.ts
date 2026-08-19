@@ -272,4 +272,85 @@ describe("contour generation integration", () => {
     expect(result.vertices.length).toBeLessThanOrEqual(500);
     expect(result.contours.length).toBeGreaterThan(0);
   });
+
+  it("decimates 10k points within 2 seconds", () => {
+    const points: ContourInputPoint[] = [];
+    for (let i = 0; i < 10_000; i++) {
+      points.push({
+        easting: Math.random() * 5000,
+        northing: Math.random() * 5000,
+        elevation: 100 + Math.random() * 50,
+      });
+    }
+    const start = performance.now();
+    const result = generateContours(points, { interval: 2.0, maxPoints: 1000 });
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(2000);
+    expect(result.vertices.length).toBeLessThanOrEqual(1000);
+    expect(result.contours.length).toBeGreaterThan(0);
+    expect(result.triangles.length).toBeGreaterThan(0);
+  });
+
+  it("decimates 20k points with terrain features preserved", () => {
+    // Create a hill + valley terrain.
+    const points: ContourInputPoint[] = [];
+    for (let i = 0; i < 20_000; i++) {
+      const e = Math.random() * 10000;
+      const n = Math.random() * 10000;
+      // Hill at center, valley at edges.
+      const distFromCenter = Math.sqrt((e - 5000) ** 2 + (n - 5000) ** 2);
+      const elevation = 500 - distFromCenter * 0.05 + Math.random() * 5;
+      points.push({ easting: e, northing: n, elevation });
+    }
+    const result = generateContours(points, { interval: 10.0, maxPoints: 1500 });
+    expect(result.vertices.length).toBeLessThanOrEqual(1500);
+    // Should have contours — hill/valley terrain guarantees crossings.
+    expect(result.contours.length).toBeGreaterThan(0);
+  });
+
+  it("decimates 50k points without crashing", () => {
+    const points: ContourInputPoint[] = [];
+    for (let i = 0; i < 50_000; i++) {
+      points.push({
+        easting: Math.random() * 20000,
+        northing: Math.random() * 20000,
+        elevation: 0 + Math.random() * 100,
+      });
+    }
+    const result = generateContours(points, { interval: 5.0, maxPoints: 2000 });
+    expect(result.vertices.length).toBeLessThanOrEqual(2000);
+    expect(result.triangles.length).toBeGreaterThan(0);
+  });
+
+  it("preserves spatial extent after decimation", () => {
+    // Create points with a known bounding box.
+    const points: ContourInputPoint[] = [];
+    for (let i = 0; i < 5000; i++) {
+      points.push({
+        easting: Math.random() * 1000,
+        northing: Math.random() * 1000,
+        elevation: 100 + Math.random() * 20,
+      });
+    }
+    const result = generateContours(points, { interval: 2.0, maxPoints: 500 });
+    // Decimated points should span the full bounding box.
+    const minE = Math.min(...result.vertices.map((p) => p.easting));
+    const maxE = Math.max(...result.vertices.map((p) => p.easting));
+    const minN = Math.min(...result.vertices.map((p) => p.northing));
+    const maxN = Math.max(...result.vertices.map((p) => p.northing));
+    // Should cover at least 80% of the original extent.
+    expect(maxE - minE).toBeGreaterThan(800);
+    expect(maxN - minN).toBeGreaterThan(800);
+  });
+
+  it("handles all points at same location (dedup edge case)", () => {
+    const points: ContourInputPoint[] = [];
+    for (let i = 0; i < 1000; i++) {
+      points.push({ easting: 100, northing: 200, elevation: 50 });
+    }
+    const result = generateContours(points, { interval: 1.0, maxPoints: 100 });
+    // All same location → deduplicated to 1 point → no triangles → no contours.
+    expect(result.vertices.length).toBe(1);
+    expect(result.contours.length).toBe(0);
+  });
 });
