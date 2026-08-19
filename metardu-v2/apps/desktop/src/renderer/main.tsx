@@ -69,6 +69,7 @@ const RoadDesignView = lazy(() => import("./views/RoadDesignView.js").then(m => 
 const OfficeManagementView = lazy(() => import("./views/OfficeManagementView.js").then(m => ({ default: m.OfficeManagementView })));
 const LULCView = lazy(() => import("./views/LULCView.js").then(m => ({ default: m.LULCView })));
 const VersionHistoryView = lazy(() => import("./views/VersionHistoryView.js").then(m => ({ default: m.VersionHistoryView })));
+const CrossSectionView = lazy(() => import("./views/CrossSectionView.js").then(m => ({ default: m.CrossSectionView })));
 
 // Loading fallback for lazy views — small spinner, not a full-screen blocker.
 const ViewLoading: React.FC = () => (
@@ -108,6 +109,7 @@ root.render(
               case "officemgmt":   return <OfficeManagementView />;
               case "lulc":          return <LULCView />;
               case "history":       return <VersionHistoryView />;
+              case "crosssection":  return <CrossSectionView />;
               default:             return null;
             }
           })();
