@@ -23,3 +23,14 @@ export type {
   ContourResult,
   ContourOptions,
 } from "./canvas/contour-generation.js";
+export { useInstrumentConnection } from "./hooks/useInstrumentConnection.js";
+export type {
+  ConnectionType,
+  SerialPortInfo,
+  BleDeviceInfo,
+  ConnectionState,
+  RawObservation,
+  ConnectionStatus,
+  ConnectParams,
+  UseInstrumentConnectionReturn,
+} from "./hooks/useInstrumentConnection.js";

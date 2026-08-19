@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useInstrumentConnection } from "@metardu/ui-components";
 import {
   Radio,
   Bluetooth,
@@ -245,11 +246,9 @@ const FixBadge: React.FC<{ quality: number }> = ({ quality }) => {
 // ─── Main View ────────────────────────────────────────────────────
 
 export const InstrumentMonitorView: React.FC = () => {
-  // Connection state
+  // Connection state — via shared hook
+  const instrument = useInstrumentConnection();
   const [connectionType, setConnectionType] = useState<"serial" | "bluetooth" | "ntrip">("serial");
-  const [serialPorts, setSerialPorts] = useState<SerialPort[]>([]);
-  const [bleDevices, setBleDevices] = useState<BleDevice[]>([]);
-  const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedPort, setSelectedPort] = useState("");
   const [baudRate, setBaudRate] = useState(115200);
   const [protocol, setProtocol] = useState("auto");
@@ -274,7 +273,7 @@ export const InstrumentMonitorView: React.FC = () => {
   const [satCount, setSatCount] = useState(0);
   const [altitude, setAltitude] = useState(0);
   const [position, setPosition] = useState<{ lat: number; lon: number } | null>(null);
-  const [lastUpdate, setLastUpdate] = useState<string>("");
+  const [lastUpdate, setLastUpdate] = useState("");
 
   // UI state
   const [scanning, setScanning] = useState(false);
@@ -290,100 +289,70 @@ export const InstrumentMonitorView: React.FC = () => {
 
   const observationsEndRef = useRef<HTMLDivElement>(null);
 
-  // Get the metardu API from the preload bridge
-  const api = (window as unknown as { metardu?: any }).metardu;
+  // Derive from hook
+  const serialPorts = instrument.serialPorts;
+  const bleDevices = instrument.bleDevices;
+  const connections = instrument.connections;
+  const activeConnection = connections.length > 0;
 
-  // ─── Load serial ports on mount ──────────────────────────────────
+  // Auto-select first port
   useEffect(() => {
-    if (!api?.instrument) return;
-    api.instrument.listPorts().then((result: any) => {
-      if (result?.ports) {
-        setSerialPorts(result.ports);
-        if (result.ports.length > 0 && !selectedPort) {
-          setSelectedPort(result.ports[0].port_name);
-        }
-      }
-    }).catch(() => {});
-  }, []);
+    if (serialPorts.length > 0 && !selectedPort) {
+      setSelectedPort(serialPorts[0].port_name);
+    }
+  }, [serialPorts]);
 
-  // ─── Subscribe to live observations ──────────────────────────────
+  // Subscribe to observations — parse GGA/GSV/GSA for view-specific state
   useEffect(() => {
-    if (!api?.instrument) return;
-
-    const unsubObs = api.instrument.onObservation((data: any) => {
-      const obs = data?.observation;
-      if (!obs?.data) return;
-
-      const nmeaObs = obs.data as NmeaObservation;
-
-      // Update DOP and fix from GGA
-      if (nmeaObs.sentence_type === "GGA" && nmeaObs.data) {
-        if (nmeaObs.data.fix_quality !== undefined) setFixQuality(nmeaObs.data.fix_quality);
-        if (nmeaObs.data.hdop !== undefined) setHdop(nmeaObs.data.hdop);
-        if (nmeaObs.data.satellite_count !== undefined) setSatCount(nmeaObs.data.satellite_count);
-        if (nmeaObs.data.altitude_m !== undefined) setAltitude(nmeaObs.data.altitude_m);
-        if (nmeaObs.data.latitude !== undefined && nmeaObs.data.longitude !== undefined) {
-          setPosition({ lat: nmeaObs.data.latitude, lon: nmeaObs.data.longitude });
+    const unsub = instrument.onObservation((obs) => {
+      // GGA: position, fix quality, altitude
+      if (obs.sentence_type === "GGA" && obs.data) {
+        if (obs.data.fix_quality !== undefined) setFixQuality(obs.data.fix_quality as number);
+        if (obs.data.hdop !== undefined) setHdop(obs.data.hdop as number);
+        if (obs.data.satellite_count !== undefined) setSatCount(obs.data.satellite_count as number);
+        if (obs.data.altitude_m !== undefined) setAltitude(obs.data.altitude_m as number);
+        if (obs.data.latitude !== undefined && obs.data.longitude !== undefined) {
+          setPosition({ lat: obs.data.latitude as number, lon: obs.data.longitude as number });
         }
       }
 
-      // Update satellite list from GSV
-      if (nmeaObs.sentence_type === "GSV" && nmeaObs.data?.satellites) {
+      // GSV: satellite list for skyplot
+      if (obs.sentence_type === "GSV" && obs.data?.satellites) {
         setSatellites((prev) => {
           const merged = [...(prev ?? [])];
-          for (const sat of nmeaObs.data.satellites!) {
+          for (const sat of obs.data.satellites as NmeaObservation["data"]["satellites"]) {
             const idx = merged.findIndex((s) => s.prn === sat.prn && s.constellation === sat.constellation);
-            if (idx >= 0) {
-              merged[idx] = sat;
-            } else {
-              merged.push(sat);
-            }
+            if (idx >= 0) merged[idx] = sat; else merged.push(sat);
           }
           return merged;
         });
       }
 
-      // Update DOP from GSA
-      if (nmeaObs.sentence_type === "GSA" && nmeaObs.data) {
-        if (nmeaObs.data.pdop !== undefined) setPdop(nmeaObs.data.pdop);
-        if (nmeaObs.data.hdop !== undefined) setHdop(nmeaObs.data.hdop);
-        if (nmeaObs.data.vdop !== undefined) setVdop(nmeaObs.data.vdop);
+      // GSA: DOP values
+      if (obs.sentence_type === "GSA" && obs.data) {
+        if (obs.data.pdop !== undefined) setPdop(obs.data.pdop as number);
+        if (obs.data.hdop !== undefined) setHdop(obs.data.hdop as number);
+        if (obs.data.vdop !== undefined) setVdop(obs.data.vdop as number);
       }
 
       // Add to observations feed (keep last 100)
       setObservations((prev) => {
-        const next = [nmeaObs, ...prev];
+        const next: NmeaObservation[] = [{ talker: obs.talker, sentence_type: obs.sentence_type, timestamp: obs.timestamp, data: obs.data as NmeaObservation["data"] }, ...prev];
         return next.slice(0, 100);
       });
 
       setLastUpdate(new Date().toLocaleTimeString());
     });
-
-    const unsubStatus = api.instrument.onStatusUpdate((data: any) => {
-      if (data?.connections) {
-        setConnections(data.connections);
-      }
-    });
-
-    // Start polling
-    api.instrument.startPolling();
-
-    return () => {
-      unsubObs();
-      unsubStatus();
-      api.instrument.stopPolling();
-    };
+    return unsub;
   }, []);
 
-  // ─── Connect ─────────────────────────────────────────────────────
+  // Connect
   const handleConnect = useCallback(async () => {
-    if (!api?.instrument) return;
     setConnecting(true);
     setError(null);
-
+    instrument.clearError();
     try {
-      const params: any = { connection_type: connectionType };
-
+      const params: Parameters<typeof instrument.connect>[0] = { connection_type: connectionType };
       if (connectionType === "serial") {
         params.port = selectedPort;
         params.baud_rate = baudRate;
@@ -398,44 +367,32 @@ export const InstrumentMonitorView: React.FC = () => {
         params.username = ntripUser || undefined;
         params.password = ntripPass || undefined;
       }
-
-      await api.instrument.connect(params);
+      await instrument.connect(params);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setConnecting(false);
     }
-  }, [connectionType, selectedPort, baudRate, protocol, instrumentName, bleDeviceName, casterUrl, mountpoint, ntripUser, ntripPass]);
+  }, [instrument, connectionType, selectedPort, baudRate, protocol, instrumentName, bleDeviceName, casterUrl, mountpoint, ntripUser, ntripPass]);
 
-  // ─── Disconnect ──────────────────────────────────────────────────
   const handleDisconnect = useCallback(async (connId: string) => {
-    if (!api?.instrument) return;
-    try {
-      await api.instrument.disconnect(connId);
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }, []);
+    await instrument.disconnect(connId);
+  }, [instrument]);
 
-  // ─── Scan BLE ────────────────────────────────────────────────────
   const handleScanBle = useCallback(async () => {
-    if (!api?.instrument) return;
     setScanning(true);
     try {
-      const result = await api.instrument.listBleDevices();
-      setBleDevices(result?.devices ?? []);
+      await instrument.scanBle();
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setScanning(false);
     }
-  }, []);
+  }, [instrument]);
 
   const toggleSection = (key: string) => {
     setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
   };
-
-  const activeConnection = connections.length > 0;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px", height: "100%" }}>
@@ -521,7 +478,9 @@ export const InstrumentMonitorView: React.FC = () => {
                     ))}
                   </select>
                   <button
-                    onClick={() => api?.instrument?.listPorts().then((r: any) => setSerialPorts(r?.ports ?? []))}
+                    onClick={() => {
+                  instrument.refreshPorts();
+                }}
                     style={{
                       padding: "6px 8px",
                       border: "1px solid var(--border-subtle)",

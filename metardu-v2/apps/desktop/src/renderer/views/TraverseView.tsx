@@ -16,7 +16,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { SurveyCanvas, type SurveyPoint, type SurveyLine } from "@metardu/ui-components";
+import { SurveyCanvas, type SurveyPoint, type SurveyLine, useInstrumentConnection } from "@metardu/ui-components";
 import { useSurveyState, type CrossImportPayload } from "../SurveyStateContext.js";
 import { COUNTRY_OPTIONS } from "../countries.js";
 import { AutoExportBanner } from "./AutoExportBanner.js";
@@ -165,148 +165,97 @@ export const TraverseView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [computing, setComputing] = useState(false);
 
-  // ── Live instrument state ───────────────────────────────────────
+  // ── Live instrument state (via shared hook) ─────────────────────
+  const instrument = useInstrumentConnection();
   const [connType, setConnType] = useState<"serial" | "bluetooth" | "ntrip">("serial");
   const [selectedPort, setSelectedPort] = useState("");
   const [baudRate, setBaudRate] = useState(115200);
   const [casterUrl, setCasterUrl] = useState("");
   const [mountpoint, setMountpoint] = useState("");
   const [connName, setConnName] = useState("");
-  const [connected, setConnected] = useState(false);
-  const [connectionId, setConnectionId] = useState<string | null>(null);
   const [liveFix, setLiveFix] = useState<LiveFix | null>(null);
-  const [obsCount, setObsCount] = useState(0);
   const [recordedLegs, setRecordedLegs] = useState<RecordedLeg[]>([]);
   const [autoRecord, setAutoRecord] = useState(false);
-  const [instrumentError, setInstrumentError] = useState<string | null>(null);
-  const [serialPorts, setSerialPorts] = useState<Array<{ port_name: string; display_name: string }>>([]);
   const lastFixRef = useRef<LiveFix | null>(null);
   const legCounterRef = useRef(1);
 
-  const api = (window as any).metardu;
+  // Derive connected state from hook
+  const connected = instrument.state.connected;
+  const connectionId = instrument.state.connectionId;
+  const obsCount = instrument.observationCount;
 
-  // ── Load serial ports on mount ──────────────────────────────────
+  // Auto-select first port when ports load
   useEffect(() => {
-    if (!api?.instrument) return;
-    api.instrument.listPorts().then((r: any) => {
-      if (r?.ports) {
-        setSerialPorts(r.ports);
-        if (r.ports.length > 0 && !selectedPort) setSelectedPort(r.ports[0].port_name);
-      }
-    }).catch(() => {});
-  }, []);
+    if (instrument.serialPorts.length > 0 && !selectedPort) {
+      setSelectedPort(instrument.serialPorts[0].port_name);
+    }
+  }, [instrument.serialPorts]);
 
-  // ── Subscribe to live observations ──────────────────────────────
+  // Subscribe to observations — GGA → ENU → auto-record legs
   useEffect(() => {
-    if (!api?.instrument) return;
+    const unsub = instrument.onObservation((obs) => {
+      if (obs.sentence_type !== "GGA") return;
+      const d = obs.data;
+      if (d.latitude === undefined || d.longitude === undefined) return;
 
-    const unsubObs = api.instrument.onObservation((data: any) => {
-      const obs = data?.observation;
-      if (!obs?.data) return;
+      const refLat = lastFixRef.current?.latitude ?? d.latitude;
+      const refLon = lastFixRef.current?.longitude ?? d.longitude;
+      const en = latLonToEn(d.latitude, d.longitude, refLat, refLon);
 
-      setObsCount((c) => c + 1);
+      const pts = pointsText.trim().split("\n").filter((l) => l.trim());
+      const firstPt = pts[0]?.split(",").map((s) => s.trim());
+      const baseE = firstPt ? parseFloat(firstPt[1]) : 257000;
+      const baseN = firstPt ? parseFloat(firstPt[2]) : 9857000;
 
-      // GGA: position fix
-      if (obs.sentence_type === "GGA" && obs.data) {
-        const d = obs.data;
-        if (d.latitude !== undefined && d.longitude !== undefined) {
-          // Convert lat/lon to local ENU (using first fix as reference)
-          const refLat = lastFixRef.current?.latitude ?? d.latitude;
-          const refLon = lastFixRef.current?.longitude ?? d.longitude;
-          const en = latLonToEn(d.latitude, d.longitude, refLat, refLon);
+      const fix: LiveFix = {
+        timestamp: obs.timestamp,
+        latitude: d.latitude, longitude: d.longitude,
+        easting: baseE + en.e, northing: baseN + en.n,
+        fixQuality: (d.fix_quality as number) ?? 0,
+        hdop: (d.hdop as number) ?? 99,
+        satelliteCount: (d.satellite_count as number) ?? 0,
+        altitude: (d.altitude_m as number) ?? 0,
+      };
 
-          // Use initial approximate E/N from the first point as reference
-          const pts = pointsText.trim().split("\n").filter((l) => l.trim());
-          const firstPt = pts[0]?.split(",").map((s) => s.trim());
-          const baseE = firstPt ? parseFloat(firstPt[1]) : 257000;
-          const baseN = firstPt ? parseFloat(firstPt[2]) : 9857000;
+      setLiveFix(fix);
 
-          const fix: LiveFix = {
-            timestamp: obs.timestamp || new Date().toISOString(),
-            latitude: d.latitude,
-            longitude: d.longitude,
-            easting: baseE + en.e,
-            northing: baseN + en.n,
-            fixQuality: d.fix_quality ?? 0,
-            hdop: d.hdop ?? 99,
-            satelliteCount: d.satellite_count ?? 0,
-            altitude: d.altitude_m ?? 0,
-          };
-
-          setLiveFix(fix);
-
-          // Auto-record traverse leg if enabled and we have a previous fix
-          if (autoRecord && lastFixRef.current) {
-            const prev = lastFixRef.current;
-            const { distance, bearing } = computeDistanceBearing(prev.easting, prev.northing, fix.easting, fix.northing);
-
-            // Only record if distance > 0.5m (filter noise)
-            if (distance > 0.5) {
-              const fromId = `LIVE${legCounterRef.current}`;
-              const toId = `LIVE${legCounterRef.current + 1}`;
-              const sigma = fixQualityToSigma(fix.fixQuality);
-
-              const leg: RecordedLeg = {
-                id: `leg${legCounterRef.current}`,
-                from: fromId,
-                to: toId,
-                distance,
-                bearing,
-                fromE: prev.easting, fromN: prev.northing,
-                toE: fix.easting, toN: fix.northing,
-                sigma,
-                source: "live",
-              };
-
-              setRecordedLegs((prev) => [...prev, leg]);
-              legCounterRef.current += 1;
-            }
-          }
-
-          lastFixRef.current = fix;
+      // Auto-record traverse leg
+      if (autoRecord && lastFixRef.current) {
+        const prev = lastFixRef.current;
+        const { distance, bearing } = computeDistanceBearing(prev.easting, prev.northing, fix.easting, fix.northing);
+        if (distance > 0.5) {
+          const fromId = `LIVE${legCounterRef.current}`;
+          const toId = `LIVE${legCounterRef.current + 1}`;
+          const sigma = fixQualityToSigma(fix.fixQuality);
+          setRecordedLegs((prev) => [...prev, {
+            id: `leg${legCounterRef.current}`, from: fromId, to: toId,
+            distance, bearing, fromE: prev.easting, fromN: prev.northing,
+            toE: fix.easting, toN: fix.northing, sigma, source: "live" as const,
+          }]);
+          legCounterRef.current += 1;
         }
       }
+
+      lastFixRef.current = fix;
     });
-
-    const unsubStatus = api.instrument.onStatusUpdate((data: any) => {
-      if (data?.connections) {
-        const hasConn = data.connections.length > 0;
-        setConnected(hasConn);
-        if (hasConn) setConnectionId(data.connections[0].id);
-      }
-    });
-
-    api.instrument.startPolling();
-
-    return () => { unsubObs(); unsubStatus(); api.instrument.stopPolling(); };
+    return unsub;
   }, [autoRecord, pointsText]);
 
-  // ── Connect / Disconnect ────────────────────────────────────────
-  const handleConnect = useCallback(async () => {
-    if (!api?.instrument) return;
-    setInstrumentError(null);
-    try {
-      const params: any = { connection_type: connType, instrument_name: connName || undefined };
-      if (connType === "serial") { params.port = selectedPort; params.baud_rate = baudRate; }
-      else if (connType === "ntrip") { params.caster_url = casterUrl; params.mountpoint = mountpoint; }
-      const result = await api.instrument.connect(params);
-      setConnectionId(result.connection_id);
-      setConnected(true);
-    } catch (e) {
-      setInstrumentError((e as Error).message);
-    }
-  }, [connType, selectedPort, baudRate, casterUrl, mountpoint, connName]);
+  const handleConnect = useCallback(() => {
+    instrument.clearError();
+    instrument.connect({
+      connection_type: connType,
+      port: connType === "serial" ? selectedPort : undefined,
+      baud_rate: connType === "serial" ? baudRate : undefined,
+      caster_url: connType === "ntrip" ? casterUrl : undefined,
+      mountpoint: connType === "ntrip" ? mountpoint : undefined,
+      instrument_name: connName || undefined,
+    });
+  }, [instrument, connType, selectedPort, baudRate, casterUrl, mountpoint, connName]);
 
-  const handleDisconnect = useCallback(async () => {
-    if (!api?.instrument || !connectionId) return;
-    try {
-      await api.instrument.disconnect(connectionId);
-      setConnected(false);
-      setConnectionId(null);
-    } catch (e) {
-      setInstrumentError((e as Error).message);
-    }
-  }, [connectionId]);
+  const handleDisconnect = useCallback(() => {
+    if (connectionId) instrument.disconnect(connectionId);
+  }, [instrument, connectionId]);
 
   // ── Record current fix as a manual leg ──────────────────────────
   const recordCurrentFix = useCallback(() => {
@@ -563,8 +512,7 @@ export const TraverseView: React.FC = () => {
         Bowditch/Transit closures, least-squares adjustment, and mixed distance+GNSS network adjustments with live instrument integration.
       </p>
 
-      {/* Live Instrument Panel */}
-      <div style={{ padding: "12px", background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", borderRadius: "8px" }}>
+      {/* Live Instrument Panel */}        <div style={{ padding: "12px", background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", borderRadius: "8px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
           <Radio size={14} style={{ color: connected ? "#22c55e" : "var(--text-tertiary)" }} />
           <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)", fontWeight: "bold" }}>Live Instrument</span>
@@ -586,8 +534,8 @@ export const TraverseView: React.FC = () => {
               {connType === "serial" && (
                 <>
                   <select value={selectedPort} onChange={(e) => setSelectedPort(e.target.value)} style={{ padding: "4px 8px", fontSize: "var(--text-xs)", fontFamily: "var(--font-mono)", minWidth: "120px" }}>
-                    {serialPorts.length === 0 && <option value="">No ports</option>}
-                    {serialPorts.map((p) => <option key={p.port_name} value={p.port_name}>{p.display_name}</option>)}
+                    {instrument.serialPorts.length === 0 && <option value="">No ports</option>}
+                    {instrument.serialPorts.map((p) => <option key={p.port_name} value={p.port_name}>{p.display_name}</option>)}
                   </select>
                   <select value={baudRate} onChange={(e) => setBaudRate(+e.target.value)} style={{ padding: "4px 8px", fontSize: "var(--text-xs)", fontFamily: "var(--font-mono)" }}>
                     {[9600, 19200, 38400, 57600, 115200, 230400].map((b) => <option key={b} value={b}>{b}</option>)}
@@ -655,9 +603,9 @@ export const TraverseView: React.FC = () => {
           </div>
         )}
 
-        {instrumentError && (
+        {instrument.state.error && (
           <div style={{ marginTop: "6px", padding: "6px 10px", background: "rgba(239,68,68,0.1)", border: "1px solid var(--status-error)", color: "var(--status-error)", fontSize: "var(--text-xs)", fontFamily: "var(--font-mono)" }}>
-            {instrumentError}
+            {instrument.state.error}
           </div>
         )}
       </div>
