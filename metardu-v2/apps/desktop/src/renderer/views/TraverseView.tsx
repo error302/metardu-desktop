@@ -24,10 +24,13 @@ import { Radio, Wifi, Bluetooth, Plug, Unplug, CircleDot, Target, Plus, Trash2 }
 
 // ─── Types ────────────────────────────────────────────────────────
 
-type AdjustMode = "bowditch" | "transit" | "ls-distance" | "ls-mixed";
+type AdjustMode = "bowditch" | "transit" | "ls-distance" | "ls-mixed" | "ls-angles";
 
 interface PointDef { id: string; easting: number; northing: number; fixed: boolean; }
 interface LegDef { from: string; to: string; distance: number; bearing: number; sigma: number; }
+interface DirectionDef { station: string; target: string; direction: number; sigma: number; }
+interface AngleDef { station: string; leftTarget: string; rightTarget: string; angle: number; sigma: number; }
+interface AzimuthDef { from: string; to: string; azimuth: number; sigma: number; }
 interface BaselineDef { from: string; to: string; dE: number; dN: number; dH: number; sigmaE: number; sigmaN: number; sigmaH: number; correlationEN: number; }
 
 interface LsResult {
@@ -147,6 +150,14 @@ export const TraverseView: React.FC = () => {
   );
   const [baselinesText, setBaselinesText] = useState(
     "STN1,STN3,-50.123,250.456,15.2,0.015,0.015,0.030,0.6\nSTN2,STN4,48.789,98.654,8.5,0.015,0.015,0.030,0.6"
+  );
+
+  // Angular observations
+  const [directionsText, setDirectionsText] = useState(
+    "STN1,STN2,45.2500,5\nSTN1,STN3,128.7650,5\nSTN1,STN4,215.1200,5\nSTN2,STN1,225.2500,5\nSTN2,STN3,135.5000,5\nSTN2,STN4,45.8000,5"
+  );
+  const [azimuthText, setAzimuthText] = useState(
+    "STN1,STN2,45.2500,3"
   );
 
   const [bowditchResult, setBowditchResult] = useState<BowditchResult | null>(null);
@@ -383,6 +394,22 @@ export const TraverseView: React.FC = () => {
     });
   }, [legsText]);
 
+  const parseDirections = useCallback((): DirectionDef[] => {
+    if (!directionsText.trim()) return [];
+    return directionsText.trim().split("\n").filter((l) => l.trim()).map((line) => {
+      const [station, target, dir, sig] = line.split(",").map((s) => s.trim());
+      return { station, target, direction: parseFloat(dir), sigma: sig ? parseFloat(sig) / 3600 : 5 / 3600 };
+    });
+  }, [directionsText]);
+
+  const parseAzimuths = useCallback((): AzimuthDef[] => {
+    if (!azimuthText.trim()) return [];
+    return azimuthText.trim().split("\n").filter((l) => l.trim()).map((line) => {
+      const [from, to, az, sig] = line.split(",").map((s) => s.trim());
+      return { from, to, azimuth: parseFloat(az), sigma: sig ? parseFloat(sig) / 3600 : 3 / 3600 };
+    });
+  }, [azimuthText]);
+
   const parseBaselines = useCallback((): BaselineDef[] => {
     if (!baselinesText.trim()) return [];
     return baselinesText.trim().split("\n").filter((l) => l.trim()).map((line) => {
@@ -436,10 +463,12 @@ export const TraverseView: React.FC = () => {
     setError(null); setBowditchResult(null); setComputing(true);
     try {
       const points = parsePoints(); const legs = parseLegs(); const baselines = parseBaselines();
+      const directions = parseDirections(); const azimuths = parseAzimuths();
       const isMixed = mode === "ls-mixed";
+      const isAngles = mode === "ls-angles";
       const parameters = points.map((p) => ({ id: p.id, dimension: 2, fixed: p.fixed }));
 
-      if (isMixed && baselines.length > 0) {
+      if ((isMixed || isAngles) && baselines.length > 0) {
         const gnssPts = new Set(baselines.flatMap((b) => [b.from, b.to]));
         for (const param of parameters) { if (gnssPts.has(param.id)) param.dimension = 3; }
       }
@@ -451,8 +480,25 @@ export const TraverseView: React.FC = () => {
       }
 
       const observations: Array<Record<string, unknown>> = [];
-      for (const leg of legs) { observations.push({ kind: "Distance", from: leg.from, to: leg.to, value: leg.distance, sigma: leg.sigma }); }
-      if (isMixed) {
+
+      // Distance observations (from traverse legs)
+      for (const leg of legs) {
+        observations.push({ kind: "Distance", from: leg.from, to: leg.to, value: leg.distance, sigma: leg.sigma });
+      }
+
+      // Direction observations (measured horizontal angles from a station)
+      // Each direction is referenced to an orientation parameter at the station
+      for (const d of directions) {
+        observations.push({ kind: "Direction", station: d.station, target: d.target, value: d.direction, sigma: d.sigma });
+      }
+
+      // Azimuth control observations (known azimuth constraining orientation)
+      for (const a of azimuths) {
+        observations.push({ kind: "AzimuthControl", from: a.from, to: a.to, value: a.azimuth, sigma: a.sigma });
+      }
+
+      // GNSS baselines (mixed network mode)
+      if (isMixed || isAngles) {
         for (const b of baselines) {
           observations.push({ kind: "GnssBaseline", from: b.from, to: b.to, value: [b.dE, b.dN, b.dH], covariance: [
             b.sigmaE * b.sigmaE, b.correlationEN * b.sigmaE * b.sigmaN, 0,
@@ -462,7 +508,11 @@ export const TraverseView: React.FC = () => {
         }
       }
 
-      const result = await callSidecar("adjustment.run", { parameters, approximations, observations, orientation_parameters: [], config: { max_iterations: 50, convergence_threshold: 1e-6, blunder_detection: true, blunder_threshold: 3.5, confidence_level: 0.95 } });
+      // Orientation parameters: one per station that has direction observations
+      const orientationStations = [...new Set(directions.map((d) => d.station))];
+      const orientationParameters = orientationStations.map((sid) => ({ id: `orient_${sid}`, stationId: sid }));
+
+      const result = await callSidecar("adjustment.run", { parameters, approximations, observations, orientation_parameters: orientationParameters, config: { max_iterations: 50, convergence_threshold: 1e-6, blunder_detection: true, blunder_threshold: 3.5, confidence_level: 0.95 } });
       if (!result || !(result as any).success) throw new Error((result as any)?.error ?? "Adjustment failed");
       setLsResult((result as any).result as LsResult);
     } catch (e) { setError((e as Error).message); } finally { setComputing(false); }
@@ -499,7 +549,8 @@ export const TraverseView: React.FC = () => {
     return { points: pts, lines };
   })();
 
-  const showBaselineInputs = mode === "ls-mixed";
+  const showBaselineInputs = mode === "ls-mixed" || mode === "ls-angles";
+  const showAngularInputs = mode === "ls-angles";
   const fixQualityLabel = liveFix ? (liveFix.fixQuality === 4 ? "RTK Fixed" : liveFix.fixQuality === 5 ? "RTK Float" : liveFix.fixQuality === 2 ? "DGPS" : `Q${liveFix.fixQuality}`) : "---";
   const fixQualityColor = liveFix ? (liveFix.fixQuality >= 4 ? "#22c55e" : liveFix.fixQuality >= 2 ? "#f59e0b" : "#ef4444") : "var(--text-tertiary)";
 
@@ -626,6 +677,7 @@ export const TraverseView: React.FC = () => {
             <option value="transit">Transit Rule</option>
             <option value="ls-distance">Least Squares (Distance)</option>
             <option value="ls-mixed">Mixed Network (Distance + GNSS)</option>
+            <option value="ls-angles">Angular Network (Directions + Azimuths)</option>
           </select>
         </div>
         <button className="primary" onClick={handleCompute} disabled={computing} style={{ marginTop: "4px" }}>
@@ -634,7 +686,7 @@ export const TraverseView: React.FC = () => {
       </div>
 
       {/* Input panels */}
-      <div style={{ display: "grid", gridTemplateColumns: showBaselineInputs ? "1fr 1fr 1fr" : "1fr 1fr", gap: "12px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: showBaselineInputs ? (showAngularInputs ? "1fr 1fr 1fr" : "1fr 1fr 1fr") : "1fr 1fr", gap: "12px" }}>
         <div>
           <label style={{ display: "block", marginBottom: "4px", fontWeight: "bold" }}>Points (ID, E, N, fixed)</label>
           <textarea value={pointsText} onChange={(e) => setPointsText(e.target.value)} style={{ width: "100%", height: "140px", fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)" }} />
@@ -650,6 +702,32 @@ export const TraverseView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Angular observation panels (shown in ls-angles mode) */}
+      {showAngularInputs && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+          <div>
+            <label style={{ display: "block", marginBottom: "4px", fontWeight: "bold" }}>
+              Directions (Station, Target, Direction°, Sigma″)
+              <span style={{ fontWeight: "normal", color: "var(--text-tertiary)", marginLeft: 8, fontSize: "var(--text-xs)">Measured horizontal angles from station</span>
+            </label>
+            <textarea value={directionsText} onChange={(e) => setDirectionsText(e.target.value)} style={{ width: "100%", height: "120px", fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)" }} />
+            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", marginTop: 4 }}>
+              {parseDirections().length} directions · {new Set(parseDirections().map((d) => d.station)).size} stations
+            </div>
+          </div>
+          <div>
+            <label style={{ display: "block", marginBottom: "4px", fontWeight: "bold" }}>
+              Azimuth Controls (From, To, Azimuth°, Sigma″)
+              <span style={{ fontWeight: "normal", color: "var(--text-tertiary)", marginLeft: 8, fontSize: "var(--text-xs)">Known azimuth constraining orientation</span>
+            </label>
+            <textarea value={azimuthText} onChange={(e) => setAzimuthText(e.target.value)} style={{ width: "100%", height: "120px", fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)" }} />
+            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", marginTop: 4 }}>
+              {parseAzimuths().length} azimuth controls
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", border: "1px solid var(--status-error)", color: "var(--status-error)", fontSize: "var(--text-sm)" }}>
