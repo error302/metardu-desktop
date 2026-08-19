@@ -74,6 +74,12 @@ export {
 } from "./dxf-export.js";
 export { getCountryDxfLayerSpecs } from "./dxf-export.js";
 
+export {
+  landxmlExporter,
+  type LandxmlOptions,
+  type LandxmlOutput,
+} from "./landxml-export.js";
+
 /**
  * Registry of all currently-registered integration exporters.
  *
@@ -91,6 +97,7 @@ import { gcpExporter } from "./gcp-export.js";
 import { qgsProjectExporter } from "./qgs-project-generator.js";
 import { osmChangesetExporter } from "./osm-changeset-export.js";
 import { dxfExporter } from "./dxf-export.js";
+import { landxmlExporter } from "./landxml-export.js";
 import type { IntegrationExporter } from "./types.js";
 
 // Use `any` for the registry element type so heterogeneous exporters
@@ -106,4 +113,5 @@ export const INTEGRATION_EXPORTERS: ReadonlyArray<IntegrationExporter<any, any, 
   qgsProjectExporter,
   osmChangesetExporter,
   dxfExporter,
+  landxmlExporter,
 ];

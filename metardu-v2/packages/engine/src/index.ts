@@ -400,5 +400,9 @@ export {
   type ValidationResult,
 } from "./integration/index.js";
 
+// LandXML 1.2 export (NLIMS/ArdhiSasa submission)
+export { landxmlExporter } from "./integration/landxml-export.js";
+export type { LandxmlOptions, LandxmlOutput } from "./integration/landxml-export.js";
+
 // Version
 export const ENGINE_VERSION = "0.5.0";

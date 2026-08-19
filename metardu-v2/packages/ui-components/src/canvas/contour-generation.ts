@@ -334,6 +334,84 @@ function chainSegments(
   return polylines;
 }
 
+// ─── Grid Decimation ─────────────────────────────────────────────
+
+/**
+ * Grid-based point decimation that preserves terrain features.
+ * Divides the bounding box into a grid, keeping the point with the
+ * most extreme elevation per cell (ridges, valleys, peaks).
+ * Also keeps boundary points to preserve the convex hull.
+ */
+function gridDecimate(
+  points: ContourInputPoint[],
+  targetCount: number,
+): ContourInputPoint[] {
+  if (points.length <= targetCount) return points;
+
+  // Compute bounding box.
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  for (const p of points) {
+    if (p.easting < minX) minX = p.easting;
+    if (p.easting > maxX) maxX = p.easting;
+    if (p.northing < minY) minY = p.northing;
+    if (p.northing > maxY) maxY = p.northing;
+  }
+
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
+
+  // Determine grid size: sqrt(targetCount) × sqrt(targetCount) ≈ targetCount cells.
+  const gridDim = Math.ceil(Math.sqrt(targetCount));
+  const cellW = rangeX / gridDim;
+  const cellH = rangeY / gridDim;
+
+  // Assign each point to a cell.
+  const cells = new Map<string, ContourInputPoint[]>();
+  for (const p of points) {
+    const cx = Math.min(Math.floor((p.easting - minX) / cellW), gridDim - 1);
+    const cy = Math.min(Math.floor((p.northing - minY) / cellH), gridDim - 1);
+    const key = `${cx},${cy}`;
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key)!.push(p);
+  }
+
+  // For each cell, keep the point with the most extreme elevation
+  // (highest or lowest — preserves ridges and valleys).
+  const result: ContourInputPoint[] = [];
+  for (const cellPoints of cells.values()) {
+    if (cellPoints.length === 1) {
+      result.push(cellPoints[0]!);
+      continue;
+    }
+
+    // Find min and max elevation points.
+    let minP = cellPoints[0]!;
+    let maxP = cellPoints[0]!;
+    for (const p of cellPoints) {
+      if (p.elevation < minP.elevation) minP = p;
+      if (p.elevation > maxP.elevation) maxP = p;
+    }
+
+    // Always keep the most extreme point.
+    result.push(maxP.elevation >= minP.elevation ? maxP : minP);
+
+    // If the cell has significant elevation range AND we haven't exceeded
+    // the target, keep the other extreme too (preserves steep slopes).
+    if (Math.abs(maxP.elevation - minP.elevation) > 0.5 && minP !== maxP && result.length < targetCount * 0.8) {
+      result.push(minP);
+    }
+  }
+
+  // If still over target, take a uniform sample.
+  if (result.length > targetCount) {
+    const step = Math.ceil(result.length / targetCount);
+    return result.filter((_, i) => i % step === 0);
+  }
+
+  return result;
+}
+
 // ─── Main Entry Point ────────────────────────────────────────────
 
 /**
@@ -353,11 +431,11 @@ export function generateContours(
     throw new Error(`Contour interval must be positive; got ${interval}.`);
   }
 
-  // Decimate if too many points (keep every Nth point).
+  // Grid decimation: divide bounding box into cells, keep the point
+  // with the most extreme elevation per cell (preserves ridges/valleys).
   let input = points;
   if (points.length > maxPoints) {
-    const step = Math.ceil(points.length / maxPoints);
-    input = points.filter((_, i) => i % step === 0);
+    input = gridDecimate(points, maxPoints);
   }
 
   // Triangulate.
