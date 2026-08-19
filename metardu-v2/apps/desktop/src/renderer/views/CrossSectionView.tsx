@@ -1,20 +1,5 @@
-/**
- * Cross-Section View — Interactive cross-section drawing along road alignments.
- *
- * Renders cross-sections from the engineering workflow output using
- * the engine's renderCrossSectionSvg function. Features:
- *   - Chainage navigation (prev/next/jump)
- *   - Ground line vs design line overlay
- *   - Cut/fill area visualization
- *   - Multiple section comparison
- *   - Interactive offset/elevation display
- */
-
 import React, { useState, useMemo, useCallback } from "react";
 import { useSurveyState } from "../SurveyStateContext.js";
-import { COUNTRY_OPTIONS, getCountryOption } from "../countries.js";
-
-// ─── Types ───────────────────────────────────────────────────────
 
 interface CrossSectionPoint {
   offset: number;
@@ -29,8 +14,6 @@ interface CrossSectionData {
   centerlineElevation: number;
   area?: { cut: number; fill: number };
 }
-
-// ─── SVG Renderer (inline, no engine dependency in renderer) ─────
 
 function renderCrossSectionSvg(section: CrossSectionData, options: {
   width?: number;
@@ -102,15 +85,7 @@ function renderCrossSectionSvg(section: CrossSectionData, options: {
     }
   }
 
-  // Offset labels
-  const offsetLabels: string[] = [];
-  const offsetStep = Math.max(1, Math.round((section.points[section.points.length - 1]?.offset ?? 0) / 6));
-  for (let o = Math.ceil((section.points[0]?.offset ?? 0) / offsetStep) * offsetStep; o <= (section.points[section.points.length - 1]?.offset ?? 0); o += offsetStep) {
-    const x = projectX(o);
-    offsetLabels.push(`<text x="${x.toFixed(1)}" y="${baseY + 15}" text-anchor="middle" font-size="8" fill="#999">${o.toFixed(0)}</text>`);
-  }
-
-  // Feature markers
+  const featureMarkers
   const featureMarkers = section.points
     .filter(p => p.feature)
     .map(p => {
@@ -149,8 +124,6 @@ function renderCrossSectionSvg(section: CrossSectionData, options: {
   </svg>`;
 }
 
-// ─── Sample Data Generator ───────────────────────────────────────
-
 function generateSampleSections(): CrossSectionData[] {
   const sections: CrossSectionData[] = [];
   for (let ch = 0; ch <= 100; ch += 10) {
@@ -182,8 +155,6 @@ function generateSampleSections(): CrossSectionData[] {
   return sections;
 }
 
-// ─── Component ───────────────────────────────────────────────────
-
 export const CrossSectionView: React.FC = () => {
   const { state: surveyState } = useSurveyState();
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -191,7 +162,6 @@ export const CrossSectionView: React.FC = () => {
   const [highlightCut, setHighlightCut] = useState(true);
   const [scale, setScale] = useState(20);
 
-  // Try to get sections from engineering workflow output, fall back to sample data.
   const sections: CrossSectionData[] = useMemo(() => {
     const output = surveyState?.output as Record<string, unknown> | undefined;
     if (output && "sections" in output && Array.isArray(output.sections)) {
@@ -210,7 +180,6 @@ export const CrossSectionView: React.FC = () => {
     setSelectedIndex(i => Math.min(sections.length - 1, i + 1));
   }, [sections.length]);
 
-  // Compute total volumes
   const totalVolumes = useMemo(() => {
     let totalCut = 0;
     let totalFill = 0;
@@ -226,7 +195,6 @@ export const CrossSectionView: React.FC = () => {
     return { cut: totalCut, fill: totalFill, balance: totalCut - totalFill };
   }, [sections]);
 
-  // Render the SVG
   const svgHtml = useMemo(() => {
     if (!currentSection) return "";
     return renderCrossSectionSvg(currentSection, {

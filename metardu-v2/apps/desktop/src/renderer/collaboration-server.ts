@@ -1,33 +1,14 @@
 /**
- * collaboration-server.ts — WebSocket collaboration server for real-time
- * multi-user survey editing over LAN.
- *
- * Provides:
- *   - WebSocket server for field-office team connections
- *   - Project sharing with live cursor/selection sync
- *   - Observation streaming from field instruments
- *   - Conflict resolution via operational transform (OT)
- *   - Automatic reconnection with state sync
- *
- * Usage:
- *   const server = new CollaborationServer({ port: 8765 });
- *   server.start();
- *   // Connect from renderer: new WebSocket("ws://localhost:8765")
- *
- * In production, this runs as a separate Node.js process or is
- * embedded in the Electron main process.
+ * WebSocket collaboration server for real-time multi-user survey
+ * editing over LAN. Runs in the Electron main process.
  */
 
 // ─── Types ───────────────────────────────────────────────────────
 
 export interface CollaborationConfig {
-  /** WebSocket server port. Default: 8765. */
   port?: number;
-  /** Maximum concurrent connections. Default: 10. */
   maxConnections?: number;
-  /** Heartbeat interval in ms. Default: 30000. */
   heartbeatInterval?: number;
-  /** Project data directory. Default: "./collaboration-data". */
   dataDir?: string;
 }
 
@@ -36,7 +17,6 @@ export interface CollaborationMessage {
   payload: unknown;
   sender: string;
   timestamp: number;
-  /** For OT operations: vector clock. */
   vectorClock?: Record<string, number>;
 }
 
@@ -44,25 +24,17 @@ export interface ConnectedClient {
   id: string;
   name: string;
   role: "surveyor" | "office" | "viewer";
-  /** Current view the client is looking at. */
   currentView?: string;
-  /** Cursor position (if sharing). */
   cursor?: { x: number; y: number };
-  /** Connected at timestamp. */
   connectedAt: number;
-  /** Last activity timestamp. */
   lastActivity: number;
 }
 
 export interface ProjectShare {
   projectId: string;
-  /** Current version vector clock. */
   version: Record<string, number>;
-  /** Shared data (points, observations, etc.). */
   data: Record<string, unknown>;
-  /** Connected clients. */
   clients: Map<string, ConnectedClient>;
-  /** Operation log for conflict resolution. */
   operations: Operation[];
 }
 
@@ -93,38 +65,22 @@ export class CollaborationServer {
     };
   }
 
-  /** Start the WebSocket server. */
   start(): void {
-    console.log(`[collab] Starting collaboration server on port ${this.config.port}`);
-
-    // In a real implementation, this would use the `ws` package:
-    // import { WebSocketServer } from "ws";
-    // const wss = new WebSocketServer({ port: this.config.port });
-    // wss.on("connection", (ws) => this.handleConnection(ws));
-
-    // For now, log the configuration.
-    console.log(`[collab] Config: max=${this.config.maxConnections}, heartbeat=${this.config.heartbeatInterval}ms`);
-    console.log(`[collab] Data dir: ${this.config.dataDir}`);
-
-    // Start heartbeat.
+    console.log(`[collab] Starting on port ${this.config.port}`);
     this.heartbeatTimer = setInterval(() => this.heartbeat(), this.config.heartbeatInterval);
   }
 
-  /** Stop the server. */
   stop(): void {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
-    // Close all connections.
     for (const [id, client] of this.clients) {
       client.ws.close(1000, "Server shutting down");
       this.clients.delete(id);
     }
-    console.log("[collab] Server stopped");
   }
 
-  /** Handle a new WebSocket connection. */
   handleConnection(ws: WebSocket): void {
     if (this.clients.size >= this.config.maxConnections) {
       ws.close(1013, "Server full");
@@ -141,8 +97,6 @@ export class CollaborationServer {
     };
 
     this.clients.set(clientId, { ws, info: clientInfo });
-
-    // Send welcome message.
     this.send(ws, {
       type: "welcome",
       payload: { clientId, serverTime: Date.now() },
@@ -151,8 +105,6 @@ export class CollaborationServer {
     });
 
     console.log(`[collab] Client connected: ${clientId} (total: ${this.clients.size})`);
-
-    // Handle messages.
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data as string) as CollaborationMessage;
@@ -171,7 +123,6 @@ export class CollaborationServer {
     };
   }
 
-  /** Handle an incoming message from a client. */
   private handleMessage(senderId: string, msg: CollaborationMessage): void {
     const client = this.clients.get(senderId);
     if (!client) return;
@@ -213,7 +164,6 @@ export class CollaborationServer {
     }
   }
 
-  /** Handle client identification. */
   private handleIdentify(clientId: string, msg: CollaborationMessage): void {
     const client = this.clients.get(clientId);
     if (!client) return;
@@ -232,7 +182,6 @@ export class CollaborationServer {
     console.log(`[collab] Client identified: ${client.info.name} (${client.info.role})`);
   }
 
-  /** Handle joining a project. */
   private handleJoinProject(clientId: string, msg: CollaborationMessage): void {
     const client = this.clients.get(clientId);
     if (!client) return;
@@ -254,7 +203,6 @@ export class CollaborationServer {
     project.clients.set(clientId, client.info);
     client.info.currentView = projectId;
 
-    // Send current project state.
     this.send(client.ws, {
       type: "project_state",
       payload: {
@@ -268,7 +216,6 @@ export class CollaborationServer {
       timestamp: Date.now(),
     });
 
-    // Notify other clients.
     this.broadcastToProject(projectId, {
       type: "client_joined",
       payload: { client: client.info },
@@ -279,7 +226,6 @@ export class CollaborationServer {
     console.log(`[collab] ${client.info.name} joined project ${projectId}`);
   }
 
-  /** Handle leaving a project. */
   private handleLeaveProject(clientId: string): void {
     const client = this.clients.get(clientId);
     if (!client) return;
@@ -300,7 +246,6 @@ export class CollaborationServer {
     client.info.currentView = undefined;
   }
 
-  /** Handle an observation from a field instrument. */
   private handleObservation(senderId: string, msg: CollaborationMessage): void {
     const client = this.clients.get(senderId);
     if (!client) return;
@@ -308,7 +253,6 @@ export class CollaborationServer {
     const projectId = client.info.currentView;
     if (!projectId) return;
 
-    // Broadcast observation to all clients in the project.
     this.broadcastToProject(projectId, {
       type: "observation",
       payload: {
@@ -323,7 +267,6 @@ export class CollaborationServer {
     console.log(`[collab] Observation from ${client.info.name}:`, (msg.payload as Record<string, unknown>).type);
   }
 
-  /** Handle an OT operation (data mutation). */
   private handleOperation(senderId: string, msg: CollaborationMessage): void {
     const client = this.clients.get(senderId);
     if (!client) return;
@@ -339,13 +282,8 @@ export class CollaborationServer {
     op.sender = senderId;
     op.timestamp = Date.now();
 
-    // Apply operation (simplified OT — last-writer-wins for now).
     this.applyOperation(project, op);
-
-    // Store in operation log.
     project.operations.push(op);
-
-    // Broadcast to all clients.
     this.broadcastToProject(projectId, {
       type: "operation",
       payload: op,
@@ -356,7 +294,6 @@ export class CollaborationServer {
     console.log(`[collab] Operation from ${client.info.name}: ${op.type} ${op.path}`);
   }
 
-  /** Handle cursor position update. */
   private handleCursorMove(senderId: string, msg: CollaborationMessage): void {
     const client = this.clients.get(senderId);
     if (!client) return;
@@ -368,7 +305,6 @@ export class CollaborationServer {
     client.info.cursor = { x, y };
     client.info.currentView = view;
 
-    // Broadcast cursor to other clients.
     this.broadcastToProject(projectId, {
       type: "cursor_update",
       payload: { clientId: senderId, name: client.info.name, x, y, view },
@@ -377,7 +313,6 @@ export class CollaborationServer {
     }, senderId);
   }
 
-  /** Handle sync request. */
   private handleSyncRequest(senderId: string, msg: CollaborationMessage): void {
     const client = this.clients.get(senderId);
     if (!client) return;
@@ -407,9 +342,7 @@ export class CollaborationServer {
     });
   }
 
-  /** Apply an operation to project data (simplified OT). */
   private applyOperation(project: ProjectShare, op: Operation): void {
-    // Simplified: last-writer-wins merge.
     const pathParts = op.path.split("/").filter(Boolean);
     let target: Record<string, unknown> = project.data;
 
@@ -434,18 +367,15 @@ export class CollaborationServer {
         break;
     }
 
-    // Update version vector.
     project.version[op.sender] = (project.version[op.sender] ?? 0) + 1;
   }
 
-  /** Send a message to a client. */
   private send(ws: WebSocket, msg: CollaborationMessage): void {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(msg));
     }
   }
 
-  /** Broadcast a message to all clients in a project (optionally excluding one). */
   private broadcastToProject(
     projectId: string,
     msg: CollaborationMessage,
@@ -463,21 +393,15 @@ export class CollaborationServer {
     }
   }
 
-  /** Handle client disconnect. */
   private handleDisconnect(clientId: string): void {
     const client = this.clients.get(clientId);
     if (!client) return;
-
-    // Remove from project.
     this.handleLeaveProject(clientId);
-
-    // Remove client.
     this.clients.delete(clientId);
 
     console.log(`[collab] Client disconnected: ${client.info.name} (total: ${this.clients.size})`);
   }
 
-  /** Heartbeat to detect stale connections. */
   private heartbeat(): void {
     const now = Date.now();
     for (const [clientId, client] of this.clients) {
@@ -489,12 +413,10 @@ export class CollaborationServer {
     }
   }
 
-  /** Generate a unique ID. */
   private generateId(): string {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
   }
 
-  /** Get server stats. */
   getStats() {
     return {
       clients: this.clients.size,
@@ -506,8 +428,6 @@ export class CollaborationServer {
   }
 }
 
-// ─── Client-Side Helper ──────────────────────────────────────────
-
 export class CollaborationClient {
   private ws: WebSocket | null = null;
   private clientId: string | null = null;
@@ -515,7 +435,6 @@ export class CollaborationClient {
 
   constructor(private serverUrl: string) {}
 
-  /** Connect to the collaboration server. */
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(this.serverUrl);
@@ -550,37 +469,30 @@ export class CollaborationClient {
     });
   }
 
-  /** Identify yourself. */
   identify(name: string, role: ConnectedClient["role"] = "surveyor"): void {
     this.send({ type: "identify", payload: { name, role } });
   }
 
-  /** Join a project. */
   joinProject(projectId: string): void {
     this.send({ type: "join_project", payload: { projectId } });
   }
 
-  /** Send an observation. */
   sendObservation(observation: Record<string, unknown>): void {
     this.send({ type: "observation", payload: observation });
   }
 
-  /** Send a data operation. */
   sendOperation(op: Omit<Operation, "id" | "sender" | "timestamp" | "vectorClock">): void {
     this.send({ type: "operation", payload: op });
   }
 
-  /** Update cursor position. */
   updateCursor(x: number, y: number, view: string): void {
     this.send({ type: "cursor_move", payload: { x, y, view } });
   }
 
-  /** Register a message handler. */
   on(type: string, handler: (payload: unknown) => void): void {
     this.handlers.set(type, handler);
   }
 
-  /** Disconnect. */
   disconnect(): void {
     this.ws?.close(1000, "Client disconnect");
     this.ws = null;
