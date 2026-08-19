@@ -207,6 +207,8 @@ export const LSAView: React.FC = () => {
   const [computing, setComputing] = useState(false);
   const [confidence, setConfidence] = useState(0.95);
   const [flagThreshold, setFlagThreshold] = useState(3.5);
+  const [excludedBaselines, setExcludedBaselines] = useState<Set<string>>(new Set());
+  const [removalHistory, setRemovalHistory] = useState<Array<{ baselineId: string; reason: string; timestamp: string }>>([]);
 
   // New point form
   const [newPt, setNewPt] = useState<NetPoint>({
@@ -243,6 +245,64 @@ export const LSAView: React.FC = () => {
 
   const removeBaseline = useCallback((id: string) => {
     setBaselines((prev) => prev.filter((b) => b.id !== id));
+  }, []);
+
+  // ── Baarda blunder removal workflow ──────────────────────────────
+
+  /** Identify baselines with any flagged component (|w| > threshold) */
+  const flaggedBaselineIds = useMemo(() => {
+    if (!result) return new Set<string>();
+    const flagged = new Set<string>();
+    baselines.forEach((b, bi) => {
+      for (let ci = 0; ci < 3; ci++) {
+        const w = result.baarda_w[bi * 3 + ci] ?? 0;
+        if (Math.abs(w) > flagThreshold) {
+          flagged.add(b.id);
+          break;
+        }
+      }
+    });
+    return flagged;
+  }, [result, baselines, flagThreshold]);
+
+  /** Remove all flagged baselines from the network and re-run */
+  const removeFlaggedAndRerun = useCallback(() => {
+    if (flaggedBaselineIds.size === 0) return;
+    const newExcluded = new Set(excludedBaselines);
+    const newHistory = [...removalHistory];
+    const now = new Date().toISOString();
+
+    for (const id of flaggedBaselineIds) {
+      newExcluded.add(id);
+      const bl = baselines.find((b) => b.id === id);
+      if (bl) {
+        newHistory.push({
+          baselineId: id,
+          reason: `Blunder: ${bl.from}→${bl.to} (|w| > ${flagThreshold})`,
+          timestamp: now,
+        });
+      }
+    }
+
+    setExcludedBaselines(newExcluded);
+    setRemovalHistory(newHistory);
+    // Re-run will be triggered by the user clicking Run again
+  }, [flaggedBaselineIds, excludedBaselines, removalHistory, baselines, flagThreshold]);
+
+  /** Restore all excluded baselines */
+  const restoreAllExcluded = useCallback(() => {
+    setExcludedBaselines(new Set());
+    setRemovalHistory([]);
+  }, []);
+
+  /** Restore a single excluded baseline */
+  const restoreBaseline = useCallback((id: string) => {
+    setExcludedBaselines((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setRemovalHistory((prev) => prev.filter((h) => h.baselineId !== id));
   }, []);
 
   // ── Auto-estimate covariance from satellite geometry ─────────────────
@@ -345,8 +405,11 @@ export const LSAView: React.FC = () => {
     setComputing(true);
 
     try {
+      // Filter out excluded baselines
+      const activeBaselines = baselines.filter((b) => !excludedBaselines.has(b.id));
+
       if (points.length < 2) throw new Error("Need at least 2 points");
-      if (baselines.length < 1) throw new Error("Need at least 1 baseline");
+      if (activeBaselines.length < 1) throw new Error("Need at least 1 baseline (after exclusions)");
       if (!points.some((p) => p.fixed)) throw new Error("Need at least 1 fixed point");
 
       // Build sidecar parameters
@@ -364,7 +427,7 @@ export const LSAView: React.FC = () => {
         approximations[p.id] = [p.easting, p.northing, p.height];
       }
 
-      const observations = baselines.map((b) => ({
+      const observations = activeBaselines.map((b) => ({
         kind: "GnssBaseline",
         from: b.from,
         to: b.to,
@@ -449,14 +512,16 @@ export const LSAView: React.FC = () => {
       const fromPt = (result ? result.adjusted : points).find((p) => p.id === b.from);
       const toPt = (result ? result.adjusted : points).find((p) => p.id === b.to);
       if (!fromPt || !toPt) return null;
+      const excluded = excludedBaselines.has(b.id);
       return {
         from: { easting: fromPt.easting, northing: fromPt.northing },
         to: { easting: toPt.easting, northing: toPt.northing },
-        color: "#38bdf8",
-        width: 1.5,
+        color: excluded ? "#ef4444" : "#38bdf8",
+        width: excluded ? 1 : 1.5,
+        dashed: excluded,
       };
     }).filter(Boolean) as SurveyLine[],
-  [baselines, result, points]);
+  [baselines, result, points, excludedBaselines]);
 
   const canvasEllipses: SurveyEllipse[] = useMemo(() =>
     ellipses.map((el) => ({
@@ -518,6 +583,18 @@ export const LSAView: React.FC = () => {
         <button onClick={loadSample} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
           <RotateCcw size={14} /> Load Sample
         </button>
+        {flaggedBaselineIds.size > 0 && (
+          <button onClick={removeFlaggedAndRerun}
+            style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", border: "1px solid #ef4444", color: "#ef4444", background: "rgba(239,68,68,0.1)", fontWeight: 600 }}>
+            <Trash2 size={14} /> Remove {flaggedBaselineIds.size} Flagged Blunder{flaggedBaselineIds.size > 1 ? "s" : ""}
+          </button>
+        )}
+        {excludedBaselines.size > 0 && (
+          <button onClick={restoreAllExcluded}
+            style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", border: "1px solid #f59e0b", color: "#f59e0b" }}>
+            <RotateCcw size={14} /> Restore {excludedBaselines.size} Excluded
+          </button>
+        )}
       </div>
 
       {/* Network overview */}
@@ -627,8 +704,10 @@ export const LSAView: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {baselines.map((b) => (
-                <tr key={b.id} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+              {baselines.map((b) => {
+                const isExcluded = excludedBaselines.has(b.id);
+                return (
+                <tr key={b.id} style={{ borderBottom: "1px solid var(--border-subtle)", opacity: isExcluded ? 0.4 : 1, background: isExcluded ? "rgba(239,68,68,0.05)" : undefined }}>
                   <td style={{ padding: "4px 8px" }}>{b.id}</td>
                   <td style={{ padding: "4px 8px" }}>{b.from}</td>
                   <td style={{ padding: "4px 8px" }}>{b.to}</td>
@@ -640,12 +719,20 @@ export const LSAView: React.FC = () => {
                   <td style={{ padding: "4px 8px", textAlign: "right" }}>{b.sigmaH.toFixed(4)}</td>
                   <td style={{ padding: "4px 8px", textAlign: "right" }}>{b.correlationEN.toFixed(2)}</td>
                   <td style={{ padding: "4px 8px", textAlign: "center" }}>
-                    <button onClick={() => removeBaseline(b.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)" }}>
-                      <Trash2 size={12} />
-                    </button>
+                    {isExcluded ? (
+                      <button onClick={() => restoreBaseline(b.id)} title="Restore this baseline"
+                        style={{ background: "none", border: "1px solid #f59e0b", cursor: "pointer", color: "#f59e0b", padding: "1px 6px", fontSize: "var(--text-xs)", borderRadius: "3px" }}>
+                        Restore
+                      </button>
+                    ) : (
+                      <button onClick={() => removeBaseline(b.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)" }}>
+                        <Trash2 size={12} />
+                      </button>
+                    )}
                   </td>
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
         </div>
@@ -812,6 +899,29 @@ export const LSAView: React.FC = () => {
               </tbody>
             </table>
           </div>
+
+          {/* Removal history */}
+          {removalHistory.length > 0 && (
+            <div style={{ marginTop: "12px", padding: "12px", background: "var(--bg-tertiary)", border: "1px solid var(--border-default)" }}>
+              <h4 style={{ margin: "0 0 8px 0", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)", color: "#f59e0b" }}>
+                Blunder Removal History ({removalHistory.length} removed)
+              </h4>
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                {removalHistory.map((h, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: "var(--bg-secondary)", borderRadius: "3px", fontSize: "var(--text-xs)", fontFamily: "var(--font-mono)" }}>
+                    <span style={{ color: "var(--text-secondary)" }}>{h.reason}</span>
+                    <button onClick={() => restoreBaseline(h.baselineId)}
+                      style={{ background: "none", border: "1px solid #f59e0b", color: "#f59e0b", padding: "1px 6px", fontSize: "10px", borderRadius: "3px", cursor: "pointer" }}>
+                      Restore
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <p style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", marginTop: "8px" }}>
+                Excluded baselines are not used in the adjustment. Restore them to re-include in the network.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
