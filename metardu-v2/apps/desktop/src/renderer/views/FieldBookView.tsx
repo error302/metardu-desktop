@@ -128,6 +128,12 @@ const trunnionRad = React.useMemo(() => (trunnionAxisError / 3600) * Math.PI / 1
 
 const DEG = Math.PI / 180;
 
+/** Curvature & refraction correction (m) for horizontal distance K in km. */
+function curvatureRefractionCorrection(horizDistM: number): number {
+  const k = horizDistM / 1000;
+  return 0.0675 * k * k;
+}
+
 // Average face-left / face-right
 const averageObs = (fl: { hz: number; v: number; sd: number } | null, fr: { hz: number; v: number; sd: number } | null) => {
   if (fl && fr) {
@@ -164,9 +170,10 @@ const reduceTS = () => {
     let vCorr = avg.v;
     vCorr += indexRad / DEG;
 
-    // Trunnion axis (tilt) correction: sin(trunnion) * cot(zenith)
-    const trunnionCorrection = (trunnionRad / DEG) * (1 / Math.tan(vCorr * DEG));
-    vCorr += trunnionCorrection;
+    // Trunnion axis correction: affects Hz, not V.
+    // Formula: ΔHz = trunnionError × cot(verticalCircleReading)
+    const trunnionHzCorr = trunnionRad * (1 / Math.tan(vCorr * DEG));
+    hzCorr += trunnionHzCorr / DEG;
 
     // Atmospheric + EDM PPM correction to slope distance
     const distPPM = avg.sd * (totalPPM / 1_000_000);
@@ -178,8 +185,11 @@ const reduceTS = () => {
     // Horizontal distance
     const horizDist = sdCorr * Math.sin(zenAngle * DEG);
 
-    // Height difference (Zenith 0° means 0° = straight up, 90° = horizontal)
-    const deltaH = sdCorr * Math.cos(zenAngle * DEG) + instrumentHeight - obs.targetHeight;
+    // Height difference (Zenith 0° = straight up, 90° = horizontal)
+    // Add curvature & refraction correction for long sights
+    const rawDeltaH = sdCorr * Math.cos(zenAngle * DEG) + instrumentHeight - obs.targetHeight;
+    const crCorr = curvatureRefractionCorrection(horizDist);
+    const deltaH = rawDeltaH - crCorr;
 
     // Bearing from horizontal angle (Hz = azimuth)
     const bearing = hzCorr;
@@ -196,7 +206,7 @@ const reduceTS = () => {
     results.push({
       pointId: obs.id, remark: obs.remark, faceCombo: avg.faceCombo,
       hzCorr, vCorr, sdCorr, horizDist, zenAngle, deltaH,
-      deltaE, deltaN, deltaZ: deltaH,
+      crCorr, deltaE, deltaN, deltaZ: deltaH,
       easting, northing, elevation, distPPM,
     });
   }
@@ -215,6 +225,8 @@ const reduceTS = () => {
   checks["Sum ΔH"] = `${totalDeltaH >= 0 ? "+" : ""}${totalDeltaH.toFixed(3)} m`;
   checks["Atmospheric PPM"] = `${atmosphericPPM.toFixed(1)} ppm @ ${temperature}°C, ${pressure} hPa`;
   checks["Total EDM PPM"] = `${totalPPM.toFixed(1)} ppm (atm + instrument)`;
+  const maxCR = results.reduce((m, r) => Math.max(m, Math.abs(r.crCorr)), 0);
+  checks["Curvature & Refraction"] = `max ${(-maxCR * 1000).toFixed(1)} mm @ ${results.length} sights`;
   checks["Instrument"] = `${stationId} — IH=${instrumentHeight.toFixed(3)} m`;
   checks["Stn Coords"] = `E ${stationE.toFixed(3)}  N ${stationN.toFixed(3)}  Z ${stationZ.toFixed(3)}`;
   setTsChecks(checks);
@@ -243,7 +255,7 @@ const updateTsObs = (idx: number, field: string, sub: string | null, value: stri
 
 const pasteCsvObs = (csv: string) => {
   try {
-    const lines = csv.trim().split("\\n").filter(l => l.trim());
+    const lines = csv.trim().split(/\r?\n/).filter(l => l.trim());
     const parsed: TsObs[] = lines.map(line => {
       const parts = line.split(/[;,\\t]+/).map(s => s.trim());
       return {
@@ -512,6 +524,7 @@ const pasteCsvObs = (csv: string) => {
               <th style={{ padding: "4px 6px", textAlign: "right", color: "var(--status-success)" }}>Easting (m)</th>
               <th style={{ padding: "4px 6px", textAlign: "right", color: "var(--status-success)" }}>Northing (m)</th>
               <th style={{ padding: "4px 6px", textAlign: "right", color: "var(--accent-primary)" }}>Elevation (m)</th>
+              <th style={{ padding: "4px 6px", textAlign: "right" }}>C&R (mm)</th>
               <th style={{ padding: "4px 6px", textAlign: "right" }}>PPM Δ (m)</th>
             </tr>
           </thead>
@@ -534,6 +547,7 @@ const pasteCsvObs = (csv: string) => {
                 <td style={{ padding: "4px 6px", textAlign: "right" }}>{r.easting.toFixed(3)}</td>
                 <td style={{ padding: "4px 6px", textAlign: "right" }}>{r.northing.toFixed(3)}</td>
                 <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: "bold" }}>{r.elevation.toFixed(3)}</td>
+                <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text-tertiary)" }}>{(-r.crCorr * 1000).toFixed(1)}</td>
                 <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text-tertiary)" }}>{r.distPPM >= 0 ? "+" : ""}{(r.distPPM * 1000).toFixed(1)} mm</td>
               </tr>
             ))}
