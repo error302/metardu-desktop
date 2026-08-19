@@ -104,7 +104,8 @@ function exportCadastralXml(
   }
 
   // Beacon details
-  w(`${indent(4)}<�`);
+  w(`${indent(4)}<Beacon>
+${indent(5)}<BeaconType>Concrete Pillar</BeaconType>`);
   w(`${indent(3)}</Parcel>`);
   w(`${indent(2)}</Parcels>`);
 
@@ -247,14 +248,23 @@ export const landxmlExporter: IntegrationExporter<
       throw new Error("Unsupported survey type for LandXML export");
     }
 
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(xml);
+
+    // Count features (beacons or topo points).
+    const obj2 = input as Record<string, unknown>;
+    const featureCount = Array.isArray(obj2.allBeacons)
+      ? obj2.allBeacons.length
+      : Array.isArray((obj2.tin as Record<string, unknown>)?.vertices)
+        ? ((obj2.tin as Record<string, unknown>).vertices as unknown[]).length
+        : 0;
+
     return {
-      xml,
+      format: "landxml",
+      bytes,
+      featureCount,
       warnings: [],
-      metadata: {
-        format: "LandXML 1.2",
-        countryCode,
-        projectName,
-      },
+      xml,
     };
   },
 };

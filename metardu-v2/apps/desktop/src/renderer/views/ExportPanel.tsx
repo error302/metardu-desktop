@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Download, FileText, FileSpreadsheet, FileCode, Map, Globe, FileBox, Printer, FolderArchive } from "lucide-react";
+import { Download, FileText, FileSpreadsheet, FileCode, Map, Globe, FileBox, Printer, FolderArchive, FileJson } from "lucide-react";
 import { useSurveyState } from "../SurveyStateContext.js";
 import { COUNTRY_OPTIONS, getPlanSheet } from "../countries.js";
 import { SHEET_SIZES_PT } from "../map-svg.js";
@@ -32,6 +32,7 @@ const FORMAT_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWi
   "qgs-project": FileText,
   "osm-changeset": Globe,
   "dxf": FileSpreadsheet,
+  "landxml": FileJson,
 };
 
 export const ExportPanel: React.FC = () => {
@@ -117,6 +118,7 @@ export const ExportPanel: React.FC = () => {
         { format: "qgs-project", description: "QGIS project file (.qgs)", fileExtension: "qgs" },
         { format: "osm-changeset", description: "OSM changeset XML (JOSM)", fileExtension: "osm" },
         { format: "dxf", description: "DXF (AutoCAD, country-correct layers)", fileExtension: "dxf" },
+        { format: "landxml", description: "LandXML 1.2 (NLIMS/ArdhiSasa submission)", fileExtension: "xml" },
       ]);
     });
   }, []);
@@ -517,6 +519,38 @@ export const ExportPanel: React.FC = () => {
           </span>
         </label>
       </div>
+
+      {/* LandXML submission guidance */}
+      {selectedFormat === "landxml" && (
+        <div style={{
+          padding: "12px 16px", borderRadius: "8px",
+          background: "var(--bg-tertiary)", border: "1px solid var(--accent-primary)",
+        }}>
+          <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--accent-primary)", marginBottom: "4px" }}>
+            📋 LandXML 1.2 — Digital Submission Format
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+            {countryCode === "KE" && (
+              <>Upload the exported .xml file to <strong>National Land Information Management System (NLIMS)</strong> or <strong>ArdhiSasa</strong> for digital cadastral plan submission. The file contains parcel coordinates in Arc 1960 / UTM 37S (EPSG:21037) compatible with Kenya's land registry system.</>
+            )}
+            {countryCode === "AU" && (
+              <>Submit to your state's Land Registry Service (e.g. NSW LRS, Vic LRS) for electronic plan lodgment. Coordinates in GDA2020 / MGA projection.</>
+            )}
+            {countryCode === "GB" && (
+              <>Submit to HM Land Registry for digital plan registration. Coordinates in OSGB36 / British National Grid (EPSG:27700).</>
+            )}
+            {countryCode === "ZA" && (
+              <>Submit to the Surveyor-General via the Deeds Office for SG Diagram lodgment. Coordinates in Hartebeesthoek94 / Lo projection.</>
+            )}
+            {countryCode === "GH" && (
+              <>Submit to the Lands Commission — Survey and Mapping Division for cadastral survey plan lodgment. Coordinates in Leigon / Ghana Metre Grid (EPSG:25000).</>
+            )}
+            {!["KE", "AU", "GB", "ZA", "GH"].includes(countryCode) && (
+              <>LandXML 1.2 format — compatible with most land registry systems. Check your local registry's submission requirements.</>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Export button */}
       <div>
