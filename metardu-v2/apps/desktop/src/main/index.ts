@@ -27,7 +27,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SidecarClient } from "@metardu/electron-integration";
-import { INTEGRATION_EXPORTERS, importFieldDataAsync, signPdf, verifyPdf, importPrivateKeyBase64, generateForm3Pdf, type RinexEpochResult, type SurveyorIdentity, type DigitalSignature, type VerificationResult, type Form3Input } from "@metardu/engine-flight-planning";
+import { findExporter, listExportFormats, importFieldDataAsync, signPdf, verifyPdf, importPrivateKeyBase64, generateForm3Pdf, type RinexEpochResult, type SurveyorIdentity, type DigitalSignature, type VerificationResult, type Form3Input } from "@metardu/engine-flight-planning";
 import { getCountryConfig, crsLabelForCountry, type CountryCode, type TitleBlockLayout } from "@metardu/country-config";
 import { registerSyncIpcHandlers } from "./sync.js";
 import { registerProjectIpcHandlers } from "./projects.js";
@@ -302,19 +302,11 @@ function registerIpcHandlers(): void {
   // process owns the filesystem + "Save As" dialog + sidecar bridge.
 
   ipcMain.handle("metardu:export:list", () => {
-    return INTEGRATION_EXPORTERS.map((e) => ({
-      format: e.format,
-      description: e.description,
-      fileExtension: e.fileExtension,
-    }));
+    return listExportFormats();
   });
 
   ipcMain.handle("metardu:export:survey", async (_event, format: string, surveyOutput: unknown, options: Record<string, unknown>) => {
-    // Find the exporter by format.
-    const exporter = INTEGRATION_EXPORTERS.find((e) => e.format === format);
-    if (!exporter) {
-      throw new Error(`Unknown export format: ${format}. Available: ${INTEGRATION_EXPORTERS.map((e) => e.format).join(", ")}`);
-    }
+    const exporter = findExporter(format);
 
     // Wire the projectToWgs84 callback to the sidecar if outputWgs84 is
     // requested. Per ADR-0005 invariant A1: the projection math lives in
