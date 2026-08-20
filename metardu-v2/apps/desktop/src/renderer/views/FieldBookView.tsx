@@ -11,7 +11,8 @@
  *      - CSV paste import for bulk data entry
  */
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { useInstrumentConnection } from "@metardu/ui-components";
 import { importInstrumentData, detectFormat, FORMAT_DESCRIPTIONS } from "../instrument-import.js";
 import { bus } from "../cross-import-bus.js";
 
@@ -20,6 +21,67 @@ export const FieldBookView: React.FC = () => {
   const [dragOver, setDragOver] = useState(false);
   const [importPreview, setImportPreview] = useState<{ format: string; count: number; fileName: string } | null>(null);
   const [showFormatGuide, setShowFormatGuide] = useState(false);
+
+  // ── Instrument connection (live observations) ──
+  const instrument = useInstrumentConnection();
+  const [liveMode, setLiveMode] = useState(false);
+  const [liveCount, setLiveCount] = useState(0);
+  const livePointCounter = useRef(0);
+
+  // Subscribe to live observations from connected instrument
+  useEffect(() => {
+    if (!liveMode) return;
+    const unsub = instrument.onObservation((obs) => {
+      const d = obs.data;
+      // Total Station observations: Hz, V, SD fields
+      if (d.hz !== undefined && d.v !== undefined && d.sd !== undefined) {
+        livePointCounter.current++;
+        const ptId = (d.point_id as string) || `LIVE${livePointCounter.current}`;
+        const th = (d.target_height as number) || 1.6;
+        const hz = Number(d.hz) || 0;
+        const v = Number(d.v) || 90;
+        const sd = Number(d.sd) || 0;
+        const face = (d.face as string || "F1").toUpperCase();
+        const remark = (d.remark as string) || "live";
+
+        setTsObs(prev => {
+          // Check if point already exists — update face-right
+          const existing = prev.find(o => o.id === ptId);
+          if (existing) {
+            if ((face === "F2" || face === "FR") && existing.faceLeft) {
+              return prev.map(o => o.id === ptId ? { ...o, faceRight: { hz, v, sd } } : o);
+            }
+            return prev;
+          }
+          // New point
+          const newObs: TsObs = {
+            id: ptId,
+            targetHeight: th,
+            faceLeft: (face === "F1" || face === "FL") ? { hz, v, sd } : null,
+            faceRight: (face === "F2" || face === "FR") ? { hz, v, sd } : null,
+            remark,
+          };
+          return [...prev, newObs];
+        });
+        setBookType("total_station");
+        setLiveCount(c => c + 1);
+      }
+      // Level observations: BS, IS, FS fields
+      else if (d.bs !== undefined || d.is !== undefined || d.fs !== undefined) {
+        livePointCounter.current++;
+        const ptId = (d.point_id as string) || `LV${livePointCounter.current}`;
+        setLevelingRows(prev => {
+          const bs = d.bs != null ? Number(d.bs) : null;
+          const is_ = d.is != null ? Number(d.is) : null;
+          const fs = d.fs != null ? Number(d.fs) : null;
+          return [...prev, { id: ptId, bs, is: is_, fs, rl: 0, remark: (d.remark as string) || "live" }];
+        });
+        setBookType("leveling");
+        setLiveCount(c => c + 1);
+      }
+    });
+    return unsub;
+  }, [liveMode, instrument.onObservation]);
 
   // ──── DIGITAL LEVELING BOOK ────
 
@@ -349,6 +411,79 @@ const pasteCsvObs = (csv: string) => {
           <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-tertiary)", padding: "1px 5px", background: "var(--bg-primary)", borderRadius: "3px" }}>{importPreview.format.toUpperCase()}</span>
         </div>
       )}
+
+      {/* ── Live Instrument Connection ── */}
+      <div style={{ padding: "10px 12px", border: "1px solid var(--border-default)", borderRadius: "8px", background: "var(--bg-tertiary)", fontSize: "11px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: liveMode ? "8px" : 0 }}>
+          <button
+            onClick={() => setLiveMode(!liveMode)}
+            style={{
+              padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: 500, cursor: "pointer",
+              border: `1px solid ${liveMode ? "#22c55e" : "var(--border-default)"}`,
+              background: liveMode ? "rgba(34,197,94,0.1)" : "var(--bg-primary)",
+              color: liveMode ? "#22c55e" : "var(--text-secondary)",
+            }}
+          >
+            {liveMode ? "● LIVE" : "○ Live Mode"}
+          </button>
+          {instrument.state.connected && (
+            <span style={{ color: "#22c55e", fontFamily: "var(--font-mono)" }}>
+              Connected: {instrument.connections[0]?.instrument_name || instrument.connections[0]?.port || "instrument"}
+            </span>
+          )}
+          {liveMode && instrument.state.connected && (
+            <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-tertiary)", marginLeft: "auto" }}>
+              {liveCount} live obs · {instrument.observationCount} total
+            </span>
+          )}
+        </div>
+        {liveMode && (
+          <div style={{ display: "flex", gap: "6px", alignItems: "flex-end", flexWrap: "wrap" }}>
+            {!instrument.state.connected ? (
+              <>
+                <div>
+                  <label style={{ display: "block", fontSize: "10px", color: "var(--text-tertiary)", marginBottom: "2px" }}>Port</label>
+                  <select
+                    value={instrument.serialPorts[0]?.port_name || ""}
+                    onChange={e => {
+                      const port = e.target.value;
+                      if (port) instrument.connect({ connection_type: "serial", port, baud_rate: 115200 });
+                    }}
+                    style={{ padding: "4px 6px", fontSize: "11px", fontFamily: "var(--font-mono)" }}
+                  >
+                    <option value="">Select port…</option>
+                    {instrument.serialPorts.map(p => (
+                      <option key={p.port_name} value={p.port_name}>{p.display_name || p.port_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  onClick={() => instrument.refreshPorts()}
+                  style={{ padding: "4px 8px", fontSize: "10px", borderRadius: "4px", border: "1px solid var(--border-default)", background: "var(--bg-primary)", color: "var(--text-secondary)", cursor: "pointer" }}
+                >
+                  ↻ Refresh
+                </button>
+                <button
+                  onClick={() => instrument.scanBle()}
+                  style={{ padding: "4px 8px", fontSize: "10px", borderRadius: "4px", border: "1px solid var(--border-default)", background: "var(--bg-primary)", color: "var(--text-secondary)", cursor: "pointer" }}
+                >
+                  ⚡ BLE Scan
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => instrument.state.connectionId && instrument.disconnect(instrument.state.connectionId)}
+                style={{ padding: "4px 10px", fontSize: "10px", borderRadius: "4px", border: "1px solid var(--border-error, #ef4444)", background: "transparent", color: "var(--text-error, #ef4444)", cursor: "pointer" }}
+              >
+                Disconnect
+              </button>
+            )}
+            {instrument.state.error && (
+              <span style={{ color: "var(--text-error, #ef4444)", fontSize: "10px" }}>{instrument.state.error}</span>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* ── Drag-and-Drop Zone ── */}
       <div
