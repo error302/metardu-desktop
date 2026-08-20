@@ -39,6 +39,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import type { StoredProject, ProjectStoreState, CreateProjectInput, UpdateProjectInput } from "../main/project-store-core.js";
 import { detectAutoExportKind } from "./map-geometry.js";
+import { CrossImportBus, bus } from "./cross-import-bus.js";
 
 /**
  * The survey output stored in context. This is the `SurveyOutput` union
@@ -139,10 +140,12 @@ interface SurveyStateContextValue {
   setSurveyOutput: (output: unknown, surveyType: string, sourceView: string, countryCode: string) => void;
   /** Clear the current survey state. */
   clear: () => void;
-  /** Cross-import payload from another view (one-shot — consumed on read). */
+  /** Cross-import payload from another view (one-shot — consumed on read). @deprecated Use bus.on() / bus.emit() */
   crossImport: CrossImportPayload | null;
-  /** Push a cross-import payload for another view. */
+  /** Push a cross-import payload for another view. @deprecated Use bus.emit() */
   setCrossImport: (payload: CrossImportPayload | null) => void;
+  /** Typed event bus for view-to-view data sharing. */
+  bus: CrossImportBus;
   /**
    * Auto-export status after the last workflow run (plan auto-written to
    * userData/auto-exports/). Null until a run completes in Electron mode.
@@ -362,6 +365,7 @@ export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ childre
         clear,
         crossImport,
         setCrossImport,
+        bus,
         autoExportStatus,
         dismissAutoExportStatus: () => setAutoExportStatus(null),
         projects,

@@ -14,7 +14,8 @@
 
 import React, { useState, useCallback, useMemo, useEffect } from "react";
 import { SurveyCanvas, type SurveyPoint, type SurveyLine } from "@metardu/ui-components";
-import { useSurveyState, type CrossImportPayload } from "../SurveyStateContext.js";
+import { useSurveyState } from "../SurveyStateContext.js";
+import { bus } from "../cross-import-bus.js";
 import { COUNTRY_OPTIONS } from "../countries.js";
 import { AutoExportBanner } from "./AutoExportBanner.js";
 import { Compass, Target, Circle, ArrowUpDown, Triangle, Trash2, Copy, Plus } from "lucide-react";
@@ -85,37 +86,33 @@ function distanceBetween(a: ComputedPoint, b: ComputedPoint): number {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const COGOView: React.FC = () => {
-  const { setSurveyOutput, crossImport, setCrossImport } = useSurveyState();
+  const { setSurveyOutput } = useSurveyState();
   const [mode, setMode] = useState<COGOMode>("radiation");
   const [countryCode, setCountryCode] = useState("KE");
   const [computedPoints, setComputedPoints] = useState<ComputedPoint[]>([]);
 
-  // ── Cross-import: receive Traverse LS results as area polygon ──────
+  // ── Cross-import: subscribe to Traverse LS results ───────────────
   const [importNotice, setImportNotice] = useState<string | null>(null);
   useEffect(() => {
-    if (crossImport?.type === "traverse_results" && crossImport.adjusted.length >= 3) {
-      const pts = crossImport.adjusted.map((p) => ({
+    const unsub = bus.on("traverse:results", (payload) => {
+      if (payload.adjusted.length < 3) return;
+      const pts = payload.adjusted.map((p) => ({
         id: p.id, easting: p.easting, northing: p.northing,
-        source: `TRaverse LS (σ₀²=${crossImport.sigma0Squared.toFixed(4)})`,
+        source: `Traverse LS (σ₀²=${payload.sigma0Squared.toFixed(4)})`,
       }));
       setComputedPoints(pts);
       setMode("area");
       setImportNotice(`Imported ${pts.length} adjusted coordinates from Traverse LS — area computation ready.`);
-      setCrossImport(null);
-    }
-  }, [crossImport, setCrossImport]);
+    });
+    return unsub;
+  }, []);
 
-  // ── Push computed points to Traverse view ─────────────────────────
+  // ── Push computed points to Traverse view via bus ─────────────────
   const pushToTraverse = useCallback(() => {
     if (computedPoints.length < 2) return;
-    const payload: CrossImportPayload = {
-      type: "cogo_points",
-      points: computedPoints,
-      timestamp: new Date().toISOString(),
-    };
-    setCrossImport(payload);
+    bus.emit("cogo:points", { points: computedPoints });
     setImportNotice(`Pushed ${computedPoints.length} points to Traverse — switch to Traverse view to import.`);
-  }, [computedPoints, setCrossImport]);
+  }, [computedPoints]);
 
   // ── Radiation inputs ──────────────────────────────────────────────────────
   const [radStnE, setRadStnE] = useState(257000.0);

@@ -17,7 +17,8 @@
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { SurveyCanvas, type SurveyPoint, type SurveyLine, useInstrumentConnection } from "@metardu/ui-components";
-import { useSurveyState, type CrossImportPayload } from "../SurveyStateContext.js";
+import { useSurveyState } from "../SurveyStateContext.js";
+import { bus } from "../cross-import-bus.js";
 import { COUNTRY_OPTIONS } from "../countries.js";
 import { AutoExportBanner } from "./AutoExportBanner.js";
 import { Radio, Wifi, Bluetooth, Plug, Unplug, CircleDot, Target, Plus, Trash2 } from "lucide-react";
@@ -104,17 +105,16 @@ function fixQualityToSigma(quality: number): number {
 // ─── Main component ──────────────────────────────────────────────
 
 export const TraverseView: React.FC = () => {
-  const { setSurveyOutput, crossImport, setCrossImport } = useSurveyState();
+  const { setSurveyOutput } = useSurveyState();
   const [countryCode, setCountryCode] = useState("KE");
   const [mode, setMode] = useState<AdjustMode>("ls-mixed");
   const [crossImportNotice, setCrossImportNotice] = useState<string | null>(null);
 
-  // ── Cross-import: receive COGO points as stations ──────────────────
+  // ── Cross-import: subscribe to COGO points ────────────────────────
   useEffect(() => {
-    if (crossImport?.type === "cogo_points" && crossImport.points.length >= 2) {
-      const pts = crossImport.points;
-      // Add imported points to the points CSV
-      const newPts = pts.map((p) => `${p.id},${p.easting.toFixed(3)},${p.northing.toFixed(3)},false`).join("\n");
+    const unsub = bus.on("cogo:points", (payload) => {
+      if (payload.points.length < 2) return;
+      const pts = payload.points;
       setPointsText((prev) => {
         const existingIds = new Set(prev.trim().split("\n").map((l) => l.split(",")[0]?.trim()));
         const uniqueNew = pts.filter((p) => !existingIds.has(p.id));
@@ -123,23 +123,20 @@ export const TraverseView: React.FC = () => {
         return prev ? prev + "\n" + additions : additions;
       });
       setCrossImportNotice(`Imported ${pts.length} points from COGO as stations.`);
-      setCrossImport(null);
-    }
-  }, [crossImport, setCrossImport]);
+    });
+    return unsub;
+  }, []);
 
   // ── Push LS results to COGO for area verification ─────────────────
   const pushToCogo = useCallback(() => {
     if (!lsResult) return;
-    const payload: CrossImportPayload = {
-      type: "traverse_results",
+    bus.emit("traverse:results", {
       adjusted: lsResult.adjusted,
-      residuals: lsResult.residuals,
+      residuals: lsResult.residuals.map((r) => ({ ...r, redundancy: 0 })),
       sigma0Squared: lsResult.sigma0Squared,
-      timestamp: new Date().toISOString(),
-    };
-    setCrossImport(payload);
+    });
     setCrossImportNotice(`Pushed ${lsResult.adjusted.length} adjusted coordinates to COGO area calculator.`);
-  }, [lsResult, setCrossImport]);
+  }, [lsResult]);
 
   // Points / legs / baselines (CSV text)
   const [pointsText, setPointsText] = useState(
