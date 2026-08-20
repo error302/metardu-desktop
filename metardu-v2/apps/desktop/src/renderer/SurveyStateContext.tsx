@@ -37,9 +37,10 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import type { StoredProject, ProjectStoreState, CreateProjectInput, UpdateProjectInput } from "../main/project-store-core.js";
+import type { StoredProject, CreateProjectInput, UpdateProjectInput } from "../main/project-store-core.js";
 import { detectAutoExportKind } from "./map-geometry.js";
 import { CrossImportBus, bus } from "./cross-import-bus.js";
+import { useProjectStore } from "./useProjectStore.js";
 
 /**
  * The survey output stored in context. This is the `SurveyOutput` union
@@ -60,14 +61,7 @@ export interface SurveyState {
   countryCode: string;
 }
 
-interface ProjectsApi {
-  list?: () => Promise<ProjectStoreState>;
-  create?: (input: CreateProjectInput) => Promise<StoredProject | null>;
-  update?: (input: UpdateProjectInput) => Promise<StoredProject | null>;
-  setActive?: (id: string) => Promise<{ ok: boolean }>;
-  delete?: (id: string) => Promise<{ ok: boolean }>;
-  onChanged?: (cb: (state: ProjectStoreState) => void) => () => void;
-}
+// ProjectsApi interface removed — useProjectStore handles all IPC.
 
 /** Auto-export outcome surfaced to the views (banner after a run). */
 export interface AutoExportStatus {
@@ -169,11 +163,6 @@ interface SurveyStateContextValue {
 
 const SurveyStateContext = createContext<SurveyStateContextValue | null>(null);
 
-function getProjectsApi(): ProjectsApi {
-  const api = (window as unknown as { metardu?: { projects?: ProjectsApi } }).metardu?.projects;
-  return api ?? {};
-}
-
 /**
  * Provider component — wraps the app so all views + ExportPanel share
  * the same survey state and the same persisted project layer.
@@ -181,60 +170,24 @@ function getProjectsApi(): ProjectsApi {
 export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, setState] = useState<SurveyState | null>(null);
   const [crossImport, setCrossImportState] = useState<CrossImportPayload | null>(null);
-  const [projects, setProjects] = useState<StoredProject[]>([]);
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [autoExportStatus, setAutoExportStatus] = useState<AutoExportStatus | null>(null);
   const autoExportSeqRef = React.useRef(0);
 
-  // Load the project store on mount and subscribe to live changes pushed
-  // from the main process (every mutation broadcasts).
-  useEffect(() => {
-    const api = getProjectsApi();
-    let unsubscribe: (() => void) | undefined;
-    api.list?.().then((s) => {
-      setProjects(s.projects);
-      setActiveProjectId(s.activeProjectId);
-    }).catch(() => {});
-    unsubscribe = api.onChanged?.((s) => {
-      setProjects(s.projects);
-      setActiveProjectId(s.activeProjectId);
-    });
-    return () => unsubscribe?.();
-  }, []);
+  // Delegate all project CRUD to the standalone hook — eliminates
+  // the duplicated project state, IPC wiring, and subscription logic
+  // that was previously inlined here.
+  const {
+    projects,
+    active: activeProject,
+    create: storeCreate,
+    update: storeUpdate,
+    remove: storeRemove,
+    setActive: storeSetActive,
+    save: storeSave,
+  } = useProjectStore();
 
-  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
-
-  // Persist a survey output into the project store. If no project is
-  // active, create one named after the survey type. Fire-and-forget:
-  // the in-memory state updates synchronously; the disk write is async.
-  const persistToProject = useCallback((output: unknown, surveyType: string, sourceView: string, countryCode: string, active: StoredProject | null): void => {
-    const api = getProjectsApi();
-    if (!api.update || !api.create) return; // browser mode — in-memory only
-    const now = new Date().toISOString();
-    if (active) {
-      // The core stamps its own updatedAt + version bump; don't send one.
-      const update: UpdateProjectInput = {
-        id: active.id,
-        output,
-        surveyType,
-        sourceView,
-        countryCode,
-        name: active.name,
-      };
-      api.update(update).catch(() => {});
-    } else {
-      const name = `${surveyType.replace(/([A-Z])/g, " $1").trim()} — ${new Date(now).toLocaleString()}`;
-      api.create({
-        name,
-        countryCode,
-        surveyType,
-        sourceView,
-        output,
-      }).then((created) => {
-        if (created) setActiveProjectId(created.id);
-      }).catch(() => {});
-    }
-  }, []);
+  // Persist a survey output into the project store. Delegates to the
+  // standalone useProjectStore hook which handles auto-create and IPC.
 
   // Auto-export the freshly computed plan to userData/auto-exports/ the
   // moment a workflow run completes — no ExportPanel visit needed. Uses a
@@ -301,24 +254,14 @@ export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ childre
         timestamp: new Date().toISOString(),
         countryCode,
       });
-      // Persist into the active project (create if none). We read the
-      // current active project via a ref-free closure param — recomputed
-      // below so the callback doesn't go stale between renders.
-      persistToProjectRef.current(output, surveyType, sourceView, countryCode);
+      // Persist into the active project (create if none) via the hook.
+      storeSave(output, surveyType, sourceView, countryCode);
       // Auto-write the statutory plan sheet(s) — no ExportPanel visit.
       triggerAutoExportRef.current(output, surveyType, sourceView, countryCode);
     },
-    [],
+    [storeSave],
   );
 
-  // Keep the latest activeProject available to setSurveyOutput without
-  // re-creating the callback on every render (views memoize it).
-  const activeProjectRef = React.useRef<StoredProject | null>(null);
-  activeProjectRef.current = activeProject;
-  const persistToProjectRef = React.useRef<(o: unknown, t: string, s: string, c: string) => void>(() => {});
-  persistToProjectRef.current = (output, surveyType, sourceView, countryCode) => {
-    persistToProject(output, surveyType, sourceView, countryCode, activeProjectRef.current);
-  };
   const triggerAutoExportRef = React.useRef<(o: unknown, t: string, s: string, c: string) => void>(() => {});
   triggerAutoExportRef.current = triggerAutoExport;
 
@@ -328,34 +271,22 @@ export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ childre
     setCrossImportState(payload);
   }, []);
 
+  // Delegate CRUD to the standalone hook — no duplicated IPC wiring.
   const setActiveProject = useCallback(async (id: string) => {
-    // Optimistic local switch; the main-process broadcast corrects it on
-    // failure. The returned promise rejects if the IPC write fails so
-    // callers (ProjectsPanel) can surface the error.
-    setActiveProjectId(id);
-    const api = getProjectsApi();
-    await api.setActive?.(id);
-  }, []);
+    await storeSetActive(id);
+  }, [storeSetActive]);
 
   const createProject = useCallback(async (input: Omit<CreateProjectInput, "sourceView" | "output">) => {
-    const api = getProjectsApi();
-    const created = await api.create?.({
-      ...input,
-      sourceView: "Projects",
-      output: null,
-    });
-    if (created) setActiveProjectId(created.id);
-  }, []);
+    await storeCreate(input);
+  }, [storeCreate]);
 
   const updateProject = useCallback(async (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "surveyType" | "planSheet">>) => {
-    const api = getProjectsApi();
-    await api.update?.({ id, ...input });
-  }, []);
+    await storeUpdate(id, input);
+  }, [storeUpdate]);
 
   const deleteProject = useCallback(async (id: string) => {
-    const api = getProjectsApi();
-    await api.delete?.(id);
-  }, []);
+    await storeRemove(id);
+  }, [storeRemove]);
 
   return (
     <SurveyStateContext.Provider
