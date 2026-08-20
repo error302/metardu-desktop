@@ -20,6 +20,7 @@
 import React, { useState, useCallback, useMemo } from "react";
 import { SurveyCanvas, type SurveyPoint, type SurveyLine, type SurveyEllipse } from "@metardu/ui-components";
 import { COUNTRY_OPTIONS } from "../countries.js";
+import { bus } from "../cross-import-bus.js";
 import { AutoExportBanner } from "./AutoExportBanner.js";
 import {
   Network,
@@ -467,6 +468,13 @@ export const LSAView: React.FC = () => {
 
       const lsResult = (response as any).result as LsResult;
       setResult(lsResult);
+
+      // Publish adjusted coordinates for downstream views (DeedPlan, etc.)
+      bus.emit("lsa:adjusted", {
+        adjusted: lsResult.adjusted,
+        sigma0Squared: lsResult.sigma0Squared,
+        chiSquarePasses: lsResult.chiSquarePasses,
+      });
 
       // Compute error ellipses
       const freePointIndices: number[] = [];

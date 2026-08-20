@@ -16,6 +16,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { SurveyCanvas, type SurveyPoint, type SurveyPolygon } from "@metardu/ui-components";
 import { useSurveyState } from "../SurveyStateContext.js";
+import { bus } from "../cross-import-bus.js";
 import { AutoExportBanner } from "./AutoExportBanner.js";
 import { Layers, Plus, Trash2, Upload, Download, Sparkles, MapPin, FileText, Eye } from "lucide-react";
 
@@ -197,6 +198,31 @@ export const LULCView: React.FC = () => {
   const [autoClassifyEnabled, setAutoClassifyEnabled] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageryInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Subscribe to topo:surface from TopographicView ──────────────
+  useEffect(() => {
+    const unsub = bus.on("topo:surface", (payload) => {
+      if (payload.points.length < 3) return;
+      // Auto-create a zone from the topo points bounding box
+      const eMin = Math.min(...payload.points.map((p) => p.easting));
+      const eMax = Math.max(...payload.points.map((p) => p.easting));
+      const nMin = Math.min(...payload.points.map((p) => p.northing));
+      const nMax = Math.max(...payload.points.map((p) => p.northing));
+      // Use convex hull points from the surface as the zone boundary
+      const boundary = payload.points
+        .filter((p) => p.easting === eMin || p.easting === eMax || p.northing === nMin || p.northing === nMax)
+        .map((p) => ({ easting: p.easting, northing: p.northing }));
+      if (boundary.length < 3) return;
+      const catInfo = getCategoryInfo("open_land");
+      setZones((prev) => [...prev, {
+        id: "Z" + (prev.length + 1), name: `Topo Surface ${prev.length + 1}`,
+        category: "open_land", points: boundary, color: catInfo.color,
+        source: "imported", confidence: 0.8,
+      }]);
+      setNotice(`Imported ${payload.points.length} topo points as LULC zone boundary.`);
+    });
+    return unsub;
+  }, []);
 
   // ── Add zone manually ───────────────────────────────────────────
 

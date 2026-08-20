@@ -140,4 +140,140 @@ describe("CrossImportBus", () => {
     expect(payload.sigma0Squared).toBe(1.23);
     expect(payload.precisionRatio).toBe(50000);
   });
+
+  // ─── Integration: full data flow between views ────────────────
+
+  it("integration: COGO → Traverse data flow", () => {
+    const bus = new CrossImportBus();
+    const traverseHandler = vi.fn();
+
+    // TraverseView subscribes to cogo:points
+    bus.on("cogo:points", traverseHandler);
+
+    // COGOView emits computed points
+    bus.emit("cogo:points", {
+      points: [
+        { id: "C1", easting: 257000, northing: 9857000, source: "radiation" },
+        { id: "C2", easting: 257100, northing: 9857100, source: "radiation" },
+        { id: "C3", easting: 257050, northing: 9857200, source: "offset" },
+      ],
+    });
+
+    expect(traverseHandler).toHaveBeenCalledTimes(1);
+    const payload = traverseHandler.mock.calls[0][0] as CrossImportEvents["cogo:points"];
+    expect(payload.points).toHaveLength(3);
+    expect(payload.points[0].id).toBe("C1");
+  });
+
+  it("integration: Traverse → COGO results flow", () => {
+    const bus = new CrossImportBus();
+    const cogoHandler = vi.fn();
+
+    // COGOView subscribes to traverse:results
+    bus.on("traverse:results", cogoHandler);
+
+    // TraverseView emits LS results
+    bus.emit("traverse:results", {
+      adjusted: [
+        { id: "STN1", easting: 257000, northing: 9857000, height: null },
+        { id: "STN2", easting: 257100, northing: 9857100, height: null },
+      ],
+      residuals: [],
+      sigma0Squared: 0.98,
+    });
+
+    expect(cogoHandler).toHaveBeenCalledTimes(1);
+    const payload = cogoHandler.mock.calls[0][0] as CrossImportEvents["traverse:results"];
+    expect(payload.adjusted).toHaveLength(2);
+    expect(payload.sigma0Squared).toBe(0.98);
+  });
+
+  it("integration: Topo → LULC surface flow", () => {
+    const bus = new CrossImportBus();
+    const lulcHandler = vi.fn();
+
+    // LULCView subscribes to topo:surface
+    bus.on("topo:surface", lulcHandler);
+
+    // TopographicView emits surface data
+    bus.emit("topo:surface", {
+      points: [
+        { easting: 257000, northing: 9857000, elevation: 100 },
+        { easting: 257100, northing: 9857000, elevation: 102 },
+        { easting: 257100, northing: 9857100, elevation: 101 },
+        { easting: 257000, northing: 9857100, elevation: 99 },
+      ],
+      breaklines: [{ from: "P1", to: "P2" }],
+    });
+
+    expect(lulcHandler).toHaveBeenCalledTimes(1);
+    const payload = lulcHandler.mock.calls[0][0] as CrossImportEvents["topo:surface"];
+    expect(payload.points).toHaveLength(4);
+    expect(payload.breaklines).toHaveLength(1);
+  });
+
+  it("integration: FieldBook → Traverse reading flow", () => {
+    const bus = new CrossImportBus();
+    const traverseHandler = vi.fn();
+
+    // TraverseView subscribes to fieldbook:reading
+    bus.on("fieldbook:reading", traverseHandler);
+
+    // FieldBookView emits reduced readings
+    bus.emit("fieldbook:reading", {
+      station: "STN1", target: "PT1",
+      distance: 45.234, bearing: 45.2317,
+      zenithAngle: 87.5431, sigma: 0.005,
+    });
+
+    expect(traverseHandler).toHaveBeenCalledTimes(1);
+    const payload = traverseHandler.mock.calls[0][0] as CrossImportEvents["fieldbook:reading"];
+    expect(payload.station).toBe("STN1");
+    expect(payload.target).toBe("PT1");
+    expect(payload.distance).toBe(45.234);
+  });
+
+  it("integration: LSA → DeedPlan adjusted flow", () => {
+    const bus = new CrossImportBus();
+    const deedHandler = vi.fn();
+
+    // DeedPlanView subscribes to lsa:adjusted
+    bus.on("lsa:adjusted", deedHandler);
+
+    // LSAView emits adjusted coordinates
+    bus.emit("lsa:adjusted", {
+      adjusted: [
+        { id: "PT1", easting: 257000.123, northing: 9857000.456, height: 1500.789 },
+      ],
+      sigma0Squared: 1.02,
+      chiSquarePasses: true,
+    });
+
+    expect(deedHandler).toHaveBeenCalledTimes(1);
+    const payload = deedHandler.mock.calls[0][0] as CrossImportEvents["lsa:adjusted"];
+    expect(payload.adjusted).toHaveLength(1);
+    expect(payload.chiSquarePasses).toBe(true);
+  });
+
+  it("integration: multiple views can subscribe to the same event", () => {
+    const bus = new CrossImportBus();
+    const handler1 = vi.fn();
+    const handler2 = vi.fn();
+    const handler3 = vi.fn();
+
+    // Three different views all care about traverse:results
+    bus.on("traverse:results", handler1);
+    bus.on("traverse:results", handler2);
+    bus.on("traverse:results", handler3);
+
+    bus.emit("traverse:results", {
+      adjusted: [{ id: "S1", easting: 100, northing: 200, height: null }],
+      residuals: [],
+      sigma0Squared: 1,
+    });
+
+    expect(handler1).toHaveBeenCalledTimes(1);
+    expect(handler2).toHaveBeenCalledTimes(1);
+    expect(handler3).toHaveBeenCalledTimes(1);
+  });
 });

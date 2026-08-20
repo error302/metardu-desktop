@@ -13,6 +13,7 @@
 
 import React, { useState, useRef } from "react";
 import { importInstrumentData } from "../instrument-import.js";
+import { bus } from "../cross-import-bus.js";
 
 export const FieldBookView: React.FC = () => {
   const [bookType, setBookType] = useState<"leveling" | "total_station">("leveling");
@@ -212,6 +213,15 @@ const reduceTS = () => {
   }
 
   setTsReduced(results);
+
+  // Publish reduced readings for downstream views (Traverse import, etc.)
+  for (const r of results) {
+    bus.emit("fieldbook:reading", {
+      station: stationId, target: r.pointId,
+      distance: r.horizDist, bearing: r.hzCorr,
+      zenithAngle: r.zenAngle, sigma: 0.005,
+    });
+  }
 
   // Arithmetic checks
   const checks: Record<string, string> = {};

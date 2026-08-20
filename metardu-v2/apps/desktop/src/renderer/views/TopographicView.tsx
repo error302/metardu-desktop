@@ -16,6 +16,7 @@ import React, { useState } from "react";
 import { runTopographicWorkflow, type TopoPoint, type TopoWorkflowOutput } from "@metardu/engine-flight-planning";
 import { SurveyCanvas, type SurveyPoint, type SurveyContour, type SurveyTriangle } from "@metardu/ui-components";
 import { useSurveyState } from "../SurveyStateContext.js";
+import { bus } from "../cross-import-bus.js";
 import { COUNTRY_OPTIONS, getCountryOption } from "../countries.js";
 import { AutoExportBanner } from "./AutoExportBanner.js";
 
@@ -56,8 +57,12 @@ export const TopographicView: React.FC = () => {
         surveyor: { name: "Surveyor", regNo: "LS/0000", dateOfSurvey: new Date().toISOString().split("T")[0]! },
       });
       setResult(output);
-      // Push to shared survey state so ExportPanel can access it.
       setSurveyOutput(output, "topographic", "TopographicView", countryCode);
+      // Publish surface data for downstream views (LULC, contour, etc.)
+      bus.emit("topo:surface", {
+        points: output.points.map((p) => ({ easting: p.easting, northing: p.northing, elevation: p.elevation })),
+        breaklines: output.breaklines?.map((bl) => ({ from: bl.from, to: bl.to })),
+      });
     } catch (e) {
       setError((e as Error).message);
     }
