@@ -23,8 +23,9 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { Plus, FolderOpen, Folder, Pencil, Trash2, Check, X, Loader2, Star, FolderArchive } from "lucide-react";
+import { Plus, FolderOpen, Folder, Pencil, Trash2, Check, X, Loader2, Star, FolderArchive, Sparkles, ChevronRight, Eye, EyeOff } from "lucide-react";
 import { useSurveyState } from "../SurveyStateContext.js";
+import { PROJECT_TEMPLATES, getTemplateById, type ProjectTemplate } from "../project-templates.js";
 
 // The supported-country list drives the create form's country picker.
 // Source of truth remains @metardu/country-config; this is the subset
@@ -69,6 +70,8 @@ export const ProjectsPanel: React.FC = () => {
   const [surveyType, setSurveyType] = useState("cadastral");
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<ProjectTemplate | null>(null);
+  const [showTemplateInfo, setShowTemplateInfo] = useState<string | null>(null);
   // Inline rename state: which project is being renamed + the draft value.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -110,15 +113,17 @@ export const ProjectsPanel: React.FC = () => {
     if (!trimmed) { setError("Project name is required."); return; }
     setBusy(true); setError(null); setLastResult(null);
     try {
+      const templateNote = selectedTemplate ? ` (template: ${selectedTemplate.name})` : "";
       await createProject({ name: trimmed, countryCode: country, surveyType });
-      setLastResult(`Created "${trimmed}" — now active.`);
+      setLastResult(`Created "${trimmed}"${templateNote} — now active.`);
       setName("");
+      setSelectedTemplate(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [name, country, surveyType, createProject]);
+  }, [name, country, surveyType, createProject, selectedTemplate]);
 
   const handleSetActive = useCallback(async (id: string) => {
     setBusy(true); setError(null);
@@ -313,7 +318,111 @@ export const ProjectsPanel: React.FC = () => {
 
       {/* ─── Create ─────────────────────────────────────────────── */}
       <div style={{ border: "1px solid var(--border-default)", borderRadius: "10px", padding: "16px", background: "var(--bg-secondary)" }}>
-        <label style={labelStyle}>New project</label>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+          <label style={{ ...labelStyle, marginBottom: 0 }}>New project</label>
+          {selectedTemplate && (
+            <span style={{ fontSize: "11px", color: "var(--accent-primary)", fontFamily: "var(--font-mono)", display: "flex", alignItems: "center", gap: "4px" }}>
+              <Sparkles size={12} /> Template: {selectedTemplate.name}
+              <button onClick={() => setSelectedTemplate(null)} style={{ background: "none", border: "none", color: "var(--text-tertiary)", cursor: "pointer", padding: 0, fontSize: "11px" }}>✕</button>
+            </span>
+          )}
+        </div>
+
+        {/* ─── Template Cards ──────────────────────────────────── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "8px", marginBottom: "12px" }}>
+          {PROJECT_TEMPLATES.filter((t) => t.countryCode === country).map((tmpl) => (
+            <div
+              key={tmpl.id}
+              onClick={() => {
+                setSelectedTemplate(tmpl);
+                setSurveyType(tmpl.surveyType);
+                if (!name.trim()) setName(`${tmpl.name} — `);
+              }}
+              style={{
+                padding: "10px 12px",
+                borderRadius: "8px",
+                border: selectedTemplate?.id === tmpl.id ? "2px solid var(--accent-primary)" : "1px solid var(--border-default)",
+                background: selectedTemplate?.id === tmpl.id ? "rgba(255,149,0,0.08)" : "var(--bg-primary)",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                display: "flex",
+                flexDirection: "column",
+                gap: "4px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ fontSize: "16px" }}>{tmpl.icon}</span>
+                <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{tmpl.name}</span>
+                <span style={{ flex: 1 }} />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowTemplateInfo(showTemplateInfo === tmpl.id ? null : tmpl.id);
+                  }}
+                  title="Show workflow details"
+                  style={{ background: "none", border: "none", color: "var(--text-tertiary)", cursor: "pointer", padding: 0, display: "flex" }}
+                >
+                  {showTemplateInfo === tmpl.id ? <EyeOff size={12} /> : <Eye size={12} />}
+                </button>
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--text-secondary)", lineHeight: 1.3 }}>
+                {tmpl.description.substring(0, 80)}{tmpl.description.length > 80 ? "…" : ""}
+              </div>
+              <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "2px" }}>
+                {tmpl.views.filter((v) => v.required).slice(0, 4).map((v) => (
+                  <span key={v.viewId} style={{ fontSize: "9px", padding: "1px 5px", borderRadius: "3px", background: "var(--bg-tertiary)", color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>
+                    {v.label}
+                  </span>
+                ))}
+                {tmpl.views.filter((v) => v.required).length > 4 && (
+                  <span style={{ fontSize: "9px", padding: "1px 5px", borderRadius: "3px", background: "var(--bg-tertiary)", color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>
+                    +{tmpl.views.filter((v) => v.required).length - 4} more
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ─── Template Info Panel ─────────────────────────────── */}
+        {showTemplateInfo && (() => {
+          const tmpl = getTemplateById(showTemplateInfo);
+          if (!tmpl) return null;
+          return (
+            <div style={{ marginBottom: "12px", padding: "12px", borderRadius: "8px", border: "1px solid var(--border-default)", background: "var(--bg-primary)", fontSize: "11px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "12px" }}>{tmpl.icon} {tmpl.name} — Workflow</span>
+                <button onClick={() => setShowTemplateInfo(null)} style={{ background: "none", border: "none", color: "var(--text-tertiary)", cursor: "pointer" }}>✕</button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {tmpl.views.map((v, i) => (
+                  <div key={v.viewId} style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                    <span style={{ fontFamily: "var(--font-mono)", color: v.required ? "var(--accent-primary)" : "var(--text-disabled)", minWidth: "18px", textAlign: "right" }}>{i + 1}.</span>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontWeight: v.required ? 600 : 400, color: "var(--text-primary)", marginRight: "6px" }}>{v.label}</span>
+                      {!v.required && <span style={{ color: "var(--text-disabled)", fontSize: "10px" }}>(optional)</span>}
+                      <div style={{ color: "var(--text-tertiary)", fontSize: "10px", marginTop: "1px" }}>{v.purpose}</div>
+                    </div>
+                    <ChevronRight size={10} style={{ color: "var(--text-disabled)", marginTop: 3, flexShrink: 0 }} />
+                  </div>
+                ))}
+              </div>
+              {tmpl.statutoryNotes.length > 0 && (
+                <div style={{ marginTop: "8px", padding: "8px", borderRadius: "4px", background: "rgba(255,149,0,0.05)", borderLeft: "3px solid var(--accent-primary)" }}>
+                  <div style={{ fontWeight: 600, color: "var(--accent-primary)", marginBottom: "4px", fontSize: "10px", textTransform: "uppercase" }}>Statutory Requirements</div>
+                  {tmpl.statutoryNotes.map((note, i) => (
+                    <div key={i} style={{ color: "var(--text-secondary)", fontSize: "10px", lineHeight: 1.4, marginTop: "2px" }}>• {note}</div>
+                  ))}
+                </div>
+              )}
+              <div style={{ marginTop: "6px", fontSize: "10px", color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", display: "flex", gap: "12px" }}>
+                <span>{tmpl.regulatoryRef}</span>
+                <span>Fee: area={tmpl.feeDefaults.areaHa}Ha, {tmpl.feeDefaults.beaconCount} beacons, {tmpl.feeDefaults.traverseKm}km traverse</span>
+              </div>
+            </div>
+          );
+        })()}
+
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "flex-end" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: "1 1 220px", minWidth: 180 }}>
             <label style={subLabelStyle}>Name</label>
