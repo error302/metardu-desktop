@@ -13,9 +13,10 @@
  *   - Submission validation (≥3 beacons, valid ISK format, area > 0)
  */
 
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useEffect } from "react";
 import { SurveyCanvas, type SurveyPoint, type SurveyPolygon } from "@metardu/ui-components";
 import { useSurveyState } from "../SurveyStateContext.js";
+import { bus } from "../cross-import-bus.js";
 import { AutoExportBanner } from "./AutoExportBanner.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -162,6 +163,25 @@ export const DeedPlanView: React.FC = () => {
     { id: "b3", label: "B3", easting: 257280.0, northing: 9857580.0, description: "Concrete pillar" },
     { id: "b4", label: "B4", easting: 257120.0, northing: 9857550.0, description: "Iron pin" },
   ]);
+
+  // ── Bus subscription: auto-populate from LSA adjusted coordinates ──
+  const [lsaImported, setLsaImported] = useState(false);
+  useEffect(() => {
+    const unsub = bus.on("lsa:adjusted", (payload) => {
+      if (payload.adjusted.length < 3) return; // need at least 3 beacons
+      const newBeacons: Beacon[] = payload.adjusted.map((pt, i) => ({
+        id: `lsa_${i}`,
+        label: pt.id || `B${i + 1}`,
+        easting: pt.easting,
+        northing: pt.northing,
+        description: "LSA adjusted",
+      }));
+      setBeacons(newBeacons);
+      setLsaImported(true);
+      setTimeout(() => setLsaImported(false), 5000);
+    });
+    return unsub;
+  }, []);
 
   // ── Digital signing ──
   const [sealed, setSealed] = useState(false);
@@ -414,6 +434,13 @@ export const DeedPlanView: React.FC = () => {
       {exportStatus && (
         <div style={{ padding: "8px 12px", borderRadius: "6px", background: "var(--bg-success, rgba(34,197,94,0.08))", border: "1px solid var(--border-success, #22c55e)", fontSize: "12px", color: "var(--text-success, #22c55e)" }}>
           {exportStatus}
+        </div>
+      )}
+
+      {/* LSA import notification */}
+      {lsaImported && (
+        <div style={{ padding: "8px 12px", borderRadius: "6px", background: "rgba(59,130,246,0.08)", border: "1px solid #3b82f6", fontSize: "12px", color: "#3b82f6" }}>
+          ✓ Imported {beacons.length} adjusted coordinates from Network LSA — beacons auto-populated.
         </div>
       )}
 
