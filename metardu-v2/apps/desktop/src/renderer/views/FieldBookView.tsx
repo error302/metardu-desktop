@@ -12,11 +12,14 @@
  */
 
 import React, { useState, useRef } from "react";
-import { importInstrumentData } from "../instrument-import.js";
+import { importInstrumentData, detectFormat, FORMAT_DESCRIPTIONS } from "../instrument-import.js";
 import { bus } from "../cross-import-bus.js";
 
 export const FieldBookView: React.FC = () => {
   const [bookType, setBookType] = useState<"leveling" | "total_station">("leveling");
+  const [dragOver, setDragOver] = useState(false);
+  const [importPreview, setImportPreview] = useState<{ format: string; count: number; fileName: string } | null>(null);
+  const [showFormatGuide, setShowFormatGuide] = useState(false);
 
   // ──── DIGITAL LEVELING BOOK ────
 
@@ -293,13 +296,19 @@ const pasteCsvObs = (csv: string) => {
         <button className={bookType === "leveling" ? "primary" : ""} onClick={() => setBookType("leveling")}>Digital Leveling Book</button>
         <button className={bookType === "total_station" ? "primary" : ""} onClick={() => setBookType("total_station")}>Total Station 3D Polar Book</button>
         <div style={{ flex: 1 }} />
-        <input type="file" id="import-file" accept=".csv,.gsi,.sdr,.txt,.dat" style={{ display: "none" }} onChange={e => {
+        <button onClick={() => setShowFormatGuide(!showFormatGuide)} style={{ fontSize: "var(--text-xs)", color: showFormatGuide ? "var(--accent-primary)" : "var(--text-tertiary)" }}>
+          {showFormatGuide ? "✕ Hide Formats" : "? Supported Formats"}
+        </button>
+        <input type="file" id="import-file" accept=".csv,.gsi,.sdr,.xml,.txt,.dat" style={{ display: "none" }} onChange={e => {
           const file = e.target.files?.[0];
           if (!file) return;
           const reader = new FileReader();
           reader.onload = () => {
             const text = String(reader.result ?? "");
+            const fmt = detectFormat(text);
             const parsed = importInstrumentData(text);
+            setImportPreview({ format: fmt, count: parsed.observations.length, fileName: file.name });
+            setTimeout(() => setImportPreview(null), 5000);
             if (parsed.type === "total_station") {
               setTsObs(parsed.observations.map(o => ({ id: o.pointId, targetHeight: o.targetHeight, faceLeft: o.faceLeft, faceRight: o.faceRight, remark: o.remark })));
               setBookType("total_station");
@@ -312,8 +321,75 @@ const pasteCsvObs = (csv: string) => {
           e.target.value = "";
         }} />
         <button onClick={() => document.getElementById("import-file")?.click()} style={{ fontSize: "var(--text-xs)" }}>
-          📂 Import Instrument Data (CSV/GSI/SDR)
+          📂 Import File
         </button>
+      </div>
+
+      {/* ── Format Guide Panel ── */}
+      {showFormatGuide && (
+        <div style={{ padding: "12px", border: "1px solid var(--border-default)", borderRadius: "8px", background: "var(--bg-tertiary)", fontSize: "11px" }}>
+          <div style={{ fontWeight: 600, marginBottom: "8px", color: "var(--text-primary)", fontSize: "12px" }}>Supported Instrument Data Formats</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "8px" }}>
+            {Object.entries(FORMAT_DESCRIPTIONS).map(([key, desc]) => (
+              <div key={key} style={{ padding: "8px", border: "1px solid var(--border-default)", borderRadius: "6px", background: "var(--bg-primary)" }}>
+                <div style={{ fontWeight: 600, color: "var(--accent-primary)", marginBottom: "4px" }}>{desc.label}</div>
+                <div style={{ color: "var(--text-secondary)", marginBottom: "4px" }}>Extensions: <code>{desc.extensions}</code></div>
+                <pre style={{ margin: 0, padding: "4px 6px", background: "var(--bg-secondary)", borderRadius: "4px", fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--text-tertiary)", overflow: "auto", whiteSpace: "pre-wrap" }}>{desc.example}</pre>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Import Preview Toast ── */}
+      {importPreview && (
+        <div style={{ padding: "8px 12px", borderRadius: "6px", background: "var(--bg-success)", border: "1px solid var(--border-success)", fontSize: "12px", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "8px" }}>
+          <span>✓</span>
+          <span>Imported <strong>{importPreview.count}</strong> observations from <strong>{importPreview.fileName}</strong></span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-tertiary)", padding: "1px 5px", background: "var(--bg-primary)", borderRadius: "3px" }}>{importPreview.format.toUpperCase()}</span>
+        </div>
+      )}
+
+      {/* ── Drag-and-Drop Zone ── */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => {
+          e.preventDefault();
+          setDragOver(false);
+          const file = e.dataTransfer.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            const text = String(reader.result ?? "");
+            const fmt = detectFormat(text);
+            const parsed = importInstrumentData(text);
+            setImportPreview({ format: fmt, count: parsed.observations.length, fileName: file.name });
+            setTimeout(() => setImportPreview(null), 5000);
+            if (parsed.type === "total_station") {
+              setTsObs(parsed.observations.map(o => ({ id: o.pointId, targetHeight: o.targetHeight, faceLeft: o.faceLeft, faceRight: o.faceRight, remark: o.remark })));
+              setBookType("total_station");
+            } else {
+              setLevelingRows(parsed.observations);
+              setBookType("leveling");
+            }
+          };
+          reader.readAsText(file);
+        }}
+        style={{
+          padding: dragOver ? "20px" : "8px",
+          border: dragOver ? "2px dashed var(--accent-primary)" : "1px dashed var(--border-default)",
+          borderRadius: "8px",
+          textAlign: "center",
+          fontSize: "11px",
+          color: dragOver ? "var(--accent-primary)" : "var(--text-tertiary)",
+          background: dragOver ? "rgba(255,149,0,0.05)" : "transparent",
+          transition: "all 0.15s ease",
+          cursor: "pointer",
+        }}
+        onClick={() => document.getElementById("import-file")?.click()}
+      >
+        {dragOver ? "📂 Drop instrument data file here" : "Drag & drop CSV, GSI, SDR, XML, or TXT file here — or click Import"}
       </div>
 {bookType === "leveling" && (
   <div>

@@ -262,16 +262,194 @@ export function parseTrimbleDc(raw: string): ParsedFieldBook {
   return { type: "total_station", observations };
 }
 
+// ─── Trimble CSV Parser ────────────────────────────────────────
+
+/**
+ * Parse Trimble CSV export format (from Trimble Access / Siteworks).
+ *
+ * Two common variants:
+ *   Variant A (observation records):
+ *     Point,Code,TargetHeight,Hz,V,SD,Face
+ *     FS1,DET,1.600,45.2317,87.5431,45.234,F1
+ *     FS1,DET,1.600,225.2319,272.4573,45.236,F2
+ *
+ *   Variant B (computed coordinates):
+ *     Point,Code,Easting,Northing,Elevation
+ *     FS1,DET,257132.100,9857745.200,101.500
+ */
+export function parseTrimbleCsv(raw: string): ParsedFieldBook {
+  const lines = raw.trim().split("\n").filter(l => l.trim() && !l.trim().startsWith("#"));
+  if (lines.length < 2) return { type: "total_station", observations: [] };
+
+  // Detect variant by header
+  const header = lines[0]!.toLowerCase().replace(/"/g, "");
+  const hasHz = header.includes("hz") || header.includes("horizontal");
+  const hasEasting = header.includes("easting") || header.includes("e");
+
+  if (hasHz) {
+    return parseTrimbleCsvObservations(lines);
+  }
+  if (hasEasting) {
+    return parseTrimbleCsvCoordinates(lines);
+  }
+  // Fallback: try observations if enough columns
+  const firstCols = lines[1]!.split(/[;,]+/).length;
+  return firstCols >= 5 ? parseTrimbleCsvObservations(lines) : { type: "total_station", observations: [] };
+}
+
+function parseTrimbleCsvObservations(lines: string[]): ParsedFieldBook {
+  // Skip header
+  const dataLines = lines.slice(1);
+  const obsMap = new Map<string, TsObservation>();
+
+  for (const line of dataLines) {
+    const p = line.split(/[;,]+/).map(s => s.trim().replace(/"/g, ""));
+    const pointId = p[0] || "PT";
+    const th = parseFloat(p[2]) || 1.6;
+    const hz = parseFloat(p[3]) || 0;
+    const v = parseFloat(p[4]) || 90;
+    const sd = parseFloat(p[5]) || 0;
+    const face = (p[6] || "F1").toUpperCase();
+
+    let obs = obsMap.get(pointId);
+    if (!obs) {
+      obs = { pointId, targetHeight: th, faceLeft: null, faceRight: null, remark: p[1] || "" };
+      obsMap.set(pointId, obs);
+    }
+
+    if (face === "F2" || face === "FR" || face === "R") {
+      obs.faceRight = { hz, v, sd };
+    } else {
+      obs.faceLeft = { hz, v, sd };
+    }
+  }
+
+  return { type: "total_station", observations: Array.from(obsMap.values()) };
+}
+
+function parseTrimbleCsvCoordinates(lines: string[]): ParsedFieldBook {
+  const dataLines = lines.slice(1);
+  const observations: TsObservation[] = dataLines.map(line => {
+    const p = line.split(/[;,]+/).map(s => s.trim().replace(/"/g, ""));
+    return {
+      pointId: p[0] || "PT",
+      targetHeight: 1.6,
+      faceLeft: null,
+      faceRight: null,
+      remark: p[1] || "",
+    };
+  });
+  return { type: "total_station", observations };
+}
+
+// ─── XML Parser ─────────────────────────────────────────────────
+
+/**
+ * Parse instrument XML exports (Leica, Trimble Access, generic).
+ *
+ * Supports:
+ *   - Leica GSI XML: <Observation><Point>...</Point><Hz>...</Hz>...</Observation>
+ *   - Trimble Access XML: <Observation><StationSetup>...</StationSetup>...</Observation>
+ *   - Generic: any XML with <Observation> or <Reading> elements
+ */
+export function parseXml(raw: string): ParsedFieldBook {
+  // Simple DOMParser-free XML parsing using regex
+  // (works in browser without importing DOMParser)
+  const observations: TsObservation[] = [];
+  let instrument = "";
+  let serialNumber = "";
+
+  // Extract instrument info if present
+  const instrumentMatch = raw.match(/<Instrument[^>]*>\s*<[^>]*>([^<]+)<\/[^>]*>\s*<\/Instrument>/i);
+  if (instrumentMatch) instrument = instrumentMatch[1]!.trim();
+
+  const serialMatch = raw.match(/<SerialNumber[^>]*>([^<]+)<\/SerialNumber>/i);
+  if (serialMatch) serialNumber = serialMatch[1]!.trim();
+
+  // Find all Observation or Reading blocks
+  const obsRegex = /<(?:Observation|Reading)[^>]*>([\s\S]*?)<\/(?:Observation|Reading)>/gi;
+  let match;
+
+  while ((match = obsRegex.exec(raw)) !== null) {
+    const block = match[1]!;
+
+    const pointId = extractXmlField(block, ["PointId", "Point", "TargetId", "Name", "id"]) || "PT";
+    const th = parseFloat(extractXmlField(block, ["TargetHeight", "InstrumentHeight", "TH"]) || "1.6");
+    const hz = parseFloat(extractXmlField(block, ["Hz", "HorizontalAngle", "Horizontal"]) || "0");
+    const v = parseFloat(extractXmlField(block, ["V", "VerticalAngle", "Vertical", "Zenith"]) || "90");
+    const sd = parseFloat(extractXmlField(block, ["SD", "SlopeDistance", "Distance"]) || "0");
+    const face = (extractXmlField(block, ["Face", "FaceLeft"]) || "F1").toUpperCase();
+    const remark = extractXmlField(block, ["Remark", "Description", "Code", "Note"]) || "";
+
+    // Skip station setup records (no angle/distance)
+    if (hz === 0 && v === 90 && sd === 0) continue;
+
+    const obs: TsObservation = {
+      pointId,
+      targetHeight: th,
+      faceLeft: null,
+      faceRight: null,
+      remark,
+    };
+
+    if (face === "F2" || face === "FR" || face === "R") {
+      obs.faceRight = { hz, v, sd };
+    } else {
+      obs.faceLeft = { hz, v, sd };
+    }
+
+    observations.push(obs);
+  }
+
+  // Merge face-left/face-right for same point
+  const merged = mergeFacePairs(observations);
+
+  return { type: "total_station", observations: merged, instrument, serialNumber };
+}
+
+function extractXmlField(block: string, fieldNames: string[]): string | null {
+  for (const name of fieldNames) {
+    // Match <Name>value</Name> or <Name value="..."/>
+    const contentRegex = new RegExp(`<${name}[^>]*>\\s*([^<]+?)\\s*<\\${name}>`, "i");
+    const contentMatch = block.match(contentRegex);
+    if (contentMatch) return contentMatch[1]!.trim();
+
+    const attrRegex = new RegExp(`<${name}[^>]*value=\\"([^\\"]+)\\"`, "i");
+    const attrMatch = block.match(attrRegex);
+    if (attrMatch) return attrMatch[1]!.trim();
+  }
+  return null;
+}
+
+function mergeFacePairs(observations: TsObservation[]): TsObservation[] {
+  const map = new Map<string, TsObservation>();
+  for (const obs of observations) {
+    const existing = map.get(obs.pointId);
+    if (!existing) {
+      map.set(obs.pointId, { ...obs });
+    } else {
+      if (obs.faceLeft && !existing.faceLeft) existing.faceLeft = obs.faceLeft;
+      if (obs.faceRight && !existing.faceRight) existing.faceRight = obs.faceRight;
+    }
+  }
+  return Array.from(map.values());
+}
+
 // ─── Format Detection ───────────────────────────────────────────
 
 /**
  * Auto-detect the format of raw instrument data.
  */
-export function detectFormat(raw: string): "csv" | "gsi" | "sdr" | "trimble-dc" | "unknown" {
+export function detectFormat(raw: string): "csv" | "gsi" | "sdr" | "trimble-dc" | "trimble-csv" | "xml" | "unknown" {
   const trimmed = raw.trim();
   if (trimmed.startsWith("%")) return "gsi";
+  if (trimmed.startsWith("<") && (trimmed.includes("<Observation") || trimmed.includes("<Reading") || trimmed.includes("<Instrument"))) return "xml";
   if (/^Smith\s+\d+/m.test(trimmed)) return "sdr";
   if (/Point\s+Code\s+Northing/m.test(trimmed) || /Point\s+Code\s+Easting/m.test(trimmed)) return "trimble-dc";
+  // Trimble CSV: header contains Hz/V/SD or Easting/Northing
+  const firstLine = trimmed.split("\n")[0]?.toLowerCase() ?? "";
+  if (firstLine.includes("hz") && (firstLine.includes("v") || firstLine.includes("vertical"))) return "trimble-csv";
+  if (firstLine.includes("easting") && firstLine.includes("northing")) return "trimble-csv";
   const lines = trimmed.split("\n");
   if (lines.length > 0) {
     const cols = lines[0]!.split(/[;,|\t]+/).length;
@@ -289,7 +467,21 @@ export function importInstrumentData(raw: string): ParsedFieldBook {
     case "gsi": return parseGsi(raw);
     case "sdr": return parseSdr(raw);
     case "trimble-dc": return parseTrimbleDc(raw);
+    case "trimble-csv": return parseTrimbleCsv(raw);
+    case "xml": return parseXml(raw);
     case "csv": return parseCsv(raw);
     default: return parseCsv(raw); // fallback
   }
 }
+
+/**
+ * Human-readable description of each supported format.
+ */
+export const FORMAT_DESCRIPTIONS: Record<string, { label: string; extensions: string; example: string }> = {
+  csv: { label: "Generic CSV", extensions: ".csv,.txt,.dat", example: "PointID,TH,Hz,V,SD\nFS1,1.600,45.2317,87.5431,45.234" },
+  gsi: { label: "Leica GSI-8/GSI-16", extensions: ".gsi,.txt", example: "%1  1 00000002+00000000\n%1 21 00000001+00451234" },
+  sdr: { label: "Sokkia SDR33", extensions: ".sdr,.txt", example: "Smith      1  STN1          1.500\nSmith      2  FS1           1.600      45.2317   87.5431   45.234" },
+  "trimble-dc": { label: "Trimble DC", extensions: ".dc,.txt", example: "Point       Code    Northing   Easting    Elevation\nFS1         DET     9857745.2  257132.1   101.5" },
+  "trimble-csv": { label: "Trimble CSV (Access/Siteworks)", extensions: ".csv", example: "Point,Code,TH,Hz,V,SD,Face\nFS1,DET,1.600,45.2317,87.5431,45.234,F1" },
+  xml: { label: "Instrument XML (Leica/Trimble)", extensions: ".xml", example: "<Observation><PointId>FS1</PointId><Hz>45.2317</Hz>...</Observation>" },
+};
