@@ -23,6 +23,38 @@ export type {
   ContourResult,
   ContourOptions,
 } from "./canvas/contour-generation.js";
+export { useSurveyViewport, computeDataBounds } from "./canvas/useSurveyViewport.js";
+export type {
+  SurveyPointLike,
+  Bounds,
+  ViewportState,
+  TransformFn,
+  UseSurveyViewportOptions,
+  UseSurveyViewportReturn,
+} from "./canvas/useSurveyViewport.js";
+export {
+  GridLayer,
+  TriangleLayer,
+  ContourLayer,
+  PolygonLayer,
+  LineLayer,
+  PointLayer,
+  SpotHeightLayer,
+  EllipseLayer,
+  ChromeLayer,
+} from "./canvas/SurveyLayers.js";
+export type {
+  LayerProps,
+  GridLayerProps,
+  TriangleLayerProps,
+  ContourLayerProps,
+  PolygonLayerProps,
+  LineLayerProps,
+  PointLayerProps,
+  SpotHeightLayerProps,
+  EllipseLayerProps,
+  ChromeLayerProps,
+} from "./canvas/SurveyLayers.js";
 export { useInstrumentConnection } from "./hooks/useInstrumentConnection.js";
 export type {
   ConnectionType,
