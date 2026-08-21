@@ -15,6 +15,14 @@ interface CrossSectionData {
   area?: { cut: number; fill: number };
 }
 
+const escapeHtml = (unsafe: string) =>
+  unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
 function renderCrossSectionSvg(section: CrossSectionData, options: {
   width?: number;
   height?: number;
@@ -85,14 +93,13 @@ function renderCrossSectionSvg(section: CrossSectionData, options: {
     }
   }
 
-  const featureMarkers
   const featureMarkers = section.points
     .filter(p => p.feature)
     .map(p => {
       const x = projectX(p.offset);
       const y = projectY(p.groundElevation);
       return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="#FF9500" stroke="#fff" stroke-width="1"/>
-              <text x="${x.toFixed(1)}" y="${(y - 8).toFixed(1)}" text-anchor="middle" font-size="8" fill="#FF9500" font-weight="bold">${p.feature}</text>`;
+              <text x="${x.toFixed(1)}" y="${(y - 8).toFixed(1)}" text-anchor="middle" font-size="8" fill="#FF9500" font-weight="bold">${escapeHtml(p.feature!)}</text>`;
     })
     .join("\n    ");
 
