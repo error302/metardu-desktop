@@ -295,10 +295,10 @@ export const PointLayer: React.FC<PointLayerProps> = ({
         <g key={`pt-${i}`}>
           <circle cx={pos.x} cy={pos.y} r={radius}
             fill={color} stroke="#fff" strokeWidth={1} />
-          {showLabels && p.label && (
+          {showLabels && (p as any).label && (
             <text x={pos.x + 5} y={pos.y - 5}
               fill="#2dd4bf" fontSize={10} fontFamily="monospace">
-              {p.label}
+              {(p as any).label}
             </text>
           )}
           {showLabels && p.elevation !== undefined && (
