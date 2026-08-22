@@ -67,6 +67,23 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install Linux deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgdal-dev libdbus-1-dev pkg-config
+
+      - name: Install macOS deps
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install gdal
+
+      - name: Install Windows deps
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          choco install -y gdal
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -136,6 +153,23 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgdal-dev libdbus-1-dev pkg-config
+
+      - name: Install macOS deps
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install gdal
+
+      - name: Install Windows deps
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          choco install -y gdal
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
