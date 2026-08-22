@@ -51,8 +51,8 @@ export {
 
 export {
   pyQgisScriptExporter,
-  type PyqgisOptions,
-  type PyqgisOutput,
+  type PyQgisOptions,
+  type PyQgisOutput,
 } from "./pyqgis-script-generator.js";
 
 export {
@@ -103,9 +103,6 @@ import { qgsProjectExporter } from "./qgs-project-generator.js";
 import { osmChangesetExporter } from "./osm-changeset-export.js";
 import { dxfExporter } from "./dxf-export.js";
 import { landxmlExporter } from "./landxml-export.js";
-import type { IntegrationExporter, SurveyOutput } from "./types.js";
-import type { GcpInput } from "./gcp-export.js";
-import type { OsmInput } from "./osm-changeset-export.js";
 
 // ─── Discriminated-union registries ───────────────────────────────
 //

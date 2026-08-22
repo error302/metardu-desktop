@@ -201,6 +201,7 @@ export const landxmlExporter: IntegrationExporter<
   LandxmlOutput
 > = {
   format: "landxml",
+  description: "LandXML Exporter",
   mimeType: "application/xml",
   fileExtension: "xml",
 
@@ -211,9 +212,9 @@ export const landxmlExporter: IntegrationExporter<
       typeof input === "object" && input !== null && "tin" in input;
 
     if (!hasBeacons && !hasTin) {
-      return { ok: false, errors: ["Input must have allBeacons (cadastral) or tin (topographic)"] };
+      return { ok: false, errors: ["Input must have allBeacons (cadastral) or tin (topographic)"], warnings: [] };
     }
-    return { ok: true, errors: [] };
+    return { ok: true, errors: [], warnings: [] };
   },
 
   async export(input, options): Promise<LandxmlOutput> {
@@ -223,9 +224,8 @@ export const landxmlExporter: IntegrationExporter<
     }
 
     const obj = input as Record<string, unknown>;
-    const countryCode = options.countryCode ?? "KE";
-    const projectName = (options.projectMetadata as Record<string, unknown>)?.projectName as string ?? "Survey";
-    const surveyorName = (options.projectMetadata as Record<string, unknown>)?.surveyorName as string | undefined;
+    const projectName = (options.projectMetadata as any)?.projectName as string ?? "Survey";
+    const surveyorName = (options.projectMetadata as any)?.surveyorName as string | undefined;
 
     let xml: string;
 
