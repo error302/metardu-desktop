@@ -369,6 +369,8 @@ export {
   qgsProjectExporter,
   osmChangesetExporter,
   dxfExporter,
+  findExporter,
+  listExportFormats,
   getCountryDxfLayerSpecs,
   INTEGRATION_EXPORTERS,
   type IntegrationExporter,
