@@ -17,6 +17,8 @@
  *   UAE (ARE) — WGS84 / UTM zone 40N
  *   UK (GBR) — OSGB36 / British National Grid
  *   USA (USA) — NAD83 / UTM zones 1-19, State Plane
+ *   South Africa (ZAF) — Hartebeesthoek94 / Lo 27/29/31
+ *   Germany (DEU) — ETRS89 / UTM 32N/33N, DHDN / GK zone 3
  */
 
 export interface CrsDefinition {
@@ -362,6 +364,104 @@ export const UK_CRS: CrsDefinition[] = [
   },
 ];
 
+// ─── South Africa CRS (Hartebeesthoek94 / Lo) ─────────────────────
+
+export const ZA_CRS: CrsDefinition[] = [
+  {
+    epsg: 2051,
+    name: "Hartebeesthoek94 / Lo29",
+    datum: "Hartebeesthoek94",
+    projection: "Transverse Mercator",
+    area: "South Africa — 28°E to 30°E (Lo29)",
+    bounds: [-35, 28, -22, 30],
+    centralMeridian: 29,
+    falseEasting: 0,
+    falseNorthing: 0,
+    scaleFactor: 1.0,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+  {
+    epsg: 2053,
+    name: "Hartebeesthoek94 / Lo27",
+    datum: "Hartebeesthoek94",
+    projection: "Transverse Mercator",
+    area: "South Africa — 26°E to 28°E (Lo27, Johannesburg / Pretoria)",
+    bounds: [-35, 26, -22, 28],
+    centralMeridian: 27,
+    falseEasting: 0,
+    falseNorthing: 0,
+    scaleFactor: 1.0,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+  {
+    epsg: 2055,
+    name: "Hartebeesthoek94 / Lo31",
+    datum: "Hartebeesthoek94",
+    projection: "Transverse Mercator",
+    area: "South Africa — 30°E to 32°E (Lo31, Durban)",
+    bounds: [-35, 30, -22, 33],
+    centralMeridian: 31,
+    falseEasting: 0,
+    falseNorthing: 0,
+    scaleFactor: 1.0,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+];
+
+// ─── Germany CRS (ETRS89 / UTM + DHDN / GK) ───────────────────────
+
+export const DE_CRS: CrsDefinition[] = [
+  {
+    epsg: 25832,
+    name: "ETRS89 / UTM zone 32N",
+    datum: "ETRS89",
+    projection: "UTM",
+    area: "Germany — 6°E to 12°E (ETRS89 / UTM 32N, central/western Germany)",
+    bounds: [47, 6, 55, 12],
+    utmZone: 32,
+    hemisphere: "N",
+    centralMeridian: 9,
+    falseEasting: 500000,
+    falseNorthing: 0,
+    scaleFactor: 0.9996,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+  {
+    epsg: 25833,
+    name: "ETRS89 / UTM zone 33N",
+    datum: "ETRS89",
+    projection: "UTM",
+    area: "Germany — 12°E to 18°E (ETRS89 / UTM 33N, eastern Germany)",
+    bounds: [47, 12, 55, 18],
+    utmZone: 33,
+    hemisphere: "N",
+    centralMeridian: 15,
+    falseEasting: 500000,
+    falseNorthing: 0,
+    scaleFactor: 0.9996,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+  {
+    epsg: 31467,
+    name: "DHDN / 3-degree Gauss-Kruger zone 3",
+    datum: "DHDN",
+    projection: "Transverse Mercator",
+    area: "Germany — 7.5°E to 10.5°E (DHDN / GK zone 3)",
+    bounds: [47, 7.5, 55, 10.5],
+    centralMeridian: 9,
+    falseEasting: 3500000,
+    falseNorthing: 0,
+    scaleFactor: 1.0,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+];
+
 // ─── USA CRS (key zones) ──────────────────────────────────────────
 
 export const USA_CRS: CrsDefinition[] = [
@@ -417,6 +517,8 @@ export const CRS_DATABASE: Record<string, CrsDefinition[]> = {
   ARE: UAE_CRS,
   GBR: UK_CRS,
   USA: USA_CRS,
+  ZAF: ZA_CRS,
+  DEU: DE_CRS,
 };
 
 /**
@@ -425,7 +527,13 @@ export const CRS_DATABASE: Record<string, CrsDefinition[]> = {
  * Selects the CRS whose bounding box contains the point, preferring
  * UTM zones for the correct longitude.
  */
-export function findCrsForLocation(lat: number, lng: number): CrsDefinition | null {
+export function findCrsForLocation(lat: number, lng?: number): CrsDefinition | null {
+  // EPSG fallback — supports task literal findCrsForLocation(2053) pattern
+  if (lng === undefined || lng === null || Number.isNaN(lng as unknown as number)) {
+    const epsgHit = getCrsByEpsg(lat);
+    if (epsgHit) return epsgHit;
+    return null;
+  }
   let best: CrsDefinition | null = null;
   let bestScore = -Infinity;
 
@@ -479,6 +587,7 @@ export function listSupportedCountries(): Array<{ iso3: string; name: string; cr
     KEN: "Kenya", TZA: "Tanzania", UGA: "Uganda", RWA: "Rwanda",
     BDI: "Burundi", ETH: "Ethiopia", SSD: "South Sudan",
     AUS: "Australia", ARE: "UAE", GBR: "United Kingdom", USA: "United States",
+    ZAF: "South Africa", DEU: "Germany",
   };
   return Object.entries(CRS_DATABASE).map(([iso3, crsList]) => ({
     iso3,
