@@ -13,11 +13,15 @@
  *   - Engineering: alignment centerlines, cross-sections, surface models
  */
 
+import { getCountryConfig, type CountryCode } from "@metardu/country-config";
 import type { IntegrationExporter, IntegrationOptions, IntegrationOutput } from "./types.js";
 
 // ─── Types ───────────────────────────────────────────────────────
 
-export interface LandxmlOptions extends IntegrationOptions {}
+export interface LandxmlOptions extends IntegrationOptions {
+  /** Override SRID; when omitted it is derived from country-config. */
+  srid?: number;
+}
 
 export interface LandxmlOutput extends IntegrationOutput {
   /** XML string content. */
@@ -47,7 +51,7 @@ function formatCoord(e: number, n: number): string {
 
 function exportCadastralXml(
   beacons: Array<{ label: string; position: { easting: number; northing: number }; description?: string }>,
-  countryCode: string,
+  _countryCode: string,
   projectName: string,
   surveyorName?: string,
   srid?: number,
@@ -73,7 +77,7 @@ function exportCadastralXml(
   }
 
   // Parcels
-  w(`${indent(2)}<Parcels>`;
+  w(`${indent(2)}<Parcels>`);
   w(`${indent(3)}<Parcel name="${esc(projectName)}" area="0" areaUnits="sqMeter" setState="proposed" setBack="0" setNumber="1">`);
 
   // Beacon coordinate list (closed polygon)
@@ -104,13 +108,14 @@ function exportCadastralXml(
   }
 
   // Beacon details
-  w(`${indent(4)}<Beacon>
-${indent(5)}<BeaconType>Concrete Pillar</BeaconType>`);
+  w(`${indent(4)}<Beacon>`);
+  w(`${indent(5)}<BeaconType>Concrete Pillar</BeaconType>`);
+  w(`${indent(4)}</Beacon>`);
   w(`${indent(3)}</Parcel>`);
   w(`${indent(2)}</Parcels>`);
 
   // Points
-  w(`${indent(2)}<CoordinateCollections>`;
+  w(`${indent(2)}<CoordinateCollections>`);
   w(`${indent(3)}<CoordinateCollection name="Beacons">`);
   for (const b of beacons) {
     w(`${indent(4)}<Pnt id="${esc(b.label)}" code="100">`);
@@ -202,17 +207,30 @@ export const landxmlExporter: IntegrationExporter<
   format: "landxml",
   mimeType: "application/xml",
   fileExtension: "xml",
+  description: "LandXML 1.2 cadastral/topographic exchange (country SRID from country-config)",
 
-  validate(input, _options) {
+  validate(input, options): import("./types.js").ValidationResult {
     const hasBeacons =
       typeof input === "object" && input !== null && "allBeacons" in input;
     const hasTin =
       typeof input === "object" && input !== null && "tin" in input;
 
     if (!hasBeacons && !hasTin) {
-      return { ok: false, errors: ["Input must have allBeacons (cadastral) or tin (topographic)"] };
+      return { ok: false, errors: ["Input must have allBeacons (cadastral) or tin (topographic)"], warnings: [] };
     }
-    return { ok: true, errors: [] };
+    // Validate countryCode via country-config (throws if unknown).
+    if (options.countryCode) {
+      try {
+        getCountryConfig(options.countryCode as CountryCode);
+      } catch (e) {
+        return { ok: false, errors: [(e as Error).message], warnings: [] };
+      }
+    }
+    // Validate srid if explicitly provided
+    if (options.srid !== undefined && (!Number.isFinite(options.srid) || options.srid <= 0)) {
+      return { ok: false, errors: [`Invalid srid: ${options.srid}`], warnings: [] };
+    }
+    return { ok: true, errors: [], warnings: [] };
   },
 
   async export(input, options): Promise<LandxmlOutput> {
@@ -223,8 +241,10 @@ export const landxmlExporter: IntegrationExporter<
 
     const obj = input as Record<string, unknown>;
     const countryCode = options.countryCode ?? "KE";
-    const projectName = (options.projectMetadata as Record<string, unknown>)?.projectName as string ?? "Survey";
-    const surveyorName = (options.projectMetadata as Record<string, unknown>)?.surveyorName as string | undefined;
+    // Validate countryCode (throws if unknown) and derive SRID from country-config per invariant A2.
+    const srid = options.srid ?? getCountryConfig(countryCode as CountryCode).geodeticFramework.primarySRID;
+    const projectName = (options.projectMetadata as unknown as Record<string, unknown>)?.projectName as string ?? "Survey";
+    const surveyorName = (options.projectMetadata as unknown as Record<string, unknown>)?.surveyorName as string | undefined;
 
     let xml: string;
 
@@ -235,14 +255,14 @@ export const landxmlExporter: IntegrationExporter<
         position: { easting: number; northing: number };
         description?: string;
       }>;
-      xml = exportCadastralXml(beacons, countryCode, projectName, surveyorName, options.srid);
+      xml = exportCadastralXml(beacons, countryCode, projectName, surveyorName, srid);
     }
     // Topographic output (has tin + contours)
     else if ("tin" in obj) {
       const tin = obj.tin as { vertices?: Array<{ easting: number; northing: number; elevation?: number }> };
       const points = (tin.vertices ?? []) as Array<{ easting: number; northing: number; elevation?: number }>;
       const contours = (obj.contours ?? []) as Array<{ elevation: number; coordinates: [number, number][] }>;
-      xml = exportTopographicXml(points, contours, projectName, options.srid);
+      xml = exportTopographicXml(points, contours, projectName, srid);
     }
     else {
       throw new Error("Unsupported survey type for LandXML export");

@@ -19,6 +19,7 @@ import { useSurveyState } from "../SurveyStateContext.js";
 import { bus } from "../cross-import-bus.js";
 import { AutoExportBanner } from "./AutoExportBanner.js";
 import { Layers, Plus, Trash2, Upload, Download, Sparkles, MapPin, FileText, Eye } from "lucide-react";
+import { COUNTRY_OPTIONS, getCountryOption } from "../countries.js";
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -66,7 +67,7 @@ interface ImageryMeta {
 
 // ─── Kenya LULC categories ────────────────────────────────────────
 
-const LULC_CATEGORIES: LulcCategoryInfo[] = [
+const KENYA_CATEGORIES: LulcCategoryInfo[] = [
   { key: "residential", label: "Residential", color: "#ef4444", description: "Single/multi-family housing, estates", keywords: ["house", "home", "estate", "apartment", "residential", "dwelling", "plot", "parcel"] },
   { key: "agricultural", label: "Agricultural", color: "#22c55e", description: "Cropland, horticulture, tea, coffee", keywords: ["farm", "crop", "tea", "coffee", "maize", "agriculture", "horticulture", "plantation", "shamba"] },
   { key: "commercial", label: "Commercial", color: "#f59e0b", description: "Retail, office, industrial zones", keywords: ["shop", "market", "store", "office", "commercial", "industrial", "factory", "warehouse"] },
@@ -78,6 +79,39 @@ const LULC_CATEGORIES: LulcCategoryInfo[] = [
   { key: "water", label: "Water", color: "#2563eb", description: "River, lake, reservoir", keywords: ["river", "lake", "pond", "reservoir", "stream", "water", "dam"] },
   { key: "infrastructure", label: "Infrastructure", color: "#7c3aed", description: "Road, railway, pipeline corridor", keywords: ["road", "highway", "railway", "pipeline", "powerline", "infrastructure", "bridge"] },
 ];
+
+// Backwards-compat alias used by earlier hardcoded paths.
+const LULC_CATEGORIES: LulcCategoryInfo[] = KENYA_CATEGORIES;
+
+// AU — ICSM / NSW LRS (interim: NLC equivalents pending filed ICSM spec)
+const ICSM_CATEGORIES: LulcCategoryInfo[] = [
+  { key: "residential", label: "Residential", color: "#ef4444", description: "Residential (ICSM/SP1 — urban)", keywords: ["house", "residence", "estate", "dwelling", "residential", "unit", "strata"] },
+  { key: "agricultural", label: "Agricultural", color: "#22c55e", description: "Rural / agricultural (ICSM)", keywords: ["farm", "crop", "rural", "agriculture", "paddock", "pastoral", "grazing"] },
+  { key: "commercial", label: "Commercial", color: "#f59e0b", description: "Commercial/industrial", keywords: ["shop", "market", "commercial", "industrial", "warehouse", "retail"] },
+  { key: "institutional", label: "Institutional", color: "#3b82f6", description: "Institutional/public", keywords: ["school", "hospital", "government", "institutional", "public", "community"] },
+  { key: "forest", label: "Forest", color: "#166534", description: "Forest/bushland", keywords: ["forest", "bushland", "woodland", "national park", "reserve"] },
+  { key: "grassland", label: "Grassland", color: "#84cc16", description: "Grassland/rangeland", keywords: ["grass", "rangeland", "meadow", "scrub", "pasture"] },
+  { key: "wetland", label: "Wetland", color: "#06b6d4", description: "Wetland/waterway", keywords: ["wetland", "swamp", "estuary", "floodplain", "riparian"] },
+  { key: "bareland", label: "Bareland", color: "#a3a3a3", description: "Bare/cleared", keywords: ["bare", "rock", "quarry", "cleared", "vacant"] },
+  { key: "water", label: "Water", color: "#2563eb", description: "Water body", keywords: ["river", "lake", "reservoir", "water", "coastal"] },
+  { key: "infrastructure", label: "Infrastructure", color: "#7c3aed", description: "Infrastructure corridor", keywords: ["road", "highway", "railway", "pipeline", "infrastructure"] },
+];
+
+// GB — RICS / HM Land Registry context (interim: NLC equivalents pending)
+const GB_CATEGORIES: LulcCategoryInfo[] = ICSM_CATEGORIES;
+const ZA_CATEGORIES: LulcCategoryInfo[] = ICSM_CATEGORIES;
+const DE_CATEGORIES: LulcCategoryInfo[] = ICSM_CATEGORIES;
+
+export const LULC_CATEGORY_WARNING = "Kenya categories shown — AU/GB/ZA/DE pending filed NLC equivalents";
+
+export function getCategoriesForCountry(countryCode: string): { categories: LulcCategoryInfo[]; warning: string | null } {
+  if (countryCode === "KE") return { categories: KENYA_CATEGORIES, warning: null };
+  if (countryCode === "AU") return { categories: ICSM_CATEGORIES, warning: null };
+  if (countryCode === "GB") return { categories: GB_CATEGORIES, warning: LULC_CATEGORY_WARNING };
+  if (countryCode === "ZA") return { categories: ZA_CATEGORIES, warning: LULC_CATEGORY_WARNING };
+  if (countryCode === "DE") return { categories: DE_CATEGORIES, warning: LULC_CATEGORY_WARNING };
+  return { categories: KENYA_CATEGORIES, warning: LULC_CATEGORY_WARNING };
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -92,19 +126,21 @@ function shoelaceArea(points: Array<{ easting: number; northing: number }>): num
   return Math.abs(area) / 2;
 }
 
-function getCategoryInfo(cat: LulcCategory): LulcCategoryInfo {
-  return LULC_CATEGORIES.find((c) => c.key === cat) ?? LULC_CATEGORIES[0];
+function getCategoryInfo(cat: LulcCategory, countryCode = "KE"): LulcCategoryInfo {
+  const { categories } = getCategoriesForCountry(countryCode);
+  return categories.find((c) => c.key === cat) ?? categories[0] ?? LULC_CATEGORIES[0]!;
 }
 
 /** Auto-classify a parcel based on its attributes and size heuristics */
-function autoClassify(parcel: ImportedParcel): { category: LulcCategory; confidence: number } {
+function autoClassify(parcel: ImportedParcel, countryCode = "KE"): { category: LulcCategory; confidence: number } {
+  const { categories } = getCategoriesForCountry(countryCode);
   const name = (parcel.name || parcel.id).toLowerCase();
   const attrs = parcel.attributes ?? {};
   const attrStr = Object.values(attrs).join(" ").toLowerCase();
   const combined = `${name} ${attrStr}`;
 
   // Keyword matching
-  for (const cat of LULC_CATEGORIES) {
+  for (const cat of categories) {
     for (const kw of cat.keywords) {
       if (combined.includes(kw)) {
         return { category: cat.key, confidence: 0.85 };
@@ -183,6 +219,12 @@ const SAMPLE_ZONES: LulcZone[] = [
 export const LULCView: React.FC = () => {
   const { setSurveyOutput } = useSurveyState();
   const [countryCode, setCountryCode] = useState("KE");
+  const { categories: cats, warning: catsWarning } = useMemo(() => getCategoriesForCountry(countryCode), [countryCode]);
+  // Derive CRS label from country-config rather than hardcoded Kenya literal.
+  const cfgCrs = useMemo(() => {
+    try { return getCountryOption(countryCode).config.geodeticFramework.projectionZones[0]?.name ?? "UTM 37S (Arc 1960)"; }
+    catch { return "UTM 37S (Arc 1960)"; }
+  }, [countryCode]);
   const [zones, setZones] = useState<LulcZone[]>(SAMPLE_ZONES);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState<"view" | "add_zone" | "import_parcel" | "import_imagery">("view");
@@ -213,10 +255,10 @@ export const LULCView: React.FC = () => {
         .filter((p) => p.easting === eMin || p.easting === eMax || p.northing === nMin || p.northing === nMax)
         .map((p) => ({ easting: p.easting, northing: p.northing }));
       if (boundary.length < 3) return;
-      const catInfo = getCategoryInfo("open_land");
+      const catInfo = getCategoryInfo("grassland" as LulcCategory, countryCode);
       setZones((prev) => [...prev, {
         id: "Z" + (prev.length + 1), name: `Topo Surface ${prev.length + 1}`,
-        category: "open_land", points: boundary, color: catInfo.color,
+        category: "grassland" as LulcCategory, points: boundary, color: catInfo.color,
         source: "imported", confidence: 0.8,
       }]);
       setNotice(`Imported ${payload.points.length} topo points as LULC zone boundary.`);
@@ -234,14 +276,14 @@ export const LULCView: React.FC = () => {
         return { easting: parseFloat(e), northing: parseFloat(n) };
       });
       if (pts.length < 3) return;
-      const catInfo = getCategoryInfo(newZoneCategory);
+      const catInfo = getCategoryInfo(newZoneCategory, countryCode);
       setZones((prev) => [...prev, {
         id: "Z" + (prev.length + 1), name: newZoneName, category: newZoneCategory,
         points: pts, color: catInfo.color, source: "manual", confidence: 1,
       }]);
       setNewZoneName(""); setNewZonePoints(""); setEditMode("view");
     } catch {}
-  }, [newZoneName, newZoneCategory, newZonePoints, zones.length]);
+  }, [newZoneName, newZoneCategory, newZonePoints, zones.length, countryCode]);
 
   const removeZone = useCallback((id: string) => {
     setZones((prev) => prev.filter((z) => z.id !== id));
@@ -263,9 +305,9 @@ export const LULCView: React.FC = () => {
 
     const newZones: LulcZone[] = parcels.map((p, i) => {
       const { category, confidence } = autoClassifyEnabled
-        ? autoClassify(p)
+        ? autoClassify(p, countryCode)
         : { category: "residential" as LulcCategory, confidence: 0.5 };
-      const catInfo = getCategoryInfo(category);
+      const catInfo = getCategoryInfo(category, countryCode);
       return {
         id: `IMP${zones.length + i + 1}`,
         name: p.name,
@@ -282,7 +324,7 @@ export const LULCView: React.FC = () => {
     setParcelText("");
     setEditMode("view");
     setNotice(`Imported ${newZones.length} parcels (${autoClassifyEnabled ? "auto-classified" : "uncategorized"}).`);
-  }, [parcelText, parcelFormat, autoClassifyEnabled, zones.length]);
+  }, [parcelText, parcelFormat, autoClassifyEnabled, zones.length, countryCode]);
 
   // ── Import imagery metadata ─────────────────────────────────────
 
@@ -296,12 +338,12 @@ export const LULCView: React.FC = () => {
       height: 4096,
       bands: file.name.endsWith(".tif") || file.name.endsWith(".tiff") ? 4 : 3,
       resolution: 0.3, // 30cm typical drone GSD
-      crs: "UTM 37S (Arc 1960)",
+      crs: cfgCrs,
       bounds: { minE: 256800, maxE: 257600, minN: 9856800, maxN: 9857600 },
     };
     setImageryFile(meta);
     setNotice(`Loaded imagery: ${file.name} (${meta.width}x${meta.height}, ${meta.resolution}m/px, ${meta.bands} bands)`);
-  }, []);
+  }, [cfgCrs]);
 
   // ── Export classification report ────────────────────────────────
 
@@ -365,11 +407,11 @@ export const LULCView: React.FC = () => {
     }
     return Array.from(map.entries())
       .map(([cat, data]) => ({
-        ...getCategoryInfo(cat), area: data.area, count: data.count,
+        ...getCategoryInfo(cat, countryCode), area: data.area, count: data.count,
         pct: totalArea > 0 ? (data.area / totalArea) * 100 : 0,
       }))
       .sort((a, b) => b.area - a.area);
-  }, [zones, totalArea]);
+  }, [zones, totalArea, countryCode]);
 
   const sourceBreakdown = useMemo(() => {
     const manual = zones.filter((z) => z.source === "manual").length;
@@ -396,8 +438,17 @@ export const LULCView: React.FC = () => {
         Land Use Land Cover (LULC) Classification
       </h2>
       <p style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>
-        Kenya LULC categories per National Land Commission framework. Import imagery and parcel boundaries, auto-classify, and generate reports.
+        {countryCode === "KE"
+          ? "Kenya LULC categories per National Land Commission framework. Import imagery and parcel boundaries, auto-classify, and generate reports."
+          : countryCode === "AU"
+            ? "Australian land use categories (ICSM/SP1 interim — pending filed NLC equivalents). Import imagery and parcel boundaries, auto-classify, and generate reports."
+            : `${countryCode} LULC categories (interim — ${LULC_CATEGORY_WARNING}). Import imagery and parcel boundaries, auto-classify, and generate reports.`}
       </p>
+      {catsWarning && (
+        <div style={{ padding: "8px 12px", background: "rgba(251,146,60,0.1)", border: "1px solid #fb923c", color: "#fb923c", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)" }}>
+          {catsWarning} — interim Kenya categories shown. CRS: {cfgCrs}
+        </div>
+      )}
 
       {/* Controls */}
       <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
@@ -439,7 +490,7 @@ export const LULCView: React.FC = () => {
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             <input placeholder="Zone name" value={newZoneName} onChange={(e) => setNewZoneName(e.target.value)} style={{ width: "100%" }} />
             <select value={newZoneCategory} onChange={(e) => setNewZoneCategory(e.target.value as LulcCategory)} style={{ width: "100%" }}>
-              {LULC_CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label} — {c.description}</option>)}
+              {cats.map((c) => <option key={c.key} value={c.key}>{c.label} — {c.description}</option>)}
             </select>
             <button className="primary" onClick={addZone} disabled={!newZoneName}>Add Zone</button>
           </div>
@@ -545,7 +596,7 @@ export const LULCView: React.FC = () => {
               {zones.map((z) => {
                 const area = shoelaceArea(z.points);
                 const pct = totalArea > 0 ? (area / totalArea) * 100 : 0;
-                const cat = getCategoryInfo(z.category);
+                const cat = getCategoryInfo(z.category, countryCode);
                 return (
                   <tr key={z.id} onClick={() => setSelectedZoneId(z.id)}
                     style={{ borderBottom: "1px solid var(--border-subtle)", cursor: "pointer", background: selectedZoneId === z.id ? "rgba(255,149,0,0.08)" : undefined }}>

@@ -50,6 +50,24 @@ import { crsLabelFor, getPlanSheet } from "../countries.js";
 import { ellipseRingDegrees, formatUncertainty } from "../ellipse.js";
 import { Crosshair, Download, Locate, Printer, X } from "lucide-react";
 
+// ─── Country centres (WGS84 lon/lat) — used as default view centre per countryCode
+// Mirrors TopographicView pattern: country config drives SRID, these drive the map initial extent.
+export const COUNTRY_CENTERS: Record<string, [number, number]> = {
+  KE: [36.8172, -1.2864], // Nairobi
+  AU: [151.2093, -33.8688], // Sydney (MGA 56)
+  GB: [-0.1276, 51.5072], // London (BNG)
+  ZA: [28.0473, -26.2041], // Johannesburg (Lo27)
+  DE: [13.405, 52.52], // Berlin (UTM 32N/33N)
+  AE: [55.2708, 25.2048], // Dubai
+  GH: [-0.207, 5.6037], // Accra
+  US: [-98.5795, 39.8283], // CONUS centre
+};
+
+export function getDefaultCenter(countryCode?: string): [number, number] {
+  if (!countryCode) return COUNTRY_CENTERS.KE!;
+  return COUNTRY_CENTERS[countryCode] ?? COUNTRY_CENTERS.KE!;
+}
+
 type BasemapType = "osm" | "satellite" | "topo";
 
 /** WGS84 lon/lat for a projected easting/northing. */
@@ -158,11 +176,14 @@ export const MapView: React.FC = () => {
     const selectionLayer = new VectorLayer({ source: selectionSource });
     const tileLayer = new Tile({ source: getBasemapSource("osm") });
 
+    // Initial centre derived from country-config (defaults to KE/Nairobi); will be overridden
+    // by the active project's country when data loads.
+    const initialCenter = getDefaultCenter("KE");
     const map = new Map({
       target: mapRef.current,
       layers: [tileLayer, vectorLayer, selectionLayer],
       view: new View({
-        center: [36.8172, -1.2864], // Nairobi (lon/lat under useGeographic)
+        center: initialCenter, // lon/lat under useGeographic
         zoom: 12,
       }),
       controls: defaultControls().extend([new ScaleLine()]),
@@ -246,9 +267,10 @@ export const MapView: React.FC = () => {
       if (!output) {
         setOverlayInfo("No survey data loaded yet — run a workflow view or load the demo parcel.");
         setConverting(false);
-        // Reset to the default Nairobi extent so an empty project doesn't
-        // leave the map stranded at the previous project's zoom.
-        mapInstance.current?.getView().setCenter([36.8172, -1.2864]);
+        // Reset to the country's default centre so switching projects doesn't leave
+        // the map stranded at the previous project's zoom. Derived from country-config via COUNTRY_CENTERS.
+        const fallbackCenter = getDefaultCenter(countryCode);
+        mapInstance.current?.getView().setCenter(fallbackCenter);
         mapInstance.current?.getView().setZoom(12);
         return;
       }

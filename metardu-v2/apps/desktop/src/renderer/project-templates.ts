@@ -238,6 +238,113 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
       "Adjacent parcel boundaries must be consistent (no gaps or overlaps)",
     ],
   },
+
+  // ── 7. Australia (NSW) — Deposited Plan / Cadastral (Task 5) ───────
+  {
+    id: "au-deposited-plan",
+    name: "NSW Deposited Plan (Australia)",
+    description: "GDA2020 / MGA survey for NSW LRS deposited plan lodgment (subdivision or boundary definition) under the Surveying and Spatial Information Act 2002.",
+    icon: "🇦🇺",
+    countryCode: "AU",
+    surveyType: "cadastral",
+    feeDefaults: { areaHa: 2.0, beaconCount: 8, traverseKm: 1.5, terrainIndex: 1 },
+    views: [
+      { viewId: "projects", label: "Projects", purpose: "Create AU cadastral project (GDA2020/MGA)", required: true },
+      { viewId: "traverse", label: "Traverse", purpose: "Control traverse (ICSM SP1 v2.2)", required: true, defaults: { mode: "bowditch" } },
+      { viewId: "cogo", label: "COGO", purpose: "Compute parcel boundaries", required: true },
+      { viewId: "deedplan", label: "Deed Plan", purpose: "Generate deposited plan (DP) per NSW LRS template", required: true },
+      { viewId: "signing", label: "Sign & Seal", purpose: "BOSSI/CSPS certification", required: true },
+      { viewId: "export", label: "Export", purpose: "LandXML/GeoJSON for NSW LRS / ICSM", required: false },
+    ],
+    regulatoryRef: "Surveying and Spatial Information Act 2002 (NSW); ICSM SP1 v2.2; NSW LRS Requirements",
+    professionalBody: "Surveying & Spatial Sciences Institute (SSSI) — BOSSI / CSPS",
+    statutoryNotes: [
+      "Coordinates in GDA2020 / MGA (EPSG:7856/7855) — never silent WGS84",
+      "Positional Uncertainty ≤ 30 mm (urban) / 100 mm (rural) per ICSM SP1 v2.2",
+      "Deposited plan lodged on A1 landscape (NSW LRS)",
+      "Surveyor must hold BOSSI/CSPS registration (pattern ^CSPS/\\d{4,5}$)",
+    ],
+  },
+
+  // ── 8. United Kingdom — Measured Survey (RICS) (Task 5) ────────────
+  {
+    id: "gb-measured-survey",
+    name: "Measured Survey (UK)",
+    description: "Topographic / measured-building survey to RICS Measured Surveys 3rd ed., on OSGB36 / British National Grid with general-boundaries caveat.",
+    icon: "🇬🇧",
+    countryCode: "GB",
+    surveyType: "topographic",
+    feeDefaults: { areaHa: 1.0, beaconCount: 0, traverseKm: 2.0, terrainIndex: 1 },
+    views: [
+      { viewId: "projects", label: "Projects", purpose: "Create GB topographic project (OSGB36/BNG)", required: true },
+      { viewId: "topo", label: "Topographic", purpose: "Topographic survey per RICS Table 1 Class A/B", required: true },
+      { viewId: "gnss", label: "GNSS Monitor", purpose: "ETRS89 via OS Net CORS → OSGB36 via OSTN15", required: false },
+      { viewId: "map", label: "Map", purpose: "Overlay on OS MasterMap / satellite", required: true },
+      { viewId: "export", label: "Export", purpose: "DXF/GeoJSON with OSGB36 CRS (EPSG:27700)", required: true },
+    ],
+    regulatoryRef: "RICS Measured Surveys 3rd ed.; Land Registration Act 2002 (general boundaries); OS OSTN15",
+    professionalBody: "Royal Institution of Chartered Surveyors (RICS)",
+    statutoryNotes: [
+      "General boundaries rule applies (LRA 2002 s.60) — plan shows approximate, not definitive, boundaries",
+      "ETRS89→OSGB36 is OSTN15 grid, not Helmert — coarse Helmert warning in exports",
+      "Coordinates in OSGB36 / BNG (EPSG:27700), height in ODN (Newlyn)",
+      "Surveyor RICS registration: 7-digit numeric",
+    ],
+  },
+
+  // ── 9. South Africa — SG Diagram (Task 5) ──────────────────────────
+  {
+    id: "za-sg-diagram",
+    name: "SG Diagram (South Africa)",
+    description: "Hartebeesthoek94 / Lo cadastral survey for Surveyor-General diagram lodgment under the Land Survey Act 8 of 1997.",
+    icon: "🇿🇦",
+    countryCode: "ZA",
+    surveyType: "cadastral",
+    feeDefaults: { areaHa: 2.5, beaconCount: 6, traverseKm: 1.2, terrainIndex: 1 },
+    views: [
+      { viewId: "projects", label: "Projects", purpose: "Create ZA cadastral project (Hartebeesthoek94/Lo)", required: true },
+      { viewId: "traverse", label: "Traverse", purpose: "SG traverse (SANS 2814 Class A/B)", required: true },
+      { viewId: "cogo", label: "COGO", purpose: "Compute beacons/boundaries", required: true },
+      { viewId: "deedplan", label: "Deed Plan", purpose: "Generate SG Diagram (A1 portrait, SAGC seal)", required: true },
+      { viewId: "signing", label: "Sign & Seal", purpose: "SAGC (PLATO) certification", required: true },
+      { viewId: "export", label: "Export", purpose: "LandXML/GeoJSON for SG", required: false },
+    ],
+    regulatoryRef: "Land Survey Act 8 of 1997; SANS 2814; Chief Surveyor-General directives",
+    professionalBody: "South African Geomatics Council (SAGC, formerly PLATO)",
+    statutoryNotes: [
+      "Coordinates in Hartebeesthoek94 / Lo (EPSG:2051-2058)",
+      "Urban horizontal tolerance 15 mm (SANS 2814 Class A)",
+      "SG Diagram on A1 portrait with SG approval block",
+      "Surveyor PLATO registration (pattern ^PLATO/\\d{4,5}$)",
+    ],
+  },
+
+  // ── 10. Germany — Amtlicher Lageplan / Grenzfeststellung (Task 5) ─
+  {
+    id: "de-lageplan",
+    name: "Amtlicher Lageplan (Germany)",
+    description: "ETRS89 / UTM (or DHDN/GK legacy) cadastral survey for Amtlicher Lageplan / Grenzfeststellung under the VermKatG (AdV framework).",
+    icon: "🇩🇪",
+    countryCode: "DE",
+    surveyType: "cadastral",
+    feeDefaults: { areaHa: 1.5, beaconCount: 5, traverseKm: 1.0, terrainIndex: 1 },
+    views: [
+      { viewId: "projects", label: "Projects", purpose: "Create DE cadastral project (ETRS89/UTM)", required: true },
+      { viewId: "traverse", label: "Traverse", purpose: "Traverse per DVW/AdV (Genauigkeitsstufe A/B)", required: true },
+      { viewId: "cogo", label: "COGO", purpose: "Boundary determination / Abmarkung", required: true },
+      { viewId: "deedplan", label: "Deed Plan", purpose: "Amtlicher Lageplan / Grenzfeststellung (A4 portrait)", required: true },
+      { viewId: "signing", label: "Sign & Seal", purpose: "ÖbVI certification (DVW)", required: true },
+      { viewId: "export", label: "Export", purpose: "LandXML/GeoJSON in ETRS89/UTM (EPSG:25832/25833)", required: false },
+    ],
+    regulatoryRef: "Vermessungsgesetze der Länder (AdV); DVW guidelines; Wohnungseigentumsgesetz (WEG) for sectional",
+    professionalBody: "DVW / ÖbVI (Öffentlich bestellter Vermessungsingenieur)",
+    statutoryNotes: [
+      "Coordinates in ETRS89 / UTM (EPSG:25832/25833); DHDN/GK (EPSG:31467) legacy where noted",
+      "DHDN→ETRS89 Helmert via EPSG:1777 — verify rotation sign per Task 2 (Position Vector)",
+      "Amtlicher Lageplan on A4 portrait — ÖbVI seal at bottom-right",
+      "ÖbVI registration pattern ^\\d{4,6}$",
+    ],
+  },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────
