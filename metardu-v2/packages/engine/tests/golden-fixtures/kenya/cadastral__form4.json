@@ -1,0 +1,20 @@
+{
+  "document": "cadastral__form4",
+  "title": "Mutation Plan -- LR 12345/67 -> LR 12345/68, LR 12345/69",
+  "author": "Jane Wanjiru",
+  "subject": "Kenya Survey Act Cap. 299, Form No. 4 -- Mutation Plan [DRAFT]",
+  "creator": "MetaRDU Desktop -- packages/engine/src/documents/form-4.ts",
+  "producer": "MetaRDU Desktop",
+  "pageCount": 1,
+  "pageSize": "A4",
+  "hkItemCount": 10,
+  "hasDraftWatermark": true,
+  "areasCrossChecked": true,
+  "asciiOnly": true,
+  "pdfBytesLength": 7390,
+  "pdfHeader": "%PDF-",
+  "srid": 21037,
+  "verification": "pdf-lib reload + pypdf open ok, asciiOnly true",
+  "sourceSpec": "docs/regulatory-sources/kenya/cadastral/form-4-spec.md",
+  "generatedBy": "packages/engine/src/documents/form-4.ts"
+}

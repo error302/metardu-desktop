@@ -174,6 +174,34 @@ export {
   type Form3Point,
 } from "./documents/form-3.js";
 
+export {
+  generateForm4Pdf,
+  generateForm4Dxf,
+  type Form4Input,
+  type Form4Output,
+  type Form4ParentParcel,
+  type Form4NewParcel,
+  type Form4Surveyor,
+  type Form4Point,
+  type Form4Beacon,
+} from "./documents/form-4.js";
+
+export {
+  generateLra27Pdf,
+  type Lra27Input,
+  type Lra27Output,
+  type Lra27Proprietor,
+  type Lra27NewParcelSchedule,
+  type Lra27Surveyor,
+} from "./documents/lra27-mutation.js";
+
+export {
+  generateBeaconCertificatePdf,
+  type BeaconCertificateInput,
+  type BeaconCertificateOutput,
+  type BeaconCertificateBeacon,
+} from "./documents/beacon-certificate.js";
+
 // DXF output module — CAD-compatible DXF for all survey plans (Phase 10+)
 export {
   createSurveyDxf,

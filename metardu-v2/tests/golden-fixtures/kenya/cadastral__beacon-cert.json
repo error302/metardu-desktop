@@ -1,0 +1,20 @@
+{
+  "document": "cadastral__beacon-cert",
+  "title": "Beacon Certificate -- B1 -- Parcel LR 12345/68",
+  "author": "Jane Wanjiru",
+  "subject": "Kenya Survey Act Cap. 299, Beacon Certificate -- Reg.12 [DRAFT]",
+  "creator": "MetaRDU Desktop -- packages/engine/src/documents/beacon-certificate.ts",
+  "producer": "MetaRDU Desktop",
+  "pageCount": 1,
+  "pageSize": "A4",
+  "hkItemCount": 9,
+  "hasDraftWatermark": true,
+  "areasCrossChecked": null,
+  "asciiOnly": true,
+  "pdfBytesLength": 3415,
+  "pdfHeader": "%PDF-",
+  "srid": 21037,
+  "verification": "pdf-lib reload + pypdf open ok, asciiOnly true",
+  "sourceSpec": "docs/regulatory-sources/kenya/cadastral/beacon-certificate-spec.md",
+  "generatedBy": "packages/engine/src/documents/beacon-certificate.ts"
+}

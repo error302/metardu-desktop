@@ -1,0 +1,20 @@
+{
+  "document": "cadastral__lra27",
+  "title": "LRA-27 -- LR 12345/67 -> LR 12345/68, LR 12345/69",
+  "author": "Jane Wanjiru",
+  "subject": "Kenya Land Registration Act, Form LRA-27 -- Mutation [DRAFT]",
+  "creator": "MetaRDU Desktop -- packages/engine/src/documents/lra27-mutation.ts",
+  "producer": "MetaRDU Desktop",
+  "pageCount": 1,
+  "pageSize": "A4",
+  "hkItemCount": 12,
+  "hasDraftWatermark": true,
+  "areasCrossChecked": null,
+  "asciiOnly": true,
+  "pdfBytesLength": 3318,
+  "pdfHeader": "%PDF-",
+  "srid": null,
+  "verification": "pdf-lib reload + pypdf open ok, asciiOnly true",
+  "sourceSpec": "docs/regulatory-sources/kenya/forms/lra27-spec.md",
+  "generatedBy": "packages/engine/src/documents/lra27-mutation.ts"
+}
