@@ -1,0 +1,35 @@
+{
+  "name": "UTM Zone 32N forward and inverse (ETRS89 / UTM zone 32N — EPSG::25832)",
+  "country": "DE",
+  "computation": "projection-forward-inverse",
+  "source": {
+    "document": "EPSG::25832 — ETRS89 / UTM zone 32N",
+    "page": "EPSG registry + EPSG Geomatics Guidance Note 7-2 §1.3.5 (Transverse Mercator)",
+    "file": "https://epsg.org/crs_25832/ETRS89-UTM-zone-32N.html",
+    "notes": "Transverse Mercator (UTM), central meridian 9°E, latitude of origin 0°, false easting 500000 m, false northing 0 m, scale factor 0.9996, GRS80 ellipsoid (ETRS89 realization). Input geographic is ETRS89 (EPSG:4258) — functionally WGS84 at the centimetre level. Frozen from pyproj EPSG:4326 → EPSG:25832 (E=798609.5209, N=5825756.2420) validated against sidecar Snyder (diff 0.0002 m)."
+  },
+  "projection": {
+    "method": "Transverse Mercator (EPSG::9807)",
+    "datum": "ETRS89",
+    "ellipsoid": "GRS80 (a=6378137.0 m, 1/f=298.257222101)",
+    "srid": 25832,
+    "central_meridian_deg": 9.0,
+    "latitude_of_origin_deg": 0.0,
+    "false_easting_m": 500000.0,
+    "false_northing_m": 0.0,
+    "scale_factor": 0.9996
+  },
+  "cases": [
+    {
+      "name": "Berlin (52.5°N, 13.4°E → UTM 32N)",
+      "input_geographic": { "lat": 52.5, "lon": 13.4 },
+      "expected_projected": { "easting": 798609.5209, "northing": 5825756.242 },
+      "precision_m": 0.001,
+      "notes": "Berlin vicinity (52.5N,13.4E is west of CM 15 for 33N, so 32N with CM 9 gives large easting). Cross-checked with pyproj EPSG:4326 → EPSG:25832."
+    }
+  ],
+  "roundtrip_test": {
+    "description": "Forward then inverse must reproduce the input geographic coordinates to within 1e-7 deg (~1 cm).",
+    "precision_deg": 1e-7
+  }
+}
