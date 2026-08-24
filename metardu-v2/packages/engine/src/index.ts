@@ -202,6 +202,44 @@ export {
   type BeaconCertificateBeacon,
 } from "./documents/beacon-certificate.js";
 
+export {
+  generateAuPlanOfSurveyPdf,
+  type AuPlanOfSurveyInput,
+  type AuPlanOfSurveyOutput,
+  type AuParcel,
+  type AuBeacon,
+  type AuSurveyor,
+  type AuPoint,
+} from "./documents/au-plan-of-survey.js";
+
+export {
+  generateZaSgDiagramPdf,
+  type ZaSgDiagramInput,
+  type ZaSgDiagramOutput,
+  type ZaParcel,
+  type ZaBeacon,
+  type ZaSurveyor,
+  type ZaPoint,
+} from "./documents/za-sg-diagram.js";
+
+export {
+  generateGbMeasuredSurveyReportPdf,
+  type GbMeasuredSurveyReportInput,
+  type GbMeasuredSurveyReportOutput,
+  type GbPoint,
+  type GbSurveyor,
+} from "./documents/gb-measured-survey-report.js";
+
+export {
+  generateDeGrenzfeststellungPdf,
+  type DeGrenzfeststellungInput,
+  type DeGrenzfeststellungOutput,
+  type DeParcel,
+  type DeBeacon,
+  type DePoint,
+  type DeSurveyor,
+} from "./documents/de-grenzfeststellung.js";
+
 // DXF output module — CAD-compatible DXF for all survey plans (Phase 10+)
 export {
   createSurveyDxf,
