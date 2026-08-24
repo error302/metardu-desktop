@@ -238,7 +238,7 @@ export class SidecarClient extends EventEmitter {
       // Send the request
       const payload = JSON.stringify(request);
       const header = Buffer.alloc(4);
-      header.writeUInt32BE(payload.length, 0);
+      header.writeUInt32BE(Buffer.byteLength(payload, "utf-8"), 0);
       this.process!.stdin!.write(Buffer.concat([header, Buffer.from(payload, "utf-8")]));
     });
   }
