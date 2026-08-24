@@ -194,4 +194,49 @@ mod tests {
         assert!((r.y - (p.y - 8.0)).abs() < 1e-6, "y shift wrong: {}", r.y - p.y);
         assert!((r.z - (p.z - 300.0)).abs() < 1e-6, "z shift wrong: {}", r.z - p.z);
     }
+
+    /// DHDN (Bessel 1841) → ETRS89 (GRS80) Helmert sign-convention verification.
+    ///
+    /// Source: germany.ts DHDN→ETRS89 params — EPSG:1777 (tx 598.1, ty 73.7,
+    /// tz 418.2, rx 0.202, ry 0.045, rz -2.455, s 6.7 ppm).
+    /// Convention: Position Vector (EPSG method 9606 / Guidance Note 7-2 §2.4.1).
+    /// AdV (Arbeitsgemeinschaft der Vermessungsverwaltungen) / EPSG GN7-2 §1.3.11.
+    ///
+    /// Uses a synthetic near-Berlin ECEF point (x 3740000, y 890000, z 5030000)
+    /// from the EPSG example region. Expected ETRS89 result is precomputed
+    /// with the Position Vector matrix. If the rotation signs are inverted
+    /// (Coordinate Frame 9607 misinterpretation), x drifts ~23 m.
+    #[test]
+    fn test_dhdn_etrs89_helmert_sign_convention() {
+        let params = HelmertParams {
+            tx: 598.1,
+            ty: 73.7,
+            tz: 418.2,
+            rx_arcsec: 0.202,
+            ry_arcsec: 0.045,
+            rz_arcsec: -2.455,
+            scale_ppm: 6.7,
+            convention: TransformConvention::PositionVector,
+        };
+        let p_dhdn = ECEF { x: 3_740_000.0, y: 890_000.0, z: 5_030_000.0 };
+        let p_etrs = helmert_transform(&p_dhdn, &params);
+        // Precomputed Position Vector truth (one_plus_s * (R * p) + t):
+        // x 3740634.848, y 890030.223, z 5030451.957
+        // Coordinate-Frame misinterpretation would give x 3740611.468 — 23 m off.
+        assert!(
+            (p_etrs.x - 3740634.848).abs() < 5.0,
+            "DHDN sign convention wrong: x drift {} vs expected 3740634.848",
+            p_etrs.x
+        );
+        assert!(
+            (p_etrs.y - 890030.223).abs() < 5.0,
+            "DHDN sign convention wrong: y drift {} vs expected 890030.223",
+            p_etrs.y
+        );
+        assert!(
+            (p_etrs.z - 5030451.957).abs() < 5.0,
+            "DHDN sign convention wrong: z drift {} vs expected 5030451.957",
+            p_etrs.z
+        );
+    }
 }

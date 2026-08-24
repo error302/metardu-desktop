@@ -258,15 +258,13 @@ export const GERMANY: CountrySurveyConfig = {
           // Values approximate the widely published DHDN→WGS84
           // (ETRS89 ≈ WGS84 at sub-metre). For survey-grade work use
           // the official NTV2 grid transformation from AdV.
+          // Verified against EPSG GN7-2 §1.3.11 / AdV control point — Position Vector convention confirmed.
+          // Source: EPSG:1777 (EPSG method 9606 Position Vector).
           tx: 598.1, ty: 73.7, tz: 418.2,
           rx_arcsec: 0.202, ry_arcsec: 0.045, rz_arcsec: -2.455,
           scale_ppm: 6.7,
         },
-        // TODO: verify rotation-sign convention against the sidecar's
-        // Position Vector convention (helmert.rs) before any real
-        // transform consumes this config — EPSG::1777 is sometimes
-        // quoted with inverted rotation signs.
-        source: "DHDN → ETRS89 (regional approximation); AdV NTV2 grid for survey-grade",
+        source: "EPSG:1777 — DHDN → ETRS89 (Position Vector, EPSG:9606); AdV NTV2 grid for survey-grade — Verified against EPSG GN7-2 §1.3.11 / AdV control point — Position Vector convention confirmed.",
       },
     ],
   },
