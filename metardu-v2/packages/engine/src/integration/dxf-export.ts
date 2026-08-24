@@ -166,6 +166,78 @@ export interface DxfLayerSpec {
 }
 
 /**
+ * Map a raw dxfLayers string from country-config to its DxfLayerSpec
+ * category. Keeps the country-config source of truth for layer *names*
+ * while the engine maps to structural categories for DXF generation.
+ * Falls back to a heuristic based on the name if unknown.
+ */
+function mapDxfLayerNameToCategory(name: string): DxfLayerSpec["category"] {
+  switch (name) {
+    case "BOUNDARY":
+    case "STANDS-BOUNDARY":
+    case "UNIT-BOUNDARY":
+      return "boundary";
+    case "BEACON":
+    case "BEACONS":
+    case "MARK":
+      return "beacon";
+    case "TEXT-PLAN":
+    case "TEXT-DEEDPLAN":
+    case "TEXT-SG":
+    case "TEXT-FLURSTUECK":
+      return "text-deedplan";
+    case "TEXT-COORDS":
+      return "text-coords";
+    case "TEXT-AREA":
+    case "TEXT-PQ":
+      return "text-area";
+    case "TEXT-BEARINGS":
+      return "text-bearings";
+    case "TEXT-DISTANCES":
+      return "text-distances";
+    case "TEXT-BEACON-LABELS":
+    case "TEXT-UNIT-NOS":
+    case "TEXT-STAND-NOS":
+      return "text-beacon-labels";
+    case "TITLE-BLOCK":
+      return "title-block";
+    case "COORD-SCHEDULE":
+      return "coord-schedule";
+    case "NORTH-ARROW":
+      return "north-arrow";
+    case "SCALE-BAR":
+      return "scale-bar";
+    case "GRID":
+      return "grid";
+    case "TIN-EDGES":
+      return "tin-edges";
+    case "CONTOURS":
+      return "contours";
+    case "SPOT-HEIGHTS":
+      return "spot-heights";
+    case "ALIGNMENT":
+      return "alignment";
+    case "CROSS-SECTIONS":
+      return "cross-sections";
+    case "DESIGN-SURFACE":
+      return "design-surface";
+    default: {
+      // Heuristic: infer from substring to avoid silent mis-categorization
+      const u = name.toUpperCase();
+      if (u.includes("BEACON") || u.includes("MARK") || u.includes("POINT")) return "beacon";
+      if (u.includes("BOUNDARY")) return "boundary";
+      if (u.includes("COORD")) return "text-coords";
+      if (u.includes("AREA")) return "text-area";
+      if (u.includes("TITLE")) return "title-block";
+      if (u.includes("NORTH")) return "north-arrow";
+      if (u.includes("SCALE")) return "scale-bar";
+      if (u.includes("TEXT")) return "text-deedplan";
+      return "coord-schedule";
+    }
+  }
+}
+
+/**
  * Per-country + per-survey-type DXF layer naming. Country-correct
  * layer naming is the entire point of ADR-0005 deliverable #7.
  *
@@ -270,7 +342,157 @@ export function getCountryDxfLayerSpecs(
     }
   }
 
-  // ─── Generic fallback (Australia, UAE, South Africa — task briefs to follow) ───
+  // ─── Australia (NSW LRS Plan of Survey — BOUNDARY/MARK/TEXT-PLAN) ───
+  if (countryCode === "AU") {
+    if (surveyType === "cadastral") {
+      try {
+        const cfg = getCountryConfig("AU" as CountryCode);
+        const doc = cfg.statutoryDocuments.find((d) => d.docType === "Plan of Survey");
+        if (doc && doc.dxfLayers.length > 0) {
+          return doc.dxfLayers.map((name) => ({
+            name,
+            category: mapDxfLayerNameToCategory(name),
+          }));
+        }
+      } catch {
+        // fall through to DRAFT fallback
+      }
+      // DRAFT fallback — regulatory layer names pending filed NSW LRS template
+      return [
+        { name: "SURV-AU-BOUNDARY", category: "boundary" },
+        { name: "SURV-AU-MARK", category: "beacon" },
+        { name: "SURV-AU-TEXT-PLAN", category: "text-deedplan" },
+        { name: "SURV-AU-TEXT-COORDS", category: "text-coords" },
+        { name: "SURV-AU-TEXT-AREA", category: "text-area" },
+        { name: "SURV-AU-TITLE-BLOCK", category: "title-block" },
+        { name: "SURV-AU-NORTH-ARROW", category: "north-arrow" },
+        { name: "SURV-AU-SCALE-BAR", category: "scale-bar" },
+      ];
+    }
+    if (surveyType === "topographic") {
+      return [
+        { name: "SURV-AU-TIN-EDGES", category: "tin-edges" },
+        { name: "SURV-AU-CONTOURS", category: "contours" },
+        { name: "SURV-AU-SPOT-HEIGHTS", category: "spot-heights" },
+        { name: "SURV-AU-GRID", category: "grid" },
+        { name: "SURV-AU-NORTH-ARROW", category: "north-arrow" },
+        { name: "SURV-AU-SCALE-BAR", category: "scale-bar" },
+        { name: "SURV-AU-COORD-SCHEDULE", category: "coord-schedule" },
+      ];
+    }
+    if (surveyType === "engineering") {
+      return [
+        { name: "SURV-AU-ALIGNMENT", category: "alignment" },
+        { name: "SURV-AU-CROSS-SECTIONS", category: "cross-sections" },
+        { name: "SURV-AU-DESIGN-SURFACE", category: "design-surface" },
+        { name: "SURV-AU-GRID", category: "grid" },
+        { name: "SURV-AU-NORTH-ARROW", category: "north-arrow" },
+        { name: "SURV-AU-SCALE-BAR", category: "scale-bar" },
+        { name: "SURV-AU-COORD-SCHEDULE", category: "coord-schedule" },
+      ];
+    }
+  }
+
+  // ─── South Africa (SAGC SG Diagram — BOUNDARY/BEACON/TEXT-SG) ───
+  if (countryCode === "ZA") {
+    if (surveyType === "cadastral") {
+      try {
+        const cfg = getCountryConfig("ZA" as CountryCode);
+        const doc = cfg.statutoryDocuments.find((d) => d.docType === "SG Diagram");
+        if (doc && doc.dxfLayers.length > 0) {
+          return doc.dxfLayers.map((name) => ({
+            name,
+            category: mapDxfLayerNameToCategory(name),
+          }));
+        }
+      } catch {
+        // fall through
+      }
+      return [
+        { name: "SURV-ZA-BOUNDARY", category: "boundary" },
+        { name: "SURV-ZA-BEACON", category: "beacon" },
+        { name: "SURV-ZA-TEXT-SG", category: "text-deedplan" },
+        { name: "SURV-ZA-TEXT-COORDS", category: "text-coords" },
+        { name: "SURV-ZA-TEXT-AREA", category: "text-area" },
+        { name: "SURV-ZA-TITLE-BLOCK", category: "title-block" },
+        { name: "SURV-ZA-NORTH-ARROW", category: "north-arrow" },
+        { name: "SURV-ZA-SCALE-BAR", category: "scale-bar" },
+      ];
+    }
+    if (surveyType === "topographic") {
+      return [
+        { name: "SURV-ZA-TIN-EDGES", category: "tin-edges" },
+        { name: "SURV-ZA-CONTOURS", category: "contours" },
+        { name: "SURV-ZA-SPOT-HEIGHTS", category: "spot-heights" },
+        { name: "SURV-ZA-GRID", category: "grid" },
+        { name: "SURV-ZA-NORTH-ARROW", category: "north-arrow" },
+        { name: "SURV-ZA-SCALE-BAR", category: "scale-bar" },
+        { name: "SURV-ZA-COORD-SCHEDULE", category: "coord-schedule" },
+      ];
+    }
+    if (surveyType === "engineering") {
+      return [
+        { name: "SURV-ZA-ALIGNMENT", category: "alignment" },
+        { name: "SURV-ZA-CROSS-SECTIONS", category: "cross-sections" },
+        { name: "SURV-ZA-DESIGN-SURFACE", category: "design-surface" },
+        { name: "SURV-ZA-GRID", category: "grid" },
+        { name: "SURV-ZA-NORTH-ARROW", category: "north-arrow" },
+        { name: "SURV-ZA-SCALE-BAR", category: "scale-bar" },
+        { name: "SURV-ZA-COORD-SCHEDULE", category: "coord-schedule" },
+      ];
+    }
+  }
+
+  // ─── Germany (AdV Grenzfeststellung — BOUNDARY/BEACON/TEXT-COORDS) ───
+  if (countryCode === "DE") {
+    if (surveyType === "cadastral") {
+      try {
+        const cfg = getCountryConfig("DE" as CountryCode);
+        const doc = cfg.statutoryDocuments.find((d) => d.docType === "Grenzfeststellung");
+        if (doc && doc.dxfLayers.length > 0) {
+          return doc.dxfLayers.map((name) => ({
+            name,
+            category: mapDxfLayerNameToCategory(name),
+          }));
+        }
+      } catch {
+        // fall through
+      }
+      return [
+        { name: "SURV-DE-BOUNDARY", category: "boundary" },
+        { name: "SURV-DE-BEACON", category: "beacon" },
+        { name: "SURV-DE-TEXT-COORDS", category: "text-coords" },
+        { name: "SURV-DE-TEXT-AREA", category: "text-area" },
+        { name: "SURV-DE-TITLE-BLOCK", category: "title-block" },
+        { name: "SURV-DE-NORTH-ARROW", category: "north-arrow" },
+        { name: "SURV-DE-SCALE-BAR", category: "scale-bar" },
+      ];
+    }
+    if (surveyType === "topographic") {
+      return [
+        { name: "SURV-DE-TIN-EDGES", category: "tin-edges" },
+        { name: "SURV-DE-CONTOURS", category: "contours" },
+        { name: "SURV-DE-SPOT-HEIGHTS", category: "spot-heights" },
+        { name: "SURV-DE-GRID", category: "grid" },
+        { name: "SURV-DE-NORTH-ARROW", category: "north-arrow" },
+        { name: "SURV-DE-SCALE-BAR", category: "scale-bar" },
+        { name: "SURV-DE-COORD-SCHEDULE", category: "coord-schedule" },
+      ];
+    }
+    if (surveyType === "engineering") {
+      return [
+        { name: "SURV-DE-ALIGNMENT", category: "alignment" },
+        { name: "SURV-DE-CROSS-SECTIONS", category: "cross-sections" },
+        { name: "SURV-DE-DESIGN-SURFACE", category: "design-surface" },
+        { name: "SURV-DE-GRID", category: "grid" },
+        { name: "SURV-DE-NORTH-ARROW", category: "north-arrow" },
+        { name: "SURV-DE-SCALE-BAR", category: "scale-bar" },
+        { name: "SURV-DE-COORD-SCHEDULE", category: "coord-schedule" },
+      ];
+    }
+  }
+
+  // ─── Generic fallback (UAE etc. — task briefs to follow) ───
   //
   // Use Kenya's layer names as a sensible default. The exporter emits
   // a warning that the surveyor should verify against their local CAD
@@ -651,7 +873,7 @@ export const dxfExporter: IntegrationExporter<SurveyOutput, DxfOptions, DxfOutpu
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    const validCodes: ReadonlyArray<string> = ["KE", "AU", "GB", "ZA", "AE"];
+    const validCodes: ReadonlyArray<string> = ["KE", "AU", "GB", "ZA", "AE", "DE", "US", "GH"];
     if (!validCodes.includes(options.countryCode)) {
       errors.push(`Unknown country code '${options.countryCode}'.`);
     } else {
@@ -689,7 +911,17 @@ export const dxfExporter: IntegrationExporter<SurveyOutput, DxfOptions, DxfOutpu
     }
 
     // Warning for countries without a documented layer-naming convention.
-    if (!["KE", "GB"].includes(options.countryCode)) {
+    // KE and GB have filed conventions; AU/ZA/DE now have country-correct
+    // layers derived live from country-config but remain DRAFT until the
+    // regulatory template specimen is filed (invariant B1).
+    if (["AU", "ZA", "DE"].includes(options.countryCode)) {
+      const draftMessages: Record<string, string> = {
+        AU: "DRAFT: AU layer names pending filed NSW LRS template — no documented DXF layer-naming convention filed yet; using NSW LRS Plan of Survey layers (BOUNDARY, MARK, TEXT-PLAN) as DRAFT. Verify against NSW LRS Deposited Plan Requirements before submitting.",
+        ZA: "DRAFT: ZA layer names pending filed SG Diagram directive — no documented DXF layer-naming convention filed yet; using SAGC SG Diagram layers (BOUNDARY, BEACON, TEXT-SG) as DRAFT. Verify against SAGC/CIG regulations before submitting.",
+        DE: "DRAFT: DE layer names pending filed Grenzfeststellung template — no documented DXF layer-naming convention filed yet; using AdV Grenzfeststellung layers (BOUNDARY, BEACON, TEXT-COORDS) as DRAFT. Verify against AdV/ÖbVI requirements before submitting.",
+      };
+      warnings.push(draftMessages[options.countryCode]!);
+    } else if (!["KE", "GB"].includes(options.countryCode)) {
       warnings.push(
         `Country '${options.countryCode}' has no documented DXF layer-naming ` +
           `convention in metardu-desktop yet. Falling back to Kenya (Survey of ` +

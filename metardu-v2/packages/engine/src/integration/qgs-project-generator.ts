@@ -280,6 +280,64 @@ function getQgsLayerSpecs(
         },
       ];
     }
+    if (countryCode === "AU") {
+      // NSW LRS Plan of Survey: black beacons (yellow/black convention), light-yellow parcel with black boundary.
+      // Uses NSW LRS title block colours — black lettering on white/A1 sheet; cadastral symbology is high-contrast black/yellow.
+      return [
+        {
+          tableName: "beacons",
+          displayName: "Marks (NSW LRS Plan of Survey)",
+          geometryType: "Point",
+          rendererXml: pointRenderer("0,0,0,255", 2.8, true),
+          labelingXml: fieldLabeling("label"),
+        },
+        {
+          tableName: "parcel",
+          displayName: "Parcel (NSW LRS)",
+          geometryType: "Polygon",
+          rendererXml: polygonRenderer("255,255,180,180", "0,0,0,255", 0.6),
+          labelingXml: "",
+        },
+      ];
+    }
+    if (countryCode === "ZA") {
+      // SAGC SG Diagram: red beacons, light-red parcel with red boundary (SG Diagrams historically red-lettered).
+      return [
+        {
+          tableName: "beacons",
+          displayName: "Beacons (SAGC SG Diagram)",
+          geometryType: "Point",
+          rendererXml: pointRenderer("200,0,0,255", 2.8, true),
+          labelingXml: fieldLabeling("label"),
+        },
+        {
+          tableName: "parcel",
+          displayName: "Parcel (SAGC SG Diagram)",
+          geometryType: "Polygon",
+          rendererXml: polygonRenderer("255,200,200,180", "200,0,0,255", 0.5),
+          labelingXml: "",
+        },
+      ];
+    }
+    if (countryCode === "DE") {
+      // AdV Grenzfeststellung: black beacons, light-grey parcel with black solid boundary (German amtlicher Lageplan).
+      return [
+        {
+          tableName: "beacons",
+          displayName: "Grenzpunkte (AdV Grenzfeststellung)",
+          geometryType: "Point",
+          rendererXml: pointRenderer("0,0,0,255", 2.5, true),
+          labelingXml: fieldLabeling("label"),
+        },
+        {
+          tableName: "parcel",
+          displayName: "Flurstueck (AdV)",
+          geometryType: "Polygon",
+          rendererXml: polygonRenderer("240,240,240,180", "0,0,0,255", 0.5),
+          labelingXml: "",
+        },
+      ];
+    }
     // Generic cadastral fallback
     return [
       {
@@ -605,7 +663,7 @@ export const qgsProjectExporter: IntegrationExporter<
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    const validCodes: ReadonlyArray<string> = ["KE", "AU", "GB", "ZA", "AE"];
+    const validCodes: ReadonlyArray<string> = ["KE", "AU", "GB", "ZA", "AE", "DE", "US", "GH"];
     if (!validCodes.includes(options.countryCode)) {
       errors.push(`Unknown country code '${options.countryCode}'.`);
     } else {
@@ -640,6 +698,16 @@ export const qgsProjectExporter: IntegrationExporter<
     } catch (e) {
       errors.push((e as Error).message);
       return { ok: false, errors, warnings };
+    }
+
+    // DRAFT symbology warnings for AU/ZA/DE (specimen not yet filed, invariant B1)
+    if (["AU", "ZA", "DE"].includes(options.countryCode) && surveyType === "cadastral") {
+      const draftQgs: Record<string, string> = {
+        AU: "DRAFT: AU QGIS symbology pending filed NSW LRS template — yellow/black NSW LRS styling is DRAFT.",
+        ZA: "DRAFT: ZA QGIS symbology pending filed SG Diagram directive — red SG Diagram styling is DRAFT.",
+        DE: "DRAFT: DE QGIS symbology pending filed Grenzfeststellung template — black Grenzfeststellung styling is DRAFT.",
+      };
+      warnings.push(draftQgs[options.countryCode]!);
     }
 
     const specs = getQgsLayerSpecs(options.countryCode, surveyType);

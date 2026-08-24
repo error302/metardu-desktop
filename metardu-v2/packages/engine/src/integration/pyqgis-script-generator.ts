@@ -212,6 +212,109 @@ vlayer.setRenderer(QgsSingleSymbolRenderer(sym))`,
         },
       ];
     }
+    if (countryCode === "AU") {
+      // NSW LRS Plan of Survey: black marks, yellow/black parcel symbology.
+      // DRAFT until NSW LRS template specimen is filed (invariant B1).
+      return [
+        {
+          tableName: "beacons",
+          displayName: "Marks (NSW LRS Plan of Survey)",
+          geometryType: "Point",
+          symbology: `# NSW LRS marks: black cross markers, sized by uncertainty (DRAFT — pending filed template).
+sym = ${MK_MARK}
+sym.setSizeUnit(QgsUnitTypes.RenderMillimeters)
+sym.setSize(2.8)
+sym.setColor(QColor(0, 0, 0))
+size_dd = QgsProperty.fromExpression('coalesce("semi_major" * 1000, 2.0)')
+sym.setDataDefinedSize(size_dd)
+vlayer.setRenderer(QgsSingleSymbolRenderer(sym))`,
+          labeling: `labels = QgsPalLayerSettings()
+labels.fieldName = 'label'
+labels.enabled = True
+vlayer.setLabeling(QgsVectorLayerSimpleLabeling(labels))`,
+        },
+        {
+          tableName: "parcel",
+          displayName: "Parcel (NSW LRS)",
+          geometryType: "Polygon",
+          symbology: `# NSW LRS parcel: light yellow fill, black boundary (high-contrast A1).
+sym = ${MK_FILL}
+sym.setColor(QColor(255, 255, 180, 180))
+sym.symbolLayer(0).setStrokeColor(QColor(0, 0, 0))
+sym.symbolLayer(0).setStrokeWidth(0.6)
+vlayer.setRenderer(QgsSingleSymbolRenderer(sym))`,
+          labeling: ``,
+        },
+      ];
+    }
+    if (countryCode === "ZA") {
+      // SAGC SG Diagram: red beacons, light-red parcel (SG Diagrams historically red-lettered).
+      return [
+        {
+          tableName: "beacons",
+          displayName: "Beacons (SAGC SG Diagram)",
+          geometryType: "Point",
+          symbology: `# SAGC SG Diagram beacons: red cross markers (DRAFT — pending filed directive).
+sym = ${MK_MARK}
+sym.setSizeUnit(QgsUnitTypes.RenderMillimeters)
+sym.setSize(2.8)
+sym.setColor(QColor(200, 0, 0))
+size_dd = QgsProperty.fromExpression('coalesce("semi_major" * 1000, 2.0)')
+sym.setDataDefinedSize(size_dd)
+vlayer.setRenderer(QgsSingleSymbolRenderer(sym))`,
+          labeling: `labels = QgsPalLayerSettings()
+labels.fieldName = 'label'
+labels.enabled = True
+vlayer.setLabeling(QgsVectorLayerSimpleLabeling(labels))`,
+        },
+        {
+          tableName: "parcel",
+          displayName: "Parcel (SAGC SG Diagram)",
+          geometryType: "Polygon",
+          symbology: `# SAGC SG Diagram parcel: light red fill, red boundary.
+sym = ${MK_FILL}
+sym.setColor(QColor(255, 200, 200, 180))
+sym.symbolLayer(0).setStrokeColor(QColor(200, 0, 0))
+sym.symbolLayer(0).setStrokeWidth(0.5)
+vlayer.setRenderer(QgsSingleSymbolRenderer(sym))`,
+          labeling: ``,
+        },
+      ];
+    }
+    if (countryCode === "DE") {
+      // AdV Grenzfeststellung: black beacons, light-grey parcel with black boundary.
+      return [
+        {
+          tableName: "beacons",
+          displayName: "Grenzpunkte (AdV Grenzfeststellung)",
+          geometryType: "Point",
+          symbology: `# AdV Grenzfeststellung: black markers (DRAFT — pending filed template).
+sym = ${MK_MARK}
+sym.setSizeUnit(QgsUnitTypes.RenderMillimeters)
+sym.setSize(2.5)
+sym.setColor(QColor(0, 0, 0))
+size_dd = QgsProperty.fromExpression('coalesce("semi_major" * 1000, 2.0)')
+sym.setDataDefinedSize(size_dd)
+vlayer.setRenderer(QgsSingleSymbolRenderer(sym))`,
+          labeling: `labels = QgsPalLayerSettings()
+labels.fieldName = 'label'
+labels.enabled = True
+vlayer.setLabeling(QgsVectorLayerSimpleLabeling(labels))`,
+        },
+        {
+          tableName: "parcel",
+          displayName: "Flurstueck (AdV)",
+          geometryType: "Polygon",
+          symbology: `# AdV Flurstueck: light grey fill, black boundary (amtlicher Lageplan).
+sym = ${MK_FILL}
+sym.setColor(QColor(240, 240, 240, 180))
+sym.symbolLayer(0).setStrokeColor(QColor(0, 0, 0))
+sym.symbolLayer(0).setStrokeWidth(0.5)
+vlayer.setRenderer(QgsSingleSymbolRenderer(sym))`,
+          labeling: ``,
+        },
+      ];
+    }
     // Generic cadastral fallback
     return [
       {
@@ -661,7 +764,7 @@ export const pyQgisScriptExporter: IntegrationExporter<
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    const validCodes: ReadonlyArray<string> = ["KE", "AU", "GB", "ZA", "AE"];
+    const validCodes: ReadonlyArray<string> = ["KE", "AU", "GB", "ZA", "AE", "DE", "US", "GH"];
     if (!validCodes.includes(options.countryCode)) {
       errors.push(`Unknown country code '${options.countryCode}'.`);
     } else {
@@ -696,6 +799,16 @@ export const pyQgisScriptExporter: IntegrationExporter<
     } catch (e) {
       errors.push((e as Error).message);
       return { ok: false, errors, warnings };
+    }
+
+    // DRAFT symbology warnings for AU/ZA/DE
+    if (["AU", "ZA", "DE"].includes(options.countryCode) && surveyType === "cadastral") {
+      const draftPy: Record<string, string> = {
+        AU: "DRAFT: AU PyQGIS symbology pending filed NSW LRS template — black/yellow NSW LRS styling is DRAFT.",
+        ZA: "DRAFT: ZA PyQGIS symbology pending filed SG Diagram directive — red SG Diagram styling is DRAFT.",
+        DE: "DRAFT: DE PyQGIS symbology pending filed Grenzfeststellung template — black Grenzfeststellung styling is DRAFT.",
+      };
+      warnings.push(draftPy[options.countryCode]!);
     }
 
     // Per-survey-type sanity: at least one layer must be specifiable.
