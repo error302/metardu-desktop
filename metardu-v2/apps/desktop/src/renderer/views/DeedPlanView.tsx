@@ -10,7 +10,7 @@
  *   - Real DXF export via engine (generateForm3Dxf)
  *   - Real RSA-2048 SHA-256 digital signing (signPdf)
  *   - SurveyCanvas visualization with polygon + beacons + labels
- *   - Submission validation (≥3 beacons, valid ISK format, area > 0)
+ *   - Submission validation (≥3 beacons, valid registration format, area > 0)
  */
 
 import React, { useState, useCallback, useMemo, useEffect } from "react";
@@ -18,6 +18,7 @@ import { SurveyCanvas, type SurveyPoint, type SurveyPolygon } from "@metardu/ui-
 import { useSurveyState } from "../SurveyStateContext.js";
 import { bus } from "../cross-import-bus.js";
 import { AutoExportBanner } from "./AutoExportBanner.js";
+import { getCountryConfig, type CountryCode } from "@metardu/country-config";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -131,11 +132,6 @@ function perimeter(points: Array<{ easting: number; northing: number }>): number
   return total;
 }
 
-/** Validate ISK registration number format (LS/XXXX). */
-function isValidISK(regNo: string): boolean {
-  return /^LS\/\d{3,5}$/i.test(regNo.trim());
-}
-
 let beaconCounter = 0;
 function nextBeaconLabel(): string {
   beaconCounter++;
@@ -146,6 +142,12 @@ function nextBeaconLabel(): string {
 
 export const DeedPlanView: React.FC = () => {
   const { setSurveyOutput } = useSurveyState();
+
+  // ── Country ──
+  const [countryCode, setCountryCode] = useState<CountryCode>("KE");
+  const cfg = getCountryConfig(countryCode);
+  const regPat = useMemo(() => new RegExp(cfg.professionalBody.registrationPattern ?? ".*"), [cfg.professionalBody.registrationPattern]);
+  const isValidReg = useCallback((v: string) => regPat.test(v.trim()), [regPat]);
 
   // ── Title block fields ──
   const [lrNumber, setLrNumber] = useState("LR KIAMBU/RIRUTA/247/15");
@@ -205,10 +207,10 @@ export const DeedPlanView: React.FC = () => {
     const errors: string[] = [];
     if (beacons.length < 3) errors.push("At least 3 beacons required for a closed polygon.");
     if (areaSqM <= 0) errors.push("Parcel area must be positive (check beacon ordering).");
-    if (!isValidISK(licenseNumber)) errors.push("ISK registration number must match format LS/XXXX.");
+    if (!isValidReg(licenseNumber)) errors.push(`${cfg.professionalBody.name} registration number must match format ${cfg.professionalBody.registrationPattern}.`);
     if (!surveyorName.trim()) errors.push("Surveyor name is required.");
     return errors;
-  }, [beacons, areaSqM, licenseNumber, surveyorName]);
+  }, [beacons, areaSqM, licenseNumber, surveyorName, isValidReg, cfg.professionalBody.name, cfg.professionalBody.registrationPattern]);
 
   const isValid = validationErrors.length === 0;
 
@@ -236,7 +238,7 @@ export const DeedPlanView: React.FC = () => {
       district: county,
       location: subCounty,
       areaHa,
-      srid: 21037, // Arc 1960 / UTM zone 37S
+      srid: cfg.geodeticFramework.primarySRID,
       beacons: beacons.map((b) => ({
         label: b.label,
         position: { easting: b.easting, northing: b.northing },
@@ -249,7 +251,7 @@ export const DeedPlanView: React.FC = () => {
       dateOfSurvey: surveyDate,
     },
     deedPlanNumber: deedPlanNo || undefined,
-  }), [lrNumber, county, subCounty, areaHa, beacons, surveyorName, licenseNumber, surveyDate, deedPlanNo]);
+  }), [lrNumber, county, subCounty, areaHa, beacons, surveyorName, licenseNumber, surveyDate, deedPlanNo, cfg.geodeticFramework.primarySRID]);
 
   // ── Beacon CRUD ──
   const addBeacon = useCallback(() => {
@@ -329,16 +331,16 @@ export const DeedPlanView: React.FC = () => {
           distance: l.distance,
         })),
         areaHa,
-        srid: 21037,
+        srid: cfg.geodeticFramework.primarySRID,
       };
-      const result = await apis.export.survey("dxf", surveyOutput, { countryCode: "KE" });
+      const result = await apis.export.survey("dxf", surveyOutput, { countryCode: countryCode });
       setExportStatus(`DXF exported: ${result.filePath} (${result.bytes} bytes)`);
     } catch (e) {
       setExportStatus(`DXF export failed: ${(e as Error).message}`);
     } finally {
       setExportingDxf(false);
     }
-  }, [isValid, lrNumber, county, subCounty, areaHa, surveyorName, licenseNumber, surveyDate, beacons, boundaryLines]);
+  }, [isValid, lrNumber, county, subCounty, areaHa, surveyorName, licenseNumber, surveyDate, beacons, boundaryLines, cfg.geodeticFramework.primarySRID, countryCode]);
 
   // ── Digital signing via engine ──
   const handleSign = useCallback(async () => {
@@ -372,8 +374,8 @@ export const DeedPlanView: React.FC = () => {
         {
           name: surveyorName,
           registrationNumber: licenseNumber,
-          professionalBody: "ISK",
-          country: "Kenya",
+          professionalBody: cfg.professionalBody.name,
+          country: cfg.countryName,
         },
       );
       setSealResult(sigResult);
@@ -390,14 +392,14 @@ export const DeedPlanView: React.FC = () => {
         },
         "cadastral",
         "DeedPlanView",
-        "KE"
+        countryCode
       );
     } catch (e) {
       setSignError((e as Error).message);
     } finally {
       setSigning(false);
     }
-  }, [isValid, buildForm3Input, surveyorName, licenseNumber, lrNumber, county, subCounty, areaHa, surveyDate, beacons, setSurveyOutput]);
+  }, [isValid, buildForm3Input, surveyorName, licenseNumber, lrNumber, county, subCounty, areaHa, surveyDate, beacons, setSurveyOutput, cfg.professionalBody.name, cfg.countryName, countryCode]);
 
   // ── Render ──
   return (
@@ -408,7 +410,7 @@ export const DeedPlanView: React.FC = () => {
             Form No. 3 — Statutory Deed Plan
           </h2>
           <p style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)", margin: "2px 0 0 0" }}>
-            Prepare, validate, and digitally sign statutory deed plans per Survey Act Cap 299.
+            Prepare, validate, and digitally sign statutory deed plans per {cfg.countryName} regulatory framework.
           </p>
         </div>
         <div style={{ display: "flex", gap: "6px" }}>
@@ -421,6 +423,18 @@ export const DeedPlanView: React.FC = () => {
             {exportingDxf ? "Generating…" : "📐 Export DXF"}
           </button>
         </div>
+      </div>
+
+      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <label style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>Country:</label>
+        <select value={countryCode} onChange={(e) => setCountryCode(e.target.value as CountryCode)} style={{ minWidth: "200px", padding: "4px 6px", fontSize: "12px" }}>
+          <option value="KE">Kenya</option>
+          <option value="AU">Australia (New South Wales)</option>
+          <option value="GB">United Kingdom</option>
+          <option value="ZA">South Africa</option>
+          <option value="DE">Germany</option>
+        </select>
+        <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>{cfg.geodeticFramework.datum} · {cfg.professionalBody.name}</span>
       </div>
 
       {/* Validation errors */}
@@ -475,7 +489,7 @@ export const DeedPlanView: React.FC = () => {
                 <input type="text" value={surveyorName} onChange={(e) => setSurveyorName(e.target.value)} style={{ width: "100%", padding: "4px 6px", fontSize: "12px" }} />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>License No. (ISK)</label>
+                <label style={{ display: "block", fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>License No. ({cfg.professionalBody.registrationNumberField})</label>
                 <input type="text" value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} style={{ width: "100%", padding: "4px 6px", fontSize: "12px", fontFamily: "var(--font-mono)" }} />
               </div>
             </div>
@@ -496,7 +510,7 @@ export const DeedPlanView: React.FC = () => {
               <div>Perimeter: <strong style={{ color: "var(--text-primary)" }}>{perimeterM.toFixed(3)} m</strong></div>
               <div>Beacons: <strong style={{ color: "var(--text-primary)" }}>{beacons.length}</strong></div>
               <div>Scale: <strong>1:{areaHa < 0.5 ? 500 : areaHa < 5 ? 1000 : areaHa < 50 ? 2500 : 5000}</strong></div>
-              <div>CRS: <strong>Arc 1960 / UTM 37S</strong></div>
+              <div>CRS: <strong>{cfg.geodeticFramework.projectionZones[0]?.name ?? cfg.geodeticFramework.datum}</strong></div>
             </div>
           </div>
 
