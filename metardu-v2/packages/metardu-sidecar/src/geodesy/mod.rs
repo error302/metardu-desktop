@@ -63,6 +63,20 @@ pub mod datums {
         inverse_flattening: 298.257_222_101,
     };
 
+    /// Airy 1830 (EPSG::7001) — OSGB36, Great Britain.
+    pub const AIRY_1830: Ellipsoid = Ellipsoid {
+        name: "Airy 1830",
+        semi_major_a: 6377563.396,
+        inverse_flattening: 299.3249646,
+    };
+
+    /// Bessel 1841 (EPSG::7004) — DHDN, Germany.
+    pub const BESSEL_1841: Ellipsoid = Ellipsoid {
+        name: "Bessel 1841",
+        semi_major_a: 6377397.155,
+        inverse_flattening: 299.1528128,
+    };
+
     /// Pre-built Helmert parameter set for WGS84 → Arc 1960 (EPSG::1122).
     ///
     /// Source: EPSG registry. Position Vector transformation convention.
@@ -220,5 +234,17 @@ mod tests {
         assert!((result.x - p.x).abs() < 1e-6);
         assert!((result.y - p.y).abs() < 1e-6);
         assert!((result.z - p.z).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_airy_1830_lookup_succeeds() {
+        let e = crate::compute_handlers::lookup_ellipsoid("Airy 1830").unwrap();
+        assert!((e.semi_major_a - 6377563.396).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_bessel_1841_lookup_succeeds() {
+        let e = crate::compute_handlers::lookup_ellipsoid("Bessel 1841").unwrap();
+        assert!((e.semi_major_a - 6377397.155).abs() < 0.001);
     }
 }

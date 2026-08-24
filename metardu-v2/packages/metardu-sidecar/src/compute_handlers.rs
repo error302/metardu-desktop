@@ -40,13 +40,15 @@ fn default_ellipsoid_name() -> String {
     "WGS84".to_string()
 }
 
-fn lookup_ellipsoid(name: &str) -> Result<Ellipsoid, HandlerError> {
+pub(crate) fn lookup_ellipsoid(name: &str) -> Result<Ellipsoid, HandlerError> {
     match name {
         "WGS84" => Ok(datums::WGS84),
         "CLARKE_1866" => Ok(datums::CLARKE_1866),
         "GRS80" => Ok(datums::GRS80),
+        "Airy 1830" | "AIRY_1830" => Ok(datums::AIRY_1830),
+        "Bessel 1841" | "BESSEL_1841" => Ok(datums::BESSEL_1841),
         other => Err(HandlerError::InvalidParams(format!(
-            "Unknown ellipsoid: {}. Supported: WGS84, CLARKE_1866, GRS80",
+            "Unknown ellipsoid: {}. Supported: WGS84, CLARKE_1866, GRS80, Airy 1830, Bessel 1841",
             other
         ))),
     }
