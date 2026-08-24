@@ -2,23 +2,31 @@
 
 **Scope:** AU, AE, ZA, GB, DE, US, GH (the subscription-priority markets outside
 Kenya, per ADR-0004 Kenya-as-reference). GH was added 2026-08-01.
-**Date:** 2026-08-01
+**Date:** 2026-08-24 (updated Task 9 — sourceFiled guard + Kenya citation fixes)
 **Owner:** Mohammed (error302)
 
 ---
 
 ## 1. Executive summary
 
-| Market | Config | Renderer(s) | B1 block | Source docs filed | Ready to ship statutory output? |
-|--------|--------|-------------|----------|-------------------|--------------------------------|
-| KE (reference) | ✅ | Form 3 PDF + DXF | Partial — Form 4/Beacon Cert./Mutation still need Survey Act Cap. 299 | Partial (`kenya/`) | Form 3 only |
-| AU (NSW) | ✅ | None | 🔴 All | ❌ none filed | No |
-| AE (Dubai) | ✅ | None | 🔴 All | ❌ none filed | No |
-| ZA | ✅ | None | 🔴 All | ❌ none filed | No |
-| GB | ✅ | None | 🔴 All | ❌ none filed | No |
-| DE | ✅ | None | 🔴 All | ❌ none filed | No |
-| US | ✅ | None | 🔴 All | ❌ none filed | No |
-| GH | ✅ | None | 🔴 All | ❌ none filed | No |
+| Market | Config | Renderer(s) | B1 block (`sourceFiled` guard) | Source docs filed | Ready to ship statutory output? |
+|--------|--------|-------------|-------------------------------|-------------------|--------------------------------|
+| KE (reference) | ✅ | Form 3 ✅ (filed, SOURCE-VERIFICATION) + Form 4 DRAFT + Beacon Cert DRAFT (filed, pending eye-check) + LRA-27 DRAFT (form doc filed) | Form 4: `sourceFiled:false` until specimen eye-check (same Act PDF); LRA-27: add to `statutoryDocuments[]` pending. Guard PASS: Form 3 + Beacon ✅ filed | `survey-act-cap-299-revised-2012.pdf` ✅, `kenya-gazette-survey-regulations-1994.pdf` ✅, `form-lra-27-mutation-form.doc` ✅ | Form 3 ready (with 8 [HK] eye-checks); Form 4/Beacon/LRA-27 DRAFT |
+| AU (NSW) | ✅ | None — Plan of Survey DRAFT planned (A1 landscape, GDA2020/MGA) | 🔴 All `sourceFiled:false` — `sourcePath` files do not exist | ❌ none filed | No |
+| AE (Dubai) | ✅ | None | 🔴 All `sourceFiled:false` | ❌ none filed | No |
+| ZA | ✅ | None — SG Diagram DRAFT planned (A1 portrait, Hartebeesthoek94/Lo) | 🔴 All `sourceFiled:false` | ❌ none filed | No |
+| GB | ✅ | None — Measured Survey Report DRAFT planned (RICS 3rd ed., HMLR Title Plan is registry-issued) | 🔴 All `sourceFiled:false`; coarse Helmert → OSTN15 pending | ❌ none filed | No |
+| DE | ✅ | None — Grenzfeststellung DRAFT planned (A4, ETRS89/UTM) | 🔴 All `sourceFiled:false`; DHDN→ETRS89 Helmert verification noted | ❌ none filed | No |
+| US | ✅ | None | 🔴 All `sourceFiled:false` | ❌ none filed | No |
+| GH | ✅ | None | 🔴 All `sourceFiled:false` | ❌ none filed | No |
+
+> **Task 9 — `sourceFiled` guard:** `packages/country-config/src/types.ts` now carries `sourceFiled?: boolean` on
+> `StatutoryDocSpec` (“Whether source PDF is filed on disk — when true, file must exist or B1 guard test fails. Default false.”).
+> `packages/country-config/src/tests/source-paths.test.ts` and `tests/statutory-source-paths.test.ts` enforce it.
+> KE Form 3 (`survey-act-cap-299-revised-2012.pdf`, `sourceFiled:true`) + Beacon Certificate
+> (`kenya-gazette-survey-regulations-1994.pdf`, `sourceFiled:true`) are the only `true` entries and both PDFs exist;
+> Form 4 reuses the same Act PDF but remains `sourceFiled:false` (specimen pending, see `docs/BLOCKED-SOURCES.md` §1.3).
+> AU/GB/ZA/DE docs are explicitly `sourceFiled:false` — no file required; flipping to `true` without filing fails CI.
 
 **The blunt reading:** the config layer (tolerances, SRIDs, document *specs*,
 seal requirements) is fully built for all 8 countries — but **invariant B1

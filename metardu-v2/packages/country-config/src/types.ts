@@ -124,6 +124,10 @@ export interface StatutoryDocSpec {
   citation: string;
   /** Path to the source PDF in docs/regulatory-sources/<country>/<doc-type>/. */
   sourcePath: string;
+  /**
+   * Whether source PDF is filed on disk — when true, file must exist or B1 guard test fails. Default false.
+   */
+  sourceFiled?: boolean;
   /** Page size, e.g. "A4", "A3", "ANSI B". */
   pageSize: string;
   /** Required margins in mm: [top, right, bottom, left]. */
