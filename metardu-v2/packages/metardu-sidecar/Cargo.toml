@@ -45,10 +45,10 @@ geojson = { version = "0.24", optional = true }
 # lazy_static: thread-safe port registry for concurrent instrument connections
 # uuid: unique IDs for instrument connections
 tokio-serial = { version = "5.4", optional = true }
-btleplug = { version = "0.11", optional = true }
 lazy_static = "1.4"
 uuid = { version = "1.8", features = ["v4"] }
 url = "2.5"
+btleplug = { version = "0.11.5", optional = true }
 
 [features]
 default = ["gdal-bindings", "instrument"]
@@ -58,7 +58,7 @@ gdal-bindings = ["dep:gdal", "dep:geojson"]
 # Use this feature on platforms where native GDAL bindings are hard to build
 shell-out = []
 # Enable live instrument connection (serial + BLE + NTRIP)
-instrument = ["dep:tokio-serial", "dep:btleplug"]
+instrument = ["dep:tokio-serial"]
 
 [dev-dependencies]
 assert_matches = "1.5"
