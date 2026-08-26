@@ -33,7 +33,6 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { randomUUID } from "node:crypto";
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -220,7 +219,7 @@ export class SidecarClient extends EventEmitter {
       throw new Error(`Sidecar is not running (state: ${this.state})`);
     }
 
-    const id = randomUUID();
+    const id = globalThis.crypto.randomUUID();
     const request: RpcRequest = { id, method, params };
 
     return new Promise<T>((resolve, reject) => {

@@ -1,0 +1,4 @@
+## 2026-08-26 - XSS Prevention and Safe UUID Generation
+**Vulnerability:** Raw SVG strings from unsanitized sources were being rendered directly using `dangerouslySetInnerHTML`, opening the door to XSS attacks. In addition, the use of `node:crypto.randomUUID()` in code potentially running in renderer or browser contexts could lead to unsafe behavior or compatibility issues in cross-context execution environments.
+**Learning:** React's `dangerouslySetInnerHTML` must always receive strictly sanitized input (e.g. via DOMPurify). In engine or shared logic environments, `globalThis.crypto.randomUUID()` is the standard, secure way to avoid Node.js native dependencies bridging contexts incorrectly.
+**Prevention:** Always wrap `dangerouslySetInnerHTML` input with `DOMPurify.sanitize()`. Ban the import of `node:crypto` in engine/UI packages, preferring the standard Web Crypto API.
