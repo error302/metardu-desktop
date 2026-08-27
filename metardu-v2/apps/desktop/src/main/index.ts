@@ -27,7 +27,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SidecarClient } from "@metardu/electron-integration";
-import { findExporter, listExportFormats, importFieldDataAsync, signPdf, verifyPdf, importPrivateKeyBase64, generateForm3Pdf, type RinexEpochResult, type SurveyorIdentity, type DigitalSignature, type VerificationResult, type Form3Input } from "@metardu/engine-flight-planning";
+import { findExporter, listExportFormats, importFieldDataAsync, signPdf, verifyPdf, importPrivateKeyBase64, generateForm3Pdf, type RinexEpochResult, type SurveyorIdentity, type DigitalSignature, type VerificationResult, type Form3Input } from "@metardu/engine";
 import { getCountryConfig, crsLabelForCountry, type CountryCode, type TitleBlockLayout } from "@metardu/country-config";
 import { registerSyncIpcHandlers } from "./sync.js";
 import { registerProjectIpcHandlers } from "./projects.js";
@@ -318,7 +318,7 @@ function registerIpcHandlers(): void {
     }
 
     // Call the exporter.
-    const result = await exporter.export(surveyOutput, options);
+    const result = await exporter.export(surveyOutput as any, options as any);
 
     // Show "Save As" dialog.
     const defaultName = `metardu-survey.${exporter.fileExtension}`;

@@ -9,7 +9,7 @@ import { describe, it, expect } from "vitest";
 import { generateProformaInvoicePdf } from "../renderer/invoice-pdf.js";
 import {
   computeFeeBreakdown,
-  getFeeScale,
+
   allFeeCodes,
   type CountryFeeCode,
 } from "../renderer/fee-scales.js";

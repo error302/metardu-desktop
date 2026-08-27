@@ -245,8 +245,8 @@ export const CrossSectionView: React.FC = () => {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: "12px" }}>
         {/* SVG Rendering */}
+        {/* Security: Sanitize dynamically generated SVG with DOMPurify to prevent XSS attacks */}
         <div style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", padding: "8px", overflow: "auto" }}
-          {/* Security: Sanitize dynamically generated SVG with DOMPurify to prevent XSS attacks */}
           dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(svgHtml) }} />
 
         {/* Side Panel */}

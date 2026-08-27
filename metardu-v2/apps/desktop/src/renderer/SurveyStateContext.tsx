@@ -105,7 +105,7 @@ function getMapApi(): MapApi {
  * Cross-import payload — one view pushes data for another view to pick up.
  * Used to wire COGO → Traverse and Traverse → COGO area verification.
  */
-export interface CrossImportPayload {
+export type CrossImportPayload = {
   /** "cogo_points" — COGOView pushes accumulated computed points. */
   type: "cogo_points";
   /** Points computed by COGO (radiation, intersections, offsets). */
@@ -125,7 +125,7 @@ export interface CrossImportPayload {
   precisionRatio?: number;
   /** Timestamp. */
   timestamp: string;
-}
+};
 
 interface SurveyStateContextValue {
   /** Current survey state, or null if no survey has been run yet. */
