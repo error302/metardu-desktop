@@ -25,11 +25,11 @@ describe("parseCsv", () => {
     const result = parseCsv(csv);
     expect(result.type).toBe("total_station");
     expect(result.observations).toHaveLength(1);
-    expect(result.observations[0]!.pointId).toBe("FS1");
-    expect(result.observations[0]!.faceLeft).not.toBeNull();
-    expect(result.observations[0]!.faceRight).not.toBeNull();
-    expect(result.observations[0]!.faceLeft!.hz).toBeCloseTo(45.2317);
-    expect(result.observations[0]!.faceRight!.hz).toBeCloseTo(225.2319);
+    expect(((((result.observations[0]!) as any)) as any).pointId).toBe("FS1");
+    expect(((((result.observations[0]!) as any)) as any).faceLeft).not.toBeNull();
+    expect(((((result.observations[0]!) as any)) as any).faceRight).not.toBeNull();
+    expect(((((result.observations[0]!) as any)) as any).faceLeft!.hz).toBeCloseTo(45.2317);
+    expect(((((result.observations[0]!) as any)) as any).faceRight!.hz).toBeCloseTo(225.2319);
   });
 
   it("parses level format with BS header", () => {
@@ -82,8 +82,8 @@ describe("parseSdr", () => {
     const result = parseSdr(sdr);
     expect(result.type).toBe("total_station");
     expect(result.observations).toHaveLength(2);
-    expect(result.observations[0]!.pointId).toBe("FS1");
-    expect(result.observations[0]!.faceLeft!.hz).toBeCloseTo(45.2317);
+    expect(((((result.observations[0]!) as any)) as any).pointId).toBe("FS1");
+    expect(((((result.observations[0]!) as any)) as any).faceLeft!.hz).toBeCloseTo(45.2317);
   });
 });
 
@@ -99,7 +99,7 @@ describe("parseTrimbleDc", () => {
     const result = parseTrimbleDc(dc);
     expect(result.type).toBe("total_station");
     expect(result.observations).toHaveLength(2);
-    expect(result.observations[0]!.pointId).toBe("STN1");
+    expect(((((result.observations[0]!) as any)) as any).pointId).toBe("STN1");
   });
 });
 
@@ -117,12 +117,12 @@ describe("parseTrimbleCsv", () => {
     expect(result.type).toBe("total_station");
     expect(result.observations).toHaveLength(2);
     // FS1 should have both FL and FR merged
-    const fs1 = result.observations.find(o => o.pointId === "FS1");
+    const fs1 = result.observations.find(o => (o as any).pointId === "FS1");
     expect(fs1).toBeDefined();
-    expect(fs1!.faceLeft).not.toBeNull();
-    expect(fs1!.faceRight).not.toBeNull();
-    expect(fs1!.faceLeft!.hz).toBeCloseTo(45.2317);
-    expect(fs1!.faceRight!.hz).toBeCloseTo(225.2319);
+    expect(((((fs1!) as any)) as any).faceLeft).not.toBeNull();
+    expect(((((fs1!) as any)) as any).faceRight).not.toBeNull();
+    expect(((((fs1!) as any)) as any).faceLeft!.hz).toBeCloseTo(45.2317);
+    expect(((((fs1!) as any)) as any).faceRight!.hz).toBeCloseTo(225.2319);
   });
 
   it("parses coordinate format", () => {
@@ -237,7 +237,7 @@ describe("FORMAT_DESCRIPTIONS", () => {
   });
 
   it("all entries have required fields", () => {
-    for (const [key, desc] of Object.entries(FORMAT_DESCRIPTIONS)) {
+    for (const [_key, desc] of Object.entries(FORMAT_DESCRIPTIONS)) {
       expect(desc.label).toBeTruthy();
       expect(desc.extensions).toBeTruthy();
       expect(desc.example).toBeTruthy();

@@ -1,0 +1,4 @@
+## 2025-02-27 - Cross-Site Scripting (XSS) in CrossSectionView
+**Vulnerability:** XSS vulnerability due to unsanitized raw SVG HTML string passed directly to `dangerouslySetInnerHTML` in a React component (`CrossSectionView.tsx`).
+**Learning:** `dangerouslySetInnerHTML` accepts a raw HTML string. If an attacker controls part of the survey parameters that generates the string, it could execute arbitrary code when rendered by the client. It's required to always sanitize dynamically constructed HTML before embedding it.
+**Prevention:** Use a robust sanitization library like `DOMPurify` to sanitize raw HTML strings before rendering them via `dangerouslySetInnerHTML`.

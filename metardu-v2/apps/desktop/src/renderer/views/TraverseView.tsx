@@ -654,7 +654,7 @@ export const TraverseView: React.FC = () => {
           <div>
             <label style={{ display: "block", marginBottom: "4px", fontWeight: "bold" }}>
               Directions (Station, Target, Direction°, Sigma″)
-              <span style={{ fontWeight: "normal", color: "var(--text-tertiary)", marginLeft: 8, fontSize: "var(--text-xs)">Measured horizontal angles from station</span>
+              <span style={{ fontWeight: "normal", color: "var(--text-tertiary)", marginLeft: 8, fontSize: "var(--text-xs)" }}>Measured horizontal angles from station</span>
             </label>
             <textarea value={directionsText} onChange={(e) => setDirectionsText(e.target.value)} style={{ width: "100%", height: "120px", fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)" }} />
             <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", marginTop: 4 }}>
@@ -664,7 +664,7 @@ export const TraverseView: React.FC = () => {
           <div>
             <label style={{ display: "block", marginBottom: "4px", fontWeight: "bold" }}>
               Azimuth Controls (From, To, Azimuth°, Sigma″)
-              <span style={{ fontWeight: "normal", color: "var(--text-tertiary)", marginLeft: 8, fontSize: "var(--text-xs)">Known azimuth constraining orientation</span>
+              <span style={{ fontWeight: "normal", color: "var(--text-tertiary)", marginLeft: 8, fontSize: "var(--text-xs)" }}>Known azimuth constraining orientation</span>
             </label>
             <textarea value={azimuthText} onChange={(e) => setAzimuthText(e.target.value)} style={{ width: "100%", height: "120px", fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)" }} />
             <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", marginTop: 4 }}>
