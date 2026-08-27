@@ -371,6 +371,11 @@ export {
   dxfExporter,
   getCountryDxfLayerSpecs,
   INTEGRATION_EXPORTERS,
+  findExporter,
+  listExportFormats,
+} from "./integration/index.js";
+
+export {
   type IntegrationExporter,
   type IntegrationOptions,
   type IntegrationOutput,

@@ -19,9 +19,6 @@ pub enum HandlerError {
 
     #[error("Internal error: {0}")]
     Internal(String),
-
-    #[error("Not implemented yet: {0}")]
-    NotImplemented(String),
 }
 
 impl HandlerError {
@@ -30,7 +27,6 @@ impl HandlerError {
             HandlerError::MethodNotFound(_) => "METHOD_NOT_FOUND",
             HandlerError::InvalidParams(_) => "INVALID_PARAMS",
             HandlerError::Internal(_) => "INTERNAL_ERROR",
-            HandlerError::NotImplemented(_) => "NOT_IMPLEMENTED",
         }
     }
 }
