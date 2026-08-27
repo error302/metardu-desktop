@@ -138,6 +138,35 @@ function nextBeaconLabel(): string {
   return `B${beaconCounter}`;
 }
 
+// ─── Statutory document selector (Tasks 7-8) ───────────────────────────────
+// The Deed Plan view drives every jurisdiction's statutory renderer. All
+// non-Kenya renderers ship as DRAFT (invariant B1) until their source
+// specimens are filed.
+type StatutoryDocType =
+  | "form3" | "form4" | "lra27" | "beacon" | "au" | "za" | "gb" | "de";
+
+const DOC_TABS: Array<{ id: StatutoryDocType; label: string }> = [
+  { id: "form3", label: "Form 3 (KE)" },
+  { id: "form4", label: "Form 4 (KE)" },
+  { id: "lra27", label: "LRA-27 (KE)" },
+  { id: "beacon", label: "Beacon Cert (KE)" },
+  { id: "au", label: "AU Plan" },
+  { id: "za", label: "ZA SG" },
+  { id: "gb", label: "GB Report" },
+  { id: "de", label: "DE Grenz" },
+];
+
+const DOC_TITLE: Record<StatutoryDocType, string> = {
+  form3: "Form No. 3 — Statutory Deed Plan",
+  form4: "Form No. 4 — Notification of Survey (Mutation)",
+  lra27: "LRA-27 — Mutation Form",
+  beacon: "Beacon Certificate",
+  au: "Plan of Survey (AU/NSW)",
+  za: "Surveyor-General Diagram (ZA)",
+  gb: "Measured Survey Report (GB)",
+  de: "Grenzfeststellungszeichnung (DE)",
+};
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export const DeedPlanView: React.FC = () => {
@@ -401,13 +430,143 @@ export const DeedPlanView: React.FC = () => {
     }
   }, [isValid, buildForm3Input, surveyorName, licenseNumber, lrNumber, county, subCounty, areaHa, surveyDate, beacons, setSurveyOutput, cfg.professionalBody.name, cfg.countryName, countryCode]);
 
+  // ── Statutory doc-type selection (Tasks 7-8) ──
+  const [docType, setDocType] = useState<StatutoryDocType>("form3");
+  // Doc-specific extra fields.
+  const [mutationReason, setMutationReason] = useState("Subdivision of parent parcel");
+  const [lra27TitleNumbers, setLra27TitleNumbers] = useState("LR KIAMBU/RIRUTA/247/15");
+  const [lra27Proprietors, setLra27Proprietors] = useState("Jane W. Muthoni");
+  const [markType, setMarkType] = useState("Concrete pillar");
+  const [projectName, setProjectName] = useState("Measured Survey");
+  const [client, setClient] = useState("Private Client");
+  const [surveyClass, setSurveyClass] = useState<"A" | "B" | "C">("B");
+  const [surveyScale, setSurveyScale] = useState(500);
+
+  const srid = cfg.geodeticFramework.primarySRID;
+
+  /** Build the input object for the selected statutory renderer from shared state. */
+  const buildStatutoryInput = useCallback((dt: StatutoryDocType): Record<string, unknown> => {
+    const beaconMap = beacons.map((b) => ({
+      label: b.label,
+      position: { easting: b.easting, northing: b.northing },
+      description: b.description,
+    }));
+    const surveyorName3 = surveyorName;
+    switch (dt) {
+      case "form3":
+        return buildForm3Input() as unknown as Record<string, unknown>;
+      case "form4":
+        return {
+          county, subCounty,
+          parentParcel: { lrNumber, beacons: beaconMap },
+          newParcels: [{ lrNumber: `${lrNumber}/1`, beacons: beaconMap }],
+          mutationReason,
+          areaHaByParcel: { [lrNumber]: areaHa, [`${lrNumber}/1`]: areaHa },
+          srid,
+          surveyor: { name: surveyorName3, iskRegNo: licenseNumber, dateOfSurvey: surveyDate },
+        };
+      case "lra27":
+        return {
+          titleNumbers: lra27TitleNumbers.split(",").map((s) => s.trim()).filter(Boolean),
+          registry: county,
+          proprietors: lra27Proprietors.split(",").map((s) => ({ name: s.trim() })).filter((p: { name: string }) => p.name),
+          instructionsToSurveyor: "Survey and prepare deed plan per LRA-27.",
+          newParcelsSchedule: [{ lrNumber: `${lrNumber}/1`, areaHa }],
+          surveyor: { name: surveyorName3, regNumber: licenseNumber, date: surveyDate },
+        };
+      case "beacon":
+        return {
+          beacon: {
+            label: beacons[0]?.label ?? "B1",
+            position: { easting: beacons[0]?.easting ?? 0, northing: beacons[0]?.northing ?? 0 },
+            markType,
+            description: beacons[0]?.description ?? "",
+          },
+          parcelRef: lrNumber,
+          ownerName: surveyorName3,
+          srid,
+          surveyor: { name: surveyorName3, iskRegNo: licenseNumber, dateOfSurvey: surveyDate },
+        };
+      case "au":
+        return {
+          parcel: { beacons: beaconMap, areaHa, srid },
+          surveyor: { name: surveyorName3, regNo: licenseNumber, dateOfSurvey: surveyDate },
+          council: county, locality: subCounty,
+        };
+      case "za":
+        return {
+          parcel: { beacons: beaconMap, areaHa, srid },
+          surveyor: { name: surveyorName3, regNo: licenseNumber, dateOfSurvey: surveyDate },
+          farmName: county, registrationDivision: subCounty,
+        };
+      case "gb":
+        return {
+          projectName, client,
+          surveyor: { name: surveyorName3, ricsRegNo: licenseNumber, dateOfSurvey: surveyDate },
+          surveyClass, scale: surveyScale,
+          points: beacons.map((b) => ({ pointId: b.label, easting: b.easting, northing: b.northing })),
+          srid, propertyAddress: subCounty,
+        };
+      case "de":
+        return {
+          parcel: { beacons: beaconMap, areaHa, srid },
+          surveyor: { name: surveyorName3, regNo: licenseNumber, date: surveyDate },
+          gemarkung: county, gemeinde: subCounty,
+        };
+    }
+  }, [beacons, county, subCounty, lrNumber, areaHa, srid, surveyorName, licenseNumber, surveyDate, mutationReason, lra27TitleNumbers, lra27Proprietors, markType, projectName, client, surveyClass, surveyScale, buildForm3Input]);
+
+  const [genStatus, setGenStatus] = useState<string | null>(null);
+  const [draftInfo, setDraftInfo] = useState<{ hasDraftWatermark: boolean; hkItemCount: number } | null>(null);
+  const [generating, setGenerating] = useState(false);
+
+  const handleGenerateStatutory = useCallback(async () => {
+    setGenerating(true);
+    setGenStatus(null);
+    setDraftInfo(null);
+    try {
+      const apis = (window as any).metardu;
+      const bridge = apis?.statutory;
+      if (!bridge) {
+        setGenStatus("Statutory generation not available — run in Electron app.");
+        return;
+      }
+      const input = buildStatutoryInput(docType);
+      let result: { pdfBytesBase64: string; hasDraftWatermark: boolean; hkItemCount: number };
+      switch (docType) {
+        case "form4": result = await bridge.generateForm4Pdf(input); break;
+        case "lra27": result = await bridge.generateLra27Pdf(input); break;
+        case "beacon": result = await bridge.generateBeaconCertificatePdf(input); break;
+        case "au": result = await bridge.generateAuPlanOfSurveyPdf(input); break;
+        case "za": result = await bridge.generateZaSgDiagramPdf(input); break;
+        case "gb": result = await bridge.generateGbMeasuredSurveyReportPdf(input); break;
+        case "de": result = await bridge.generateDeGrenzfeststellungPdf(input); break;
+        default: result = await bridge.generateForm4Pdf(input); break;
+      }
+      const bytes = Uint8Array.from(atob(result.pdfBytesBase64), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${docType}_${lrNumber.replace(/[^a-zA-Z0-9]/g, "_")}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setDraftInfo({ hasDraftWatermark: result.hasDraftWatermark, hkItemCount: result.hkItemCount });
+      setGenStatus(`PDF exported: ${bytes.length} bytes`);
+    } catch (e) {
+      setGenStatus(`Generation failed: ${(e as Error).message}`);
+    } finally {
+      setGenerating(false);
+    }
+  }, [docType, buildStatutoryInput, lrNumber]);
+
   // ── Render ──
   return (
     <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "12px", height: "100%", overflow: "auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <h2 style={{ fontSize: "var(--text-xl)", color: "var(--accent-primary)", fontFamily: "var(--font-mono)", margin: 0 }}>
-            Form No. 3 — Statutory Deed Plan
+            {DOC_TITLE[docType]}
           </h2>
           <p style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)", margin: "2px 0 0 0" }}>
             Prepare, validate, and digitally sign statutory deed plans per {cfg.countryName} regulatory framework.
@@ -422,7 +581,23 @@ export const DeedPlanView: React.FC = () => {
             style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid var(--border-default)", background: "var(--bg-tertiary)", color: "var(--text-primary)", fontSize: "12px", cursor: isValid && !exportingDxf ? "pointer" : "not-allowed", opacity: isValid ? 1 : 0.5 }}>
             {exportingDxf ? "Generating…" : "📐 Export DXF"}
           </button>
+          {docType !== "form3" && (
+            <button onClick={handleGenerateStatutory} disabled={generating}
+              style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid var(--accent-warning, #f59e0b)", background: "var(--bg-tertiary)", color: "var(--accent-warning, #f59e0b)", fontSize: "12px", cursor: generating ? "not-allowed" : "pointer", opacity: generating ? 0.6 : 1 }}>
+              {generating ? "Generating…" : "📄 Generate DRAFT PDF"}
+            </button>
+          )}
         </div>
+      </div>
+
+      {/* Statutory doc-type tabs */}
+      <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+        {DOC_TABS.map((t) => (
+          <button key={t.id} onClick={() => setDocType(t.id)}
+            style={{ padding: "4px 10px", borderRadius: "4px", border: `1px solid ${docType === t.id ? "var(--accent-primary)" : "var(--border-default)"}`, background: docType === t.id ? "var(--accent-primary)" : "var(--bg-tertiary)", color: docType === t.id ? "#fff" : "var(--text-primary)", fontSize: "11px", cursor: "pointer" }}>
+            {t.label}
+          </button>
+        ))}
       </div>
 
       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -437,6 +612,44 @@ export const DeedPlanView: React.FC = () => {
         <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>{cfg.geodeticFramework.datum} · {cfg.professionalBody.name}</span>
       </div>
 
+      {/* Doc-specific fields */}
+      {docType === "form4" && (
+        <div style={{ background: "var(--bg-tertiary)", padding: "8px 12px", border: "1px solid var(--border-default)" }}>
+          <label style={{ display: "block", fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>Mutation Reason</label>
+          <input type="text" value={mutationReason} onChange={(e) => setMutationReason(e.target.value)} style={{ width: "100%", padding: "4px 6px", fontSize: "12px" }} />
+        </div>
+      )}
+      {docType === "lra27" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", background: "var(--bg-tertiary)", padding: "8px 12px", border: "1px solid var(--border-default)" }}>
+          <div>
+            <label style={{ display: "block", fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>Title Numbers (comma-separated)</label>
+            <input type="text" value={lra27TitleNumbers} onChange={(e) => setLra27TitleNumbers(e.target.value)} style={{ width: "100%", padding: "4px 6px", fontSize: "12px" }} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>Proprietors (comma-separated)</label>
+            <input type="text" value={lra27Proprietors} onChange={(e) => setLra27Proprietors(e.target.value)} style={{ width: "100%", padding: "4px 6px", fontSize: "12px" }} />
+          </div>
+        </div>
+      )}
+      {docType === "beacon" && (
+        <div style={{ background: "var(--bg-tertiary)", padding: "8px 12px", border: "1px solid var(--border-default)" }}>
+          <label style={{ display: "block", fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>Mark Type</label>
+          <input type="text" value={markType} onChange={(e) => setMarkType(e.target.value)} style={{ width: "100%", padding: "4px 6px", fontSize: "12px" }} />
+        </div>
+      )}
+      {docType === "gb" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px", background: "var(--bg-tertiary)", padding: "8px 12px", border: "1px solid var(--border-default)" }}>
+          <div><label style={{ display: "block", fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>Project</label><input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} style={{ width: "100%", padding: "4px 6px", fontSize: "12px" }} /></div>
+          <div><label style={{ display: "block", fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>Client</label><input type="text" value={client} onChange={(e) => setClient(e.target.value)} style={{ width: "100%", padding: "4px 6px", fontSize: "12px" }} /></div>
+          <div><label style={{ display: "block", fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>Class</label>
+            <select value={surveyClass} onChange={(e) => setSurveyClass(e.target.value as "A" | "B" | "C")} style={{ width: "100%", padding: "4px 6px", fontSize: "12px" }}>
+              <option value="A">A</option><option value="B">B</option><option value="C">C</option>
+            </select>
+          </div>
+          <div><label style={{ display: "block", fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>Scale 1:</label><input type="number" value={surveyScale} onChange={(e) => setSurveyScale(parseInt(e.target.value) || 500)} style={{ width: "100%", padding: "4px 6px", fontSize: "12px" }} /></div>
+        </div>
+      )}
+
       {/* Validation errors */}
       {validationErrors.length > 0 && (
         <div style={{ padding: "8px 12px", borderRadius: "6px", background: "var(--bg-error, rgba(239,68,68,0.08))", border: "1px solid var(--border-error, #ef4444)", fontSize: "12px", color: "var(--text-error, #ef4444)" }}>
@@ -448,6 +661,18 @@ export const DeedPlanView: React.FC = () => {
       {exportStatus && (
         <div style={{ padding: "8px 12px", borderRadius: "6px", background: "var(--bg-success, rgba(34,197,94,0.08))", border: "1px solid var(--border-success, #22c55e)", fontSize: "12px", color: "var(--text-success, #22c55e)" }}>
           {exportStatus}
+        </div>
+      )}
+
+      {/* DRAFT generation status */}
+      {genStatus && (
+        <div style={{ padding: "8px 12px", borderRadius: "6px", background: "var(--bg-success, rgba(34,197,94,0.08))", border: "1px solid var(--border-success, #22c55e)", fontSize: "12px", color: "var(--text-success, #22c55e)" }}>
+          {genStatus}
+          {draftInfo && (
+            <span style={{ color: "var(--accent-warning, #f59e0b)", marginLeft: "8px" }}>
+              ⚠ DRAFT watermark applied — {draftInfo.hkItemCount} [HK] item(s) pending specimen filing.
+            </span>
+          )}
         </div>
       )}
 

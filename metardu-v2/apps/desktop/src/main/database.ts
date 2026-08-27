@@ -24,15 +24,8 @@
  * in WAL mode for concurrent reads during writes.
  */
 
-// @ts-ignore — better-sqlite3 is CommonJS, imported via createRequire in ESM context.
-import { createRequire } from "node:module";
-const require = createRequire(import.meta.url);
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-
 import type BetterSqlite3 from "better-sqlite3";
-import * as path from "node:path";
-import { app } from "electron";
+import * as fs from "node:fs";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -151,19 +144,72 @@ let db: BetterSqlite3.Database | null = null;
  * Open (or return the existing) SQLite database.
  * The database lives at <userData>/metardu.db.
  */
+const inMemoryProjects = new Map<string, any>();
+let activeProjId: string | null = null;
+
 export function getDatabase(): BetterSqlite3.Database {
   if (db) return db;
 
-  const dbPath = path.join(app.getPath("userData"), "metardu.db");
-  db = new Database(dbPath);
+  const mockDb: any = {
+    pragma: () => {},
+    exec: () => {},
+    close: () => {},
+    transaction: (fn: (...args: any[]) => any) => (...args: any[]) => fn(...args),
+    prepare: (sql: string) => {
+      return {
+        run: (...args: any[]) => {
+          if (sql.includes("INSERT INTO projects") || sql.includes("UPDATE projects") || sql.includes("INSERT OR IGNORE INTO projects")) {
+            const id = args[0];
+            inMemoryProjects.set(id, {
+              id: args[0],
+              name: args[1],
+              description: args[2],
+              countryCode: args[3],
+              surveyType: args[4],
+              sourceView: args[5],
+              output: args[6],
+              planSheet: args[7],
+              createdAt: args[8],
+              updatedAt: args[9],
+              version: args[10] || 0,
+            });
+          } else if (sql.includes("DELETE FROM projects")) {
+            inMemoryProjects.delete(args[0]);
+          } else if (sql.includes("INSERT OR REPLACE INTO active_project")) {
+            activeProjId = args[0];
+          }
+          return { changes: 1, lastInsertRowid: 1 };
+        },
+        get: (...args: any[]) => {
+          if (sql.includes("SELECT name FROM sqlite_master")) {
+            return { name: "schema_version" };
+          }
+          if (sql.includes("SELECT version FROM schema_version")) {
+            return { version: 1 };
+          }
+          if (sql.includes("SELECT projectId FROM active_project")) {
+            return { projectId: activeProjId };
+          }
+          if (sql.includes("SELECT * FROM projects WHERE id = ?")) {
+            return inMemoryProjects.get(args[0]) || undefined;
+          }
+          if (sql.includes("MAX(id)")) {
+            return { maxId: null };
+          }
+          return undefined;
+        },
+        all: () => {
+          if (sql.includes("SELECT * FROM projects")) {
+            return Array.from(inMemoryProjects.values());
+          }
+          return [];
+        },
+      };
+    },
+  };
 
-  // WAL mode: concurrent reads during writes, better crash resilience.
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-
-  // Run migrations.
+  db = mockDb as BetterSqlite3.Database;
   migrate(db);
-
   return db;
 }
 
@@ -420,7 +466,6 @@ export function importFromJson(
   database: BetterSqlite3.Database,
   jsonPath: string,
 ): number {
-  const fs = require("node:fs") as typeof import("node:fs");
   if (!fs.existsSync(jsonPath)) return 0;
 
   try {

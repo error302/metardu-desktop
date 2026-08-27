@@ -345,6 +345,24 @@ export const LULCView: React.FC = () => {
     setNotice(`Loaded imagery: ${file.name} (${meta.width}x${meta.height}, ${meta.resolution}m/px, ${meta.bands} bands)`);
   }, [cfgCrs]);
 
+  // ── Stats ───────────────────────────────────────────────────────
+
+  const totalArea = useMemo(() => zones.reduce((sum, z) => sum + shoelaceArea(z.points), 0), [zones]);
+
+  const categoryBreakdown = useMemo(() => {
+    const map = new Map<LulcCategory, { area: number; count: number }>();
+    for (const z of zones) {
+      const existing = map.get(z.category) ?? { area: 0, count: 0 };
+      map.set(z.category, { area: existing.area + shoelaceArea(z.points), count: existing.count + 1 });
+    }
+    return Array.from(map.entries())
+      .map(([cat, data]) => ({
+        ...getCategoryInfo(cat, countryCode), area: data.area, count: data.count,
+        pct: totalArea > 0 ? (data.area / totalArea) * 100 : 0,
+      }))
+      .sort((a, b) => b.area - a.area);
+  }, [zones, totalArea, countryCode]);
+
   // ── Export classification report ────────────────────────────────
 
   const exportReport = useCallback(() => {
@@ -394,24 +412,6 @@ export const LULCView: React.FC = () => {
     }, "lulc", "LULCView", countryCode);
     setNotice("LULC classification pushed to project survey state.");
   }, [zones, countryCode, totalArea, categoryBreakdown, setSurveyOutput]);
-
-  // ── Stats ───────────────────────────────────────────────────────
-
-  const totalArea = useMemo(() => zones.reduce((sum, z) => sum + shoelaceArea(z.points), 0), [zones]);
-
-  const categoryBreakdown = useMemo(() => {
-    const map = new Map<LulcCategory, { area: number; count: number }>();
-    for (const z of zones) {
-      const existing = map.get(z.category) ?? { area: 0, count: 0 };
-      map.set(z.category, { area: existing.area + shoelaceArea(z.points), count: existing.count + 1 });
-    }
-    return Array.from(map.entries())
-      .map(([cat, data]) => ({
-        ...getCategoryInfo(cat, countryCode), area: data.area, count: data.count,
-        pct: totalArea > 0 ? (data.area / totalArea) * 100 : 0,
-      }))
-      .sort((a, b) => b.area - a.area);
-  }, [zones, totalArea, countryCode]);
 
   const sourceBreakdown = useMemo(() => {
     const manual = zones.filter((z) => z.source === "manual").length;

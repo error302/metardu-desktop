@@ -66,7 +66,7 @@ export const SyncPanel: React.FC = () => {
   const [password, setPassword] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
   const [status, setStatus] = useState<SyncStatus | null>(null);
-  const [projects, setProjects] = useState<SyncProject[]>([]);
+  const [remoteProjects, setRemoteProjects] = useState<SyncProject[]>([]);
   const [conflicts, setConflicts] = useState<SyncStatus["conflicts"]>([]);
   const [lastResult, setLastResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +74,7 @@ export const SyncPanel: React.FC = () => {
   // the same survey is a PUT update, not a fresh POST duplicate.
   const [savedVersions, setSavedVersions] = useState<Record<string, number>>({});
 
-  const { state: surveyState, projects, activeProject } = useSurveyState();
+  const { state: surveyState, projects: storedProjects, activeProject } = useSurveyState();
 
   // Subscribe to live status changes pushed from the main process. The
   // logged-in flag MUST come from isLoggedIn() — getStatus() resolves
@@ -147,7 +147,7 @@ export const SyncPanel: React.FC = () => {
     setBusy(true); setError(null);
     try {
       const list = await api.fetchProjects();
-      setProjects(list);
+      setRemoteProjects(list);
       setLastResult(`Pulled ${list.length} remote project${list.length === 1 ? "" : "s"}.`);
     } catch (e) {
       setError((e as Error).message);
@@ -165,7 +165,7 @@ export const SyncPanel: React.FC = () => {
       const saved = await api.uploadProject(project);
       setSavedVersions((prev) => ({ ...prev, [project.id]: saved.version }));
       setLastResult(`Pushed "${saved.name}" (v${saved.version}).`);
-      setProjects(await api.fetchProjects());
+      setRemoteProjects(await api.fetchProjects());
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -178,10 +178,10 @@ export const SyncPanel: React.FC = () => {
     setBusy(true); setError(null);
     try {
       // Reconcile ALL stored projects, not just the active survey.
-      const local = projects.map((p) => projectFromStored(p, savedVersions[p.id] ?? 0));
+      const local = storedProjects.map((p) => projectFromStored(p, savedVersions[p.id] ?? 0));
       const result = await api.sync(local);
       setConflicts(result.conflicts);
-      setProjects(await api.fetchProjects());
+      setRemoteProjects(await api.fetchProjects());
       setLastResult(
         `Sync complete — ${result.downloaded} downloaded, ${result.uploaded} uploaded, ` +
         `${result.deleted} deleted, ` +
@@ -192,7 +192,7 @@ export const SyncPanel: React.FC = () => {
     } finally {
       setBusy(false);
     }
-  }, [api, projects, savedVersions]);
+  }, [api, storedProjects, savedVersions]);
 
   const handleResolve = useCallback(async (projectId: string, choice: "local" | "remote") => {
     if (!api) return;
@@ -374,8 +374,8 @@ export const SyncPanel: React.FC = () => {
 
           {/* Remote projects */}
           <div>
-            <label style={labelStyle}>Remote projects ({projects.length})</label>
-            {projects.length === 0 ? (
+            <label style={labelStyle}>Remote projects ({remoteProjects.length})</label>
+            {remoteProjects.length === 0 ? (
               <p style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>No remote projects. Click "Pull projects" or push the current survey.</p>
             ) : (
               <div style={{ border: "1px solid var(--border-default)", borderRadius: "8px", overflow: "auto", maxHeight: "320px" }}>
@@ -390,7 +390,7 @@ export const SyncPanel: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {projects.map((p) => (
+                    {remoteProjects.map((p) => (
                       <tr key={p.id} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
                         <td style={{ ...td, fontWeight: 500 }}>{p.name}</td>
                         <td style={td}>{p.countryCode}</td>

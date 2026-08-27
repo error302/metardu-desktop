@@ -18,6 +18,6 @@
     "rootDir": "./src",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/main/**/*.ts", "src/preload/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/tests", "src/renderer"]
 }

@@ -29,6 +29,16 @@ import {
   Undo2,
   Redo2,
   Clock,
+  Key,
+  Archive,
+  Image as ImageIcon,
+  Radio,
+  Cpu,
+  Wifi,
+  Send,
+  BarChart3,
+  Maximize2,
+  Camera,
   type LucideProps,
 } from "lucide-react";
 import "../styles/metardu-theme.css";
@@ -37,33 +47,16 @@ import { THEMES, applyTheme, loadPersistedTheme, type ThemeId } from "../styles/
 
 /**
  * MetaRDU Desktop AppShell — the top-level UI frame.
- *
- * Layout:
- *   ┌──────────┬─────────────────────────────────────┐
- *   │ brand    │ toolbar                             │
- *   │ logo     ├─────────────────────────────────────┤
- *   │ + nav    │ breadcrumb                          │
- *   │          ├─────────────────────────────────────┤
- *   │          │                                     │
- *   │          │ content (per-view)                  │
- *   │          │                                     │
- *   │          ├─────────────────────────────────────┤
- *   │          │ statusbar (sidecar state live)      │
- *   └──────────┴─────────────────────────────────────┘
- *
- * Branding: the sidebar header uses the MetaRDU logo on navy
- * background (matches the logo's deep navy `#1A1F36`). The active
- * nav item uses orange accent (`#FF9500`) — also from the logo.
- *
- * Icons: uses lucide-react (the icon library used by Cursor, Linear,
- * and shadcn/ui). No unicode symbols or emojis — every icon is a
- * crisp SVG that scales perfectly at any size.
  */
 
 type ViewId =
   | "projects" | "map" | "flight" | "stakeout" | "gnss" | "drone"
   | "lulc" | "crosssection" | "asbuilt"
   | "traverse" | "cogo" | "deedplan" | "subdivision" | "fieldbook" | "lsa" | "roaddesign" | "officemgmt"
+  | "pointcloud" | "raster" | "archive" | "licensing" | "hardware"
+  | "dwgcad" | "photogrammetry" | "ntripcaster" | "landportal" | "volumechange"
+  | "gnssppk" | "datumtransform"
+  | "verticalalignment" | "deformation"
   | "topo" | "engineering" | "sectional" | "export" | "import" | "signing" | "sync" | "history";
 
 interface NavItem {
@@ -75,36 +68,49 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  // Projects (workspace hub — create/switch/manage the projects every
-  // workflow view saves into)
+  // Projects
   { id: "projects", label: "Projects", icon: Folder, category: "Projects", shortcut: "g p" },
   // Field Work
   { id: "map", label: "Map", icon: MapIcon, category: "Field Work", shortcut: "g m" },
   { id: "stakeout", label: "Setting-Out", icon: Crosshair, category: "Field Work", shortcut: "g s" },
   { id: "gnss", label: "GNSS Monitor", icon: Radar, category: "Field Work", shortcut: "g g" },
+  { id: "gnssppk", label: "GNSS PPK & Static", icon: Radar, category: "Field Work", shortcut: "g 4" },
+  { id: "ntripcaster", label: "NTRIP RTK Caster", icon: Wifi, category: "Field Work", shortcut: "g n" },
+  { id: "hardware", label: "Hardware Connect", icon: Radio, category: "Field Work", shortcut: "g c" },
   { id: "fieldbook", label: "Field Book", icon: BookOpen, category: "Field Work", shortcut: "g b" },
   { id: "import", label: "Import", icon: Upload, category: "Field Work", shortcut: "g i" },
   { id: "sync", label: "Sync", icon: RefreshCw, category: "Field Work", shortcut: "g u" },
-  // Drone
+  // Drone & LiDAR
   { id: "flight", label: "Flight Planning", icon: Plane, category: "Drone", shortcut: "g f" },
+  { id: "photogrammetry", label: "SfM Photogrammetry", icon: Camera, category: "Drone", shortcut: "g 8" },
   { id: "drone", label: "Drone Dashboard", icon: Plane, category: "Drone", shortcut: "g d" },
+  { id: "pointcloud", label: "LiDAR Point Cloud", icon: Cpu, category: "Drone", shortcut: "g l" },
+  { id: "raster", label: "Raster & COG", icon: ImageIcon, category: "Drone", shortcut: "g r" },
   // Surveying
+  { id: "dwgcad", label: "DWG / CAD Editor", icon: Maximize2, category: "Surveying", shortcut: "g w" },
+  { id: "datumtransform", label: "Datum Transform 7P", icon: Compass, category: "Surveying", shortcut: "g 5" },
   { id: "traverse", label: "Traverse", icon: Compass, category: "Surveying", shortcut: "g v" },
   { id: "cogo", label: "COGO", icon: Calculator, category: "Surveying", shortcut: "g o" },
   { id: "subdivision", label: "Subdivision", icon: Split, category: "Surveying", shortcut: "g k" },
   { id: "lsa", label: "Network LSA", icon: Activity, category: "Surveying", shortcut: "g j" },
   { id: "deedplan", label: "Deed Plan", icon: FileText, category: "Surveying", shortcut: "g e" },
+  { id: "archive", label: "Registry Archive", icon: Archive, category: "Surveying", shortcut: "g a" },
   { id: "signing", label: "Sign & Seal", icon: PenTool, category: "Surveying", shortcut: "g y" },
   // Engineering
-  { id: "roaddesign", label: "Road Design", icon: Milestone, category: "Engineering", shortcut: "g r" },
-  { id: "engineering", label: "Engineering", icon: Settings, category: "Engineering", shortcut: "g n" },
-  { id: "crosssection", label: "Cross-Sections", icon: ScanLine, category: "Engineering", shortcut: "g c" },
-  { id: "asbuilt", label: "As-Built QC", icon: TrendingUp, category: "Engineering", shortcut: "g a" },
-  { id: "sectional", label: "Sectional Properties", icon: Building2, category: "Engineering", shortcut: "g q" },
+  { id: "verticalalignment", label: "Vertical Alignment", icon: TrendingUp, category: "Engineering", shortcut: "g 2" },
+  { id: "deformation", label: "Deformation Monitor", icon: Activity, category: "Engineering", shortcut: "g 3" },
+  { id: "volumechange", label: "Volume Heatmap", icon: BarChart3, category: "Engineering", shortcut: "g 9" },
+  { id: "roaddesign", label: "Road Design", icon: Milestone, category: "Engineering", shortcut: "g n" },
+  { id: "engineering", label: "Engineering", icon: Settings, category: "Engineering", shortcut: "g t" },
+  { id: "crosssection", label: "Cross-Sections", icon: ScanLine, category: "Engineering", shortcut: "g s" },
+  { id: "asbuilt", label: "As-Built QC", icon: TrendingUp, category: "Engineering", shortcut: "g q" },
+  { id: "sectional", label: "Sectional Properties", icon: Building2, category: "Engineering", shortcut: "g z" },
   // Office & Topo
-  { id: "topo", label: "Topographic", icon: Mountain, category: "Office", shortcut: "g t" },
-  { id: "lulc", label: "LULC Analysis", icon: Layers, category: "Office", shortcut: "g l" },
+  { id: "landportal", label: "Land Portal Submit", icon: Send, category: "Office", shortcut: "g 7" },
+  { id: "topo", label: "Topographic", icon: Mountain, category: "Office", shortcut: "g m" },
+  { id: "lulc", label: "LULC Analysis", icon: Layers, category: "Office", shortcut: "g u" },
   { id: "officemgmt", label: "Office & Billing", icon: Briefcase, category: "Office", shortcut: "g w" },
+  { id: "licensing", label: "License & Token", icon: Key, category: "Office", shortcut: "g k" },
   { id: "history", label: "Version History", icon: Clock, category: "Office", shortcut: "g h" },
   // Export
   { id: "export", label: "Export", icon: Download, category: "Export", shortcut: "g x" },

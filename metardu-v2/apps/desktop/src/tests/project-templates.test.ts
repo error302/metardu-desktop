@@ -12,8 +12,8 @@ import {
 } from "../renderer/project-templates.js";
 
 describe("Project templates", () => {
-  it("has 6 templates defined", () => {
-    expect(PROJECT_TEMPLATES).toHaveLength(6);
+  it("has 10 templates defined across supported markets", () => {
+    expect(PROJECT_TEMPLATES).toHaveLength(10);
   });
 
   it("all templates have unique IDs", () => {
@@ -60,14 +60,13 @@ describe("Project templates", () => {
     }
   });
 
-  it("all templates are for Kenya", () => {
-    for (const tmpl of PROJECT_TEMPLATES) {
-      expect(tmpl.countryCode).toBe("KE");
-    }
+  it("all templates cover the supported markets", () => {
+    const codes = new Set(PROJECT_TEMPLATES.map((t) => t.countryCode));
+    expect([...codes].sort()).toEqual(["AU", "DE", "GB", "KE", "ZA"]);
   });
 
   describe("getTemplatesForCountry", () => {
-    it("returns all 6 templates for KE", () => {
+    it("returns all Kenya templates for KE", () => {
       expect(getTemplatesForCountry("KE")).toHaveLength(6);
     });
 
@@ -89,8 +88,8 @@ describe("Project templates", () => {
   });
 
   describe("getTemplateCountryCodes", () => {
-    it("returns KE", () => {
-      expect(getTemplateCountryCodes()).toEqual(["KE"]);
+    it("returns all supported market codes", () => {
+      expect(getTemplateCountryCodes().sort()).toEqual(["AU", "DE", "GB", "KE", "ZA"]);
     });
   });
 });

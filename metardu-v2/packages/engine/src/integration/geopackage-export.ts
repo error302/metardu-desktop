@@ -66,7 +66,11 @@
  *   - WKB (Well-Known Binary) — OGC 06-103r4
  */
 
-import Database from "better-sqlite3";
+// NOTE: better-sqlite3 is a native Node addon and MUST NOT be statically
+// imported into the renderer (browser/Chromium) bundle — doing so crashes
+// any view that pulls in this module. It is loaded dynamically below inside
+// the export function, which only ever runs in the Electron main process.
+import type Database from "better-sqlite3";
 import { getCountryConfig, type CountryCode } from "@metardu/country-config";
 import type { CadastralWorkflowOutput } from "../workflows/cadastral.js";
 import type { TopoWorkflowOutput } from "../workflows/topographic.js";
@@ -1052,8 +1056,10 @@ export const geoPackageExporter: IntegrationExporter<
     }
 
     // Create an in-memory SQLite database (better-sqlite3 supports `:memory:`).
-    // The output bytes are the serialized SQLite file.
-    const db = new Database(":memory:");
+    // The output bytes are the serialized SQLite file. Loaded dynamically so the
+    // native addon is never pulled into the renderer bundle.
+    const BetterSqlite3 = (await import("better-sqlite3")).default;
+    const db = new BetterSqlite3(":memory:");
 
     try {
       // Set SQLite user_version to 10300 (GeoPackage spec version 1.3.0)

@@ -84,8 +84,6 @@ function renderCrossSectionSvg(section: CrossSectionData, options: {
       gridLines.push(`<text x="45" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="#999">${e.toFixed(1)}</text>`);
     }
   }
-
-  const featureMarkers
   const featureMarkers = section.points
     .filter(p => p.feature)
     .map(p => {

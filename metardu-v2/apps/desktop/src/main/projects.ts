@@ -91,9 +91,15 @@ function migrateJsonIfNeeded(): void {
 // ─── IPC handler registration ────────────────────────────────────
 
 export function registerProjectIpcHandlers(getWindow: () => BrowserWindow | null): void {
-  // Initialize database and run JSON migration.
-  getDatabase();
-  migrateJsonIfNeeded();
+  console.log("[projects] Initializing database...");
+  try {
+    getDatabase();
+    console.log("[projects] Database ready, migrating JSON if needed...");
+    migrateJsonIfNeeded();
+    console.log("[projects] Migration check complete");
+  } catch (err) {
+    console.warn("[projects] Project DB init warning:", (err as Error).message);
+  }
 
   // ── Read operations ──────────────────────────────────────────
 

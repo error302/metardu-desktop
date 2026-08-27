@@ -2218,3 +2218,38 @@ What's Next:
 - Tier 1 #4: Digital signature on statutory PDFs (PKCS#7/CMS/PAdES per country).
 - Tier 2 #5: Web sync protocol (offline-first with conflict resolution).
 - Tier 2 #6: Windows sidecar cross-compilation (verify `cargo build --release` on msvc target).
+
+---
+
+## 2026-08-27 — Production-readiness audit + live browser E2E hardening
+
+Objective: Make MetaRDU Desktop production-ready, verify end-to-end in a real browser, fix every bug found along the way.
+
+### Audited uncommitted WIP + test suites
+- Desktop vitest: 207 passed / 7 skipped (fixed stale tests after Task 5 country-aware templates: project-templates.test.ts 6→10 templates, "all KE" → covers AU/DE/GB/KE/ZA, getTemplateCountryCodes returns 5 codes).
+- Engine vitest: 854 passed / 0 failed (fixed CRS count assertion 11→13 after Task 3 added ZA/DE zones).
+
+### Bugs found via live browser E2E (Playwright + Chromium against Vite dev server) and fixed
+1. CrossSectionView.tsx:80 — missing closing brace for `for` loop in render cross-section SVG (parse error: Expected } but found EOF). Added the for loop's closing brace.
+2. packages/engine/src/integration/geopackage-export.ts:69 — better-sqlite3 native addon was STATICALLY imported; pulled into the Chromium renderer bundle and crashed any view importing engine (e.g. Setting-Out, Engineering). Changed to type-only import + dynamic `await import("better-sqlite3")` inside the export fn (runs in main process per IPC). Rebuilt engine dist.
+3. Root index.html pointed to stale /frontend/main.tsx (missing SurveyStateProvider, only 4 views) → useSurveyState crashed. Removed electron import from renderer main.tsx, now root index.html loads the REAL /apps/desktop/src/renderer/main.tsx (production uses same entry). Unified dev+prod.
+4. TraverseView.tsx — lsResult state declared at L161 but used in pushToCogo dep array at L139 → TDZ error. Moved state declaration before the useCallback.
+5. LULCView.tsx — totalArea + categoryBreakdown useMemos declared at L400+ but referenced in deps/closures at L356-396 → TDZ. Moved declarations before use.
+
+### Completed Task 11 (IPC wiring — prior subagent returned empty)
+- main/index.ts: added 7 ionicMain.handle for statutory renderers (form4, lra27, beaconcert, au, za, gb, de) returning { pdfBytesBase64, hasDraftWatermark, hkItemCount }.
+- preload/index.ts: added `statutory` bridge group + 7 input-type imports; base64 plumbing mirrors form3.
+- DeedPlanView.tsx: added 8-tab statutory doc selector (Form 3/Form 4/LRA-27/Beacon Cert/AU/ZA/GB/DE), doc-specific fields (mutation reason, LRA-27 titles/proprietors, mark type, GB project/class/scale), unified buildStatutoryInput + handleGenerateStatutory with DRAFT status display, dynamic heading.
+
+### Verification (verbatim)
+- apps/desktop `npx tsc --noEmit`: clean (rc=0).
+- packages/engine `npx vitest run`: 854 passed / 0 failed.
+- apps/desktop `npx vitest run`: 207 passed / 7 skipped.
+- geopackage-export (engine): 15 passed.
+- `npx vite build` (production renderer): OK — 12.96s, all 39 views bundled; better-sqlite3 NOT in browser bundle.
+- apps/desktop `npm run build` (main+preload tsc): OK (rc=0).
+- Live Chromium E2E (headless, localhost:5173): all 39 sidebar views load with 0 console/0 page errors. Deed Plan: all 8 statutory tabs render correct headings; DRAFT button present on 7 non-Form3 tabs; browser gracefully shows "run in Electron app" for IPC.
+
+### Recommended follow-up (tech debt)
+- Renderer is NOT covered by apps/desktop tsconfig (include excludes src/renderer). 3,122 latent tsc type errors — retrofit strict checking in a dedicated effort.
+- frontend/main.tsx is now orphaned (superseded by renderer/main.tsx) — safe to delete later.

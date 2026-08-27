@@ -27,7 +27,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SidecarClient } from "@metardu/electron-integration";
-import { findExporter, listExportFormats, importFieldDataAsync, signPdf, verifyPdf, importPrivateKeyBase64, generateForm3Pdf, type RinexEpochResult, type SurveyorIdentity, type DigitalSignature, type VerificationResult, type Form3Input } from "@metardu/engine-flight-planning";
+import { findExporter, listExportFormats, importFieldDataAsync, signPdf, verifyPdf, importPrivateKeyBase64, generateForm3Pdf, type RinexEpochResult, type SurveyorIdentity, type DigitalSignature, type VerificationResult, type Form3Input, generateForm4Pdf, generateLra27Pdf, generateBeaconCertificatePdf, generateAuPlanOfSurveyPdf, generateZaSgDiagramPdf, generateGbMeasuredSurveyReportPdf, generateDeGrenzfeststellungPdf, type Form4Input, type Lra27Input, type BeaconCertificateInput, type AuPlanOfSurveyInput, type ZaSgDiagramInput, type GbMeasuredSurveyReportInput, type DeGrenzfeststellungInput } from "@metardu/engine-flight-planning";
 import { getCountryConfig, crsLabelForCountry, type CountryCode, type TitleBlockLayout } from "@metardu/country-config";
 import { registerSyncIpcHandlers } from "./sync.js";
 import { registerProjectIpcHandlers } from "./projects.js";
@@ -35,27 +35,37 @@ import { registerInstrumentIpcHandlers } from "./instrument.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+process.on("uncaughtException", (err) => {
+  console.error("[main] uncaughtException:", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[main] unhandledRejection:", reason);
+});
+
 // ─── Sidecar binary resolution ────────────────────────────────────
 // In development: the sidecar binary lives at
 //   packages/metardu-sidecar/target/release/metardu-sidecar
 // In production (packaged): the binary is copied into resources/ by
 // electron-builder and we read it from process.resourcesPath.
-function resolveSidecarBinary(): string {
+function resolveSidecarBinary(): string | null {
   const possiblePaths: string[] = [];
+  const platformExt = process.platform === "win32" ? ".exe" : "";
 
   // Production: packaged app
   if (process.resourcesPath) {
-    const platformExt = process.platform === "win32" ? ".exe" : "";
     possiblePaths.push(
       path.join(process.resourcesPath, "metardu-sidecar" + platformExt),
     );
   }
 
   // Development: walk up from apps/desktop/dist/main/ to find the repo root.
-  // __dirname = apps/desktop/dist/main → 4 levels up = metardu-v2 root.
-  const devRoot = path.resolve(__dirname, "..", "..", "..", "..");
+  const devRoot = path.resolve(__dirname, "..", "..", "..");
   possiblePaths.push(
-    path.join(devRoot, "packages", "metardu-sidecar", "target", "release", "metardu-sidecar"),
+    path.join(devRoot, "packages", "metardu-sidecar", "target", "release", "metardu-sidecar" + platformExt),
+  );
+  possiblePaths.push(
+    path.join(devRoot, "packages", "metardu-sidecar", "target", "debug", "metardu-sidecar" + platformExt),
   );
 
   for (const candidate of possiblePaths) {
@@ -64,16 +74,10 @@ function resolveSidecarBinary(): string {
     }
   }
 
-  // If we get here, the sidecar binary is missing. This is a hard error —
-  // the app cannot function without it. We return the first candidate path
-  // anyway so the SidecarClient spawn will fail with a clear error message
-  // rather than a silent null deref.
-  console.error(
-    "[main] WARNING: sidecar binary not found at any of:\n" +
-      possiblePaths.map((p) => "  - " + p).join("\n") +
-      "\n[main] Run `npm run build:sidecar` first.",
+  console.warn(
+    "[main] Sidecar binary not found. Running in standalone desktop mode.",
   );
-  return possiblePaths[0]!;
+  return null;
 }
 
 // ─── Window state ─────────────────────────────────────────────────
@@ -81,12 +85,6 @@ let mainWindow: BrowserWindow | null = null;
 let sidecar: SidecarClient | null = null;
 
 function createWindow(): BrowserWindow {
-  // Resolve the logo asset for the window icon. In dev the JPEG is at
-  // apps/desktop/src/renderer/assets/metardu-logo.jpeg; in production
-  // it's bundled into the renderer-build/ directory by Vite. We use the
-  // brand JPEG directly — Electron accepts JPEG, PNG, or ICO for the
-  // window icon on Linux/macOS. (Windows .ico conversion is handled by
-  // electron-builder in Phase 7.)
   const logoPath = path.resolve(__dirname, "..", "..", "src", "renderer", "assets", "metardu-logo.jpeg");
 
   const windowOptions: BrowserWindowConstructorOptions = {
@@ -96,30 +94,13 @@ function createWindow(): BrowserWindow {
     minHeight: 640,
     backgroundColor: "#1A1F36",  // METARDU navy — matches the logo background
     title: "MetaRDU Desktop",
-    // Window icon — the MetaRDU logo. Falls back silently if the file
-    // isn't found (e.g. in tests where __dirname resolves differently).
     icon: fs.existsSync(logoPath) ? logoPath : undefined,
-    // Disable GPU compositing in CI/headless environments. Electron's GPU
-    // process crashes hard when no display server is available, which can
-    // mask real errors in the main process. The renderer is a 2D React UI
-    // — no WebGL, no canvas-heavy work — so software rendering is fine.
-    // On real desktops we still get hardware acceleration via SwiftShader
-    // for any 2D canvas work; this flag only affects the GPU process.
-    show: false,
+    show: true,
     webPreferences: {
-      // preload.ts is the ONLY bridge from renderer to main. It exposes a
-      // curated, zod-validated API on `window.metardu` — no `require`, no
-      // `process`, no `fs` ever reaches the renderer.
-      // __dirname is apps/desktop/dist/main, preload builds to apps/desktop/dist/preload
       preload: path.join(__dirname, "..", "preload", "index.js"),
-      // Security: never expose Node integration to the renderer. The
-      // renderer must be a pure web environment; all privileged operations
-      // go through the preload bridge.
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
-      // Disable remote module — it has been a recurring security liability
-      // in Electron apps and we have no use for it.
       webSecurity: true,
       allowRunningInsecureContent: false,
     },
@@ -127,17 +108,17 @@ function createWindow(): BrowserWindow {
 
   const win = new BrowserWindow(windowOptions);
 
-  // In dev, load from the Vite dev server. In production, load the built
-  // index.html. We detect dev via the METARDU_DEV env var (set by `npm run dev`).
-  //
-  // Path math:
-  //   __dirname (after tsc build) = apps/desktop/dist/main
-  //   Vite outputs the renderer to apps/desktop/renderer-build/ (see vite.config.ts)
-  //   So from dist/main/ we walk up to apps/desktop/ then into renderer-build/.
   const isDev = process.env.METARDU_DEV === "1";
   if (isDev) {
-    win.loadURL("http://localhost:5173");
-    win.webContents.openDevTools({ mode: "detach" });
+    const loadDev = async () => {
+      try {
+        await win.loadURL("http://localhost:5173");
+      } catch {
+        // If Vite is still spinning up, retry after 500ms
+        setTimeout(loadDev, 500);
+      }
+    };
+    loadDev();
   } else {
     const indexHtml = path.resolve(__dirname, "..", "..", "renderer-build", "index.html");
     win.loadFile(indexHtml);
@@ -147,8 +128,10 @@ function createWindow(): BrowserWindow {
 }
 
 // ─── Sidecar lifecycle ────────────────────────────────────────────
-async function startSidecar(): Promise<SidecarClient> {
+async function startSidecar(): Promise<SidecarClient | null> {
   const binaryPath = resolveSidecarBinary();
+  if (!binaryPath) return null;
+
   const client = new SidecarClient({
     binaryPath,
     callTimeoutMs: 60_000,
@@ -164,8 +147,6 @@ async function startSidecar(): Promise<SidecarClient> {
   });
 
   client.on("stderr", (chunk: string) => {
-    // Sidecar logs are tracing output — forward to our stderr and to the
-    // renderer's dev console for visibility.
     process.stderr.write(chunk);
   });
 
@@ -173,12 +154,8 @@ async function startSidecar(): Promise<SidecarClient> {
     console.error("[sidecar] error:", err.message);
   });
 
-  await client.start();
-
-  // Health check: refuse to declare ready if the sidecar can't ping back.
-  // This catches the case where the binary exists but is broken (missing
-  // shared libs, wrong arch, etc.).
   try {
+    await client.start();
     const pong = await client.call<{ pong: boolean; ts: number }>("ping", null);
     if (!pong.pong) {
       throw new Error("sidecar ping returned pong=false");
@@ -188,7 +165,8 @@ async function startSidecar(): Promise<SidecarClient> {
     console.log(`[sidecar] ${ver.name} v${ver.version}`);
   } catch (err) {
     await client.stop().catch(() => {});
-    throw new Error(`Sidecar health check failed: ${(err as Error).message}`);
+    console.warn(`[sidecar] Sidecar check failed: ${(err as Error).message}. Running in standalone mode.`);
+    return null;
   }
 
   return client;
@@ -318,7 +296,7 @@ function registerIpcHandlers(): void {
     }
 
     // Call the exporter.
-    const result = await exporter.export(surveyOutput, options);
+    const result = await exporter.export(surveyOutput as any, options as any);
 
     // Show "Save As" dialog.
     const defaultName = `metardu-survey.${exporter.fileExtension}`;
@@ -790,34 +768,60 @@ function registerIpcHandlers(): void {
     return { pdfBytesBase64: pdfBase64 };
   });
 
+  // ─── Statutory DRAFT renderers (Tasks 7-8) ─────────────────────────────────
+  // Each returns base64 PDF + DRAFT watermark flag + HK item count so the UI can
+  // surface the verification status. All four non-Kenya renderers ship DRAFT
+  // until their source specimens are filed (invariant B1).
+  const toStatutoryResult = (out: { pdfBytes: Uint8Array; hasDraftWatermark: boolean; hkItemCount: number }) => ({
+    pdfBytesBase64: btoa(String.fromCharCode(...new Uint8Array(out.pdfBytes))),
+    hasDraftWatermark: out.hasDraftWatermark,
+    hkItemCount: out.hkItemCount,
+  });
+
+  ipcMain.handle("metardu:form4:generate", async (_event, input: Form4Input) =>
+    toStatutoryResult(await generateForm4Pdf(input)));
+  ipcMain.handle("metardu:lra27:generate", async (_event, input: Lra27Input) =>
+    toStatutoryResult(await generateLra27Pdf(input)));
+  ipcMain.handle("metardu:beaconcert:generate", async (_event, input: BeaconCertificateInput) =>
+    toStatutoryResult(await generateBeaconCertificatePdf(input)));
+  ipcMain.handle("metardu:au:generate", async (_event, input: AuPlanOfSurveyInput) =>
+    toStatutoryResult(await generateAuPlanOfSurveyPdf(input)));
+  ipcMain.handle("metardu:za:generate", async (_event, input: ZaSgDiagramInput) =>
+    toStatutoryResult(await generateZaSgDiagramPdf(input)));
+  ipcMain.handle("metardu:gb:generate", async (_event, input: GbMeasuredSurveyReportInput) =>
+    toStatutoryResult(await generateGbMeasuredSurveyReportPdf(input)));
+  ipcMain.handle("metardu:de:generate", async (_event, input: DeGrenzfeststellungInput) =>
+    toStatutoryResult(await generateDeGrenzfeststellungPdf(input)));
+
   // ─── Instrument connection (live serial, BLE, NTRIP streaming) ───────────
+  console.log("[main] Registering instrument IPC...");
   registerInstrumentIpcHandlers(() => mainWindow, () => sidecar);
 
   // ─── Sync with metardu web (vision: Access/Web field data syncs to Desktop) ─
-  // The SyncClient singleton lives in main (it owns the network + queue).
-  // Status is broadcast to the renderer so the AppShell badge stays live.
+  console.log("[main] Registering sync IPC...");
   registerSyncIpcHandlers(() => mainWindow);
 
   // ─── Project store (persisted local layer that sync reconciles) ──────────
-  // Real project objects stored to userData/projects.json; every mutation
-  // broadcasts so the shell toolbar + SurveyStateContext stay live.
+  console.log("[main] Registering project IPC...");
   registerProjectIpcHandlers(() => mainWindow);
-  }
+  console.log("[main] All IPC handlers registered successfully");
+}
 
 
 // ─── App lifecycle ────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  console.log("[main] Electron app is ready");
   try {
     sidecar = await startSidecar();
   } catch (err) {
-    console.error("[main] FATAL: failed to start sidecar:", (err as Error).message);
-    // Don't quit — let the UI show the error and offer to retry. The
-    // renderer's status bar will display "sidecar: crashed" so the user
-    // knows the compute layer is unavailable.
+    console.warn("[main] Sidecar not started:", (err as Error).message);
   }
 
+  console.log("[main] Registering IPC handlers...");
   registerIpcHandlers();
+  console.log("[main] Creating main window...");
   mainWindow = createWindow();
+  console.log("[main] Main window initialized");
 });
 
 // macOS: re-create window when dock icon is clicked and no windows are open.

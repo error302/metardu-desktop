@@ -287,9 +287,9 @@ describe("Error Ellipse", () => {
 // ═════════════════════════════════════════════════════════════════
 
 describe("CRS Database", () => {
-  it("should have 11 countries", () => {
+  it("should have 13 countries", () => {
     const countries = listSupportedCountries();
-    expect(countries.length).toBe(11);
+    expect(countries.length).toBe(13);
   });
 
   it("should find CRS for Nairobi (Kenya UTM 37S)", () => {

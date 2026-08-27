@@ -23,7 +23,10 @@ import React, { Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import { AppShell } from "@metardu/ui-components";
 import { SurveyStateProvider } from "./SurveyStateContext.js";
-import "../preload/index.js"; // type-only side-effect import for the d.ts
+// NOTE: Do NOT import "../preload/index.js" here — it imports "electron" and
+// would crash the browser/dev-server context. The preload typings come from
+// renderer/preload.d.ts at build time; Electron loads the preload bundle via
+// webPreferences.preload, not via this entry.
 
 const LOGO_URL = new URL("./assets/metardu-logo.jpeg", import.meta.url).href;
 
@@ -70,6 +73,20 @@ const OfficeManagementView = lazy(() => import("./views/OfficeManagementView.js"
 const LULCView = lazy(() => import("./views/LULCView.js").then(m => ({ default: m.LULCView })));
 const VersionHistoryView = lazy(() => import("./views/VersionHistoryView.js").then(m => ({ default: m.VersionHistoryView })));
 const CrossSectionView = lazy(() => import("./views/CrossSectionView.js").then(m => ({ default: m.CrossSectionView })));
+const PointCloudView = lazy(() => import("./views/PointCloudView.js").then(m => ({ default: m.PointCloudView })));
+const RasterImageView = lazy(() => import("./views/RasterImageView.js").then(m => ({ default: m.RasterImageView })));
+const RegistryArchiveView = lazy(() => import("./views/RegistryArchiveView.js").then(m => ({ default: m.RegistryArchiveView })));
+const LicensingView = lazy(() => import("./views/LicensingView.js").then(m => ({ default: m.LicensingView })));
+const InstrumentConnectView = lazy(() => import("./views/InstrumentConnectView.js").then(m => ({ default: m.InstrumentConnectView })));
+const DwgCadView = lazy(() => import("./views/DwgCadView.js").then(m => ({ default: m.DwgCadView })));
+const PhotogrammetryView = lazy(() => import("./views/PhotogrammetryView.js").then(m => ({ default: m.PhotogrammetryView })));
+const NtripCasterView = lazy(() => import("./views/NtripCasterView.js").then(m => ({ default: m.NtripCasterView })));
+const LandPortalSubmissionView = lazy(() => import("./views/LandPortalSubmissionView.js").then(m => ({ default: m.LandPortalSubmissionView })));
+const VolumeChangeView = lazy(() => import("./views/VolumeChangeView.js").then(m => ({ default: m.VolumeChangeView })));
+const GnssPostProcessingView = lazy(() => import("./views/GnssPostProcessingView.js").then(m => ({ default: m.GnssPostProcessingView })));
+const DatumTransformationView = lazy(() => import("./views/DatumTransformationView.js").then(m => ({ default: m.DatumTransformationView })));
+const VerticalAlignmentView = lazy(() => import("./views/VerticalAlignmentView.js").then(m => ({ default: m.VerticalAlignmentView })));
+const DeformationMonitoringView = lazy(() => import("./views/DeformationMonitoringView.js").then(m => ({ default: m.DeformationMonitoringView })));
 
 // Loading fallback for lazy views — small spinner, not a full-screen blocker.
 const ViewLoading: React.FC = () => (
@@ -110,6 +127,20 @@ root.render(
               case "lulc":          return <LULCView />;
               case "history":       return <VersionHistoryView />;
               case "crosssection":  return <CrossSectionView />;
+              case "pointcloud":    return <PointCloudView />;
+              case "raster":        return <RasterImageView />;
+              case "archive":       return <RegistryArchiveView />;
+              case "licensing":     return <LicensingView />;
+              case "hardware":      return <InstrumentConnectView />;
+              case "dwgcad":        return <DwgCadView />;
+              case "photogrammetry": return <PhotogrammetryView />;
+              case "ntripcaster":   return <NtripCasterView />;
+              case "landportal":    return <LandPortalSubmissionView />;
+              case "volumechange":  return <VolumeChangeView />;
+              case "gnssppk":       return <GnssPostProcessingView />;
+              case "datumtransform": return <DatumTransformationView />;
+              case "verticalalignment": return <VerticalAlignmentView />;
+              case "deformation":   return <DeformationMonitoringView />;
               default:             return null;
             }
           })();

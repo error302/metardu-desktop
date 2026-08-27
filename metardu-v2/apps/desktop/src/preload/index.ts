@@ -15,8 +15,15 @@
  */
 
 import { contextBridge, ipcRenderer } from "electron";
-import type { Form3Input, SyncConfig, SyncProject, SyncStatus, SyncConflict } from "@metardu/engine-flight-planning";
+import type { Form3Input, SyncConfig, SyncProject, SyncStatus, SyncConflict, Form4Input, Lra27Input, BeaconCertificateInput, AuPlanOfSurveyInput, ZaSgDiagramInput, GbMeasuredSurveyReportInput, DeGrenzfeststellungInput } from "@metardu/engine-flight-planning";
 import type { StoredProject, ProjectStoreState, CreateProjectInput, UpdateProjectInput } from "../main/project-store-core.js";
+
+/** Result of any statutory DRAFT renderer — PDF plus verification status. */
+interface StatutoryResult {
+  pdfBytesBase64: string;
+  hasDraftWatermark: boolean;
+  hkItemCount: number;
+}
 
 /** Undo/redo result from the main process. */
 interface UndoRedoResult {
@@ -165,6 +172,17 @@ const metarduApi = {
   // Form 3 generation (used for signing)
   form3: {
     generateForm3Pdf: (input: Form3Input): Promise<{ pdfBytesBase64: string }> => ipcRenderer.invoke("metardu:form3:generate", input),
+  },
+  // Statutory DRAFT renderers (Tasks 7-8). Each resolves to { pdfBytesBase64,
+  // hasDraftWatermark, hkItemCount } so the UI can show verification status.
+  statutory: {
+    generateForm4Pdf: (input: Form4Input): Promise<StatutoryResult> => ipcRenderer.invoke("metardu:form4:generate", input),
+    generateLra27Pdf: (input: Lra27Input): Promise<StatutoryResult> => ipcRenderer.invoke("metardu:lra27:generate", input),
+    generateBeaconCertificatePdf: (input: BeaconCertificateInput): Promise<StatutoryResult> => ipcRenderer.invoke("metardu:beaconcert:generate", input),
+    generateAuPlanOfSurveyPdf: (input: AuPlanOfSurveyInput): Promise<StatutoryResult> => ipcRenderer.invoke("metardu:au:generate", input),
+    generateZaSgDiagramPdf: (input: ZaSgDiagramInput): Promise<StatutoryResult> => ipcRenderer.invoke("metardu:za:generate", input),
+    generateGbMeasuredSurveyReportPdf: (input: GbMeasuredSurveyReportInput): Promise<StatutoryResult> => ipcRenderer.invoke("metardu:gb:generate", input),
+    generateDeGrenzfeststellungPdf: (input: DeGrenzfeststellungInput): Promise<StatutoryResult> => ipcRenderer.invoke("metardu:de:generate", input),
   },
   /** 300 DPI survey map export (main-process sharp rasterizer). */
   map: {

@@ -428,6 +428,8 @@ export {
 // Integration & Export (ADR-0005) — survey-grade source of truth that
 // feeds downstream GIS/CAD/photogrammetry tools.
 export {
+  findExporter,
+  listExportFormats,
   geoJsonExporter,
   geoPackageExporter,
   pyQgisScriptExporter,
