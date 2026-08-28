@@ -378,8 +378,8 @@ export {
   type GeoJsonOutput,
   type GeoPackageOptions,
   type GeoPackageOutput,
-  type PyQgisOptions,
-  type PyQgisOutput,
+  type PyqgisOptions,
+  type PyqgisOutput,
   type GcpFormat,
   type GcpInput,
   type GcpOptions,
@@ -398,6 +398,8 @@ export {
   type ProjectMetadata,
   type SurveyOutput,
   type ValidationResult,
+  findExporter,
+  listExportFormats,
 } from "./integration/index.js";
 
 // LandXML 1.2 export (NLIMS/ArdhiSasa submission)
