@@ -27,7 +27,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SidecarClient } from "@metardu/electron-integration";
-import { findExporter, listExportFormats, importFieldDataAsync, signPdf, verifyPdf, importPrivateKeyBase64, generateForm3Pdf, type RinexEpochResult, type SurveyorIdentity, type DigitalSignature, type VerificationResult, type Form3Input } from "@metardu/engine-flight-planning";
+import { importFieldDataAsync, signPdf, verifyPdf, importPrivateKeyBase64, generateForm3Pdf, type RinexEpochResult, type SurveyorIdentity, type DigitalSignature, type VerificationResult, type Form3Input, findExporter, listExportFormats } from "@metardu/engine-flight-planning";
 import { getCountryConfig, crsLabelForCountry, type CountryCode, type TitleBlockLayout } from "@metardu/country-config";
 import { registerSyncIpcHandlers } from "./sync.js";
 import { registerProjectIpcHandlers } from "./projects.js";
