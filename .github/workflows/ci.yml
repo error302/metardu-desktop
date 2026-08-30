@@ -35,18 +35,22 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgdal-dev libclang-dev clang
+          sudo apt-get install -y libgdal-dev libclang-dev clang libdbus-1-dev pkg-config
       - name: Install macOS deps
         if: matrix.os == 'macos-latest'
         run: |
           brew install gdal
-          echo "LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/opt/homebrew/opt/gdal/lib/pkgconfig" >> $GITHUB_ENV
+      - name: Configure Windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          echo "CARGO_BUILD_TARGET_DIR=target" >> $GITHUB_ENV
       - name: Build
         working-directory: metardu-v2/packages/metardu-sidecar
-        run: cargo build --release
+        run: cargo build --release --no-default-features --features "instrument,shell-out"
       - name: Test
         working-directory: metardu-v2/packages/metardu-sidecar
-        run: cargo test --release
+        run: cargo test --release --no-default-features --features "instrument,shell-out"
 
   # ─── TypeScript engine + packages ───────────────────────────────
   typescript:
@@ -67,7 +71,7 @@ jobs:
       - name: Install Linux deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgdal-dev libclang-dev clang
+          sudo apt-get install -y libgdal-dev libclang-dev clang libdbus-1-dev pkg-config
       - name: Install npm deps
         working-directory: metardu-v2
         run: npm install --no-audit --no-fund
@@ -75,7 +79,7 @@ jobs:
         working-directory: metardu-v2/packages/metardu-sidecar
         env:
           LIBCLANG_PATH: /usr/lib/llvm-14/lib
-        run: cargo build --release
+        run: cargo build --release --no-default-features --features "instrument,shell-out"
       - name: Build workspace packages
         working-directory: metardu-v2
         run: |
