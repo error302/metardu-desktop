@@ -72,17 +72,17 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "bindgen"
-version = "0.69.5"
+version = "0.66.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "271383c67ccabffb7381723dea0672a673f292304fcb45c01cc648c7a8d58088"
+checksum = "f2b84e06fc203107bfbad243f4aba2af864eb7db3b1cf46ea0a023b0b433d2a7"
 dependencies = [
  "bitflags 2.13.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
  "lazy_static",
  "lazycell",
  "log",
+ "peeking_take_while",
  "prettyplease",
  "proc-macro2",
  "quote",
@@ -125,7 +125,7 @@ dependencies = [
  "dbus",
  "dbus-tokio",
  "futures",
- "itertools 0.14.0",
+ "itertools",
  "log",
  "serde",
  "serde-xml-rs",
@@ -457,9 +457,9 @@ dependencies = [
 
 [[package]]
 name = "gdal"
-version = "0.17.1"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82ab834e8be6b54fee3d0141fce5e776ad405add1f9d0da054281926e0d35a9f"
+checksum = "6639365794fa1f35f36f8cd3e2ea21c94c9b04aa8d9ee0d0f3324621efeb0800"
 dependencies = [
  "bitflags 2.13.0",
  "chrono",
@@ -473,9 +473,9 @@ dependencies = [
 
 [[package]]
 name = "gdal-sys"
-version = "0.10.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18ad5d608ee6726efcf6e1d91261eb6dec7da3ee7db6bda984cdfb8a7d65ebf9"
+checksum = "ab73a6c9d0d620fb5b07e02ffbb8ae08f053299cbe5db0c1bbe1d58cb33e3f38"
 dependencies = [
  "bindgen",
  "libc",
@@ -746,15 +746,6 @@ checksum = "617ee6cf8e3f66f3b4ea67a4058564628cde41901316e19f559e14c7c72c5e7b"
 dependencies = [
  "core-foundation-sys",
  "mach2",
-]
-
-[[package]]
-name = "itertools"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
-dependencies = [
- "either",
 ]
 
 [[package]]
@@ -1124,6 +1115,12 @@ name = "pdqselect"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ec91767ecc0a0bbe558ce8c9da33c068066c57ecc8bb8477ef8c1ad3ef77c27"
+
+[[package]]
+name = "peeking_take_while"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
 
 [[package]]
 name = "percent-encoding"

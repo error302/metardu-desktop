@@ -34,7 +34,7 @@ tokio = { version = "1", features = ["full"] }
 #   macOS:         brew install gdal
 #   Windows:       OSGeo4W installer
 # The `bindgen` feature generates bindings at build time for the installed GDAL version.
-gdal = { version = "0.17", optional = true, features = ["bindgen"] }
+gdal = { version = "0.16.0", optional = true, features = ["bindgen"] }
 
 # GeoJSON serialization (for contour output)
 geojson = { version = "0.24", optional = true }
