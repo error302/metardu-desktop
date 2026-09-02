@@ -66,11 +66,6 @@
  *   - WKB (Well-Known Binary) — OGC 06-103r4
  */
 
-// @ts-expect-error — better-sqlite3 ships its own types but the
-// package.json "types" field points to a path the workspace setup
-// doesn't resolve. The runtime import works correctly. Adding
-// @types/better-sqlite3 separately is the long-term fix; for now
-// the @ts-expect-error keeps strict tsc clean.
 import Database from "better-sqlite3";
 import { getCountryConfig, type CountryCode } from "@metardu/country-config";
 import type { CadastralWorkflowOutput } from "../workflows/cadastral.js";

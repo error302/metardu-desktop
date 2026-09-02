@@ -151,8 +151,7 @@ mod native {
         info!(driver = ?dataset.driver().long_name(), "Opened DSM");
 
         // Get the first raster band
-        let rasterband: RasterBand = dataset.rasterbands().next()
-            .ok_or_else(|| anyhow::anyhow!("DSM has no raster bands"))??;
+        let rasterband: RasterBand = dataset.rasterband(1)?;
 
         let size = rasterband.size();
         let (width, height) = (size.0 as usize, size.1 as usize);
@@ -168,7 +167,7 @@ mod native {
             (width as usize, height as usize),
             None, // ResampleAlg::None (default)
         )?;
-        let pixels: Vec<f32> = buffer.data().to_vec();
+        let pixels: Vec<f32> = buffer.data.to_vec();
 
         // Get the geotransform: [origin_x, pixel_width, 0, origin_y, 0, pixel_height]
         let geotransform = dataset.geo_transform()
@@ -183,7 +182,10 @@ mod native {
         let mut min_el = f32::INFINITY;
         let mut max_el = f32::NEG_INFINITY;
         for &val in &pixels {
-            if Some(val as f64) == nodata || !val.is_finite() {
+            if Some(val as f64) == nodata {
+                continue;
+            }
+            if !f32::is_finite(val) {
                 continue;
             }
             if val < min_el { min_el = val; }
