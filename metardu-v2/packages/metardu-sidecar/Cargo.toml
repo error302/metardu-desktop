@@ -51,7 +51,7 @@ uuid = { version = "1.8", features = ["v4"] }
 url = "2.5"
 
 [features]
-default = ["gdal-bindings", "instrument"]
+default = ["shell-out"]
 # Enable native GDAL Rust bindings (requires system libgdal)
 gdal-bindings = ["dep:gdal", "dep:geojson"]
 # Shell-out fallback (uses gdal_contour CLI, no native bindings)
