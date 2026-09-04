@@ -43,6 +43,7 @@
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@types/better-sqlite3": "^9.6.0",
+    "@types/dompurify": "^3.0.5",
     "@types/node": "^22.0.0",
     "@types/ol": "^6.5.3",
     "electron": "33.4.11",
