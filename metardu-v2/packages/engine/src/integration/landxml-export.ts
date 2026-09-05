@@ -47,7 +47,7 @@ function formatCoord(e: number, n: number): string {
 
 function exportCadastralXml(
   beacons: Array<{ label: string; position: { easting: number; northing: number }; description?: string }>,
-  countryCode: string,
+  _countryCode: string,
   projectName: string,
   surveyorName?: string,
   srid?: number,
@@ -73,7 +73,7 @@ function exportCadastralXml(
   }
 
   // Parcels
-  w(`${indent(2)}<Parcels>`;
+  w(`${indent(2)}<Parcels>`);
   w(`${indent(3)}<Parcel name="${esc(projectName)}" area="0" areaUnits="sqMeter" setState="proposed" setBack="0" setNumber="1">`);
 
   // Beacon coordinate list (closed polygon)
@@ -110,7 +110,7 @@ ${indent(5)}<BeaconType>Concrete Pillar</BeaconType>`);
   w(`${indent(2)}</Parcels>`);
 
   // Points
-  w(`${indent(2)}<CoordinateCollections>`;
+  w(`${indent(2)}<CoordinateCollections>`);
   w(`${indent(3)}<CoordinateCollection name="Beacons">`);
   for (const b of beacons) {
     w(`${indent(4)}<Pnt id="${esc(b.label)}" code="100">`);
@@ -203,6 +203,8 @@ export const landxmlExporter: IntegrationExporter<
   mimeType: "application/xml",
   fileExtension: "xml",
 
+  description: "Export survey data to OGC LandXML 1.2 format",
+
   validate(input, _options) {
     const hasBeacons =
       typeof input === "object" && input !== null && "allBeacons" in input;
@@ -210,9 +212,9 @@ export const landxmlExporter: IntegrationExporter<
       typeof input === "object" && input !== null && "tin" in input;
 
     if (!hasBeacons && !hasTin) {
-      return { ok: false, errors: ["Input must have allBeacons (cadastral) or tin (topographic)"] };
+      return { ok: false, errors: ["Input must have allBeacons (cadastral) or tin (topographic)"], warnings: [] };
     }
-    return { ok: true, errors: [] };
+    return { ok: true, errors: [], warnings: [] };
   },
 
   async export(input, options): Promise<LandxmlOutput> {
@@ -222,9 +224,10 @@ export const landxmlExporter: IntegrationExporter<
     }
 
     const obj = input as Record<string, unknown>;
+    const projectName = (options.projectMetadata as any)?.projectName as string ?? "Survey";
+    const surveyorName = (options.projectMetadata as any)?.surveyorName as string | undefined;
+    const srid = (options as any).srid;
     const countryCode = options.countryCode ?? "KE";
-    const projectName = (options.projectMetadata as Record<string, unknown>)?.projectName as string ?? "Survey";
-    const surveyorName = (options.projectMetadata as Record<string, unknown>)?.surveyorName as string | undefined;
 
     let xml: string;
 
@@ -235,14 +238,14 @@ export const landxmlExporter: IntegrationExporter<
         position: { easting: number; northing: number };
         description?: string;
       }>;
-      xml = exportCadastralXml(beacons, countryCode, projectName, surveyorName, options.srid);
+      xml = exportCadastralXml(beacons, countryCode, projectName, surveyorName, srid);
     }
     // Topographic output (has tin + contours)
     else if ("tin" in obj) {
       const tin = obj.tin as { vertices?: Array<{ easting: number; northing: number; elevation?: number }> };
       const points = (tin.vertices ?? []) as Array<{ easting: number; northing: number; elevation?: number }>;
       const contours = (obj.contours ?? []) as Array<{ elevation: number; coordinates: [number, number][] }>;
-      xml = exportTopographicXml(points, contours, projectName, options.srid);
+      xml = exportTopographicXml(points, contours, projectName, srid);
     }
     else {
       throw new Error("Unsupported survey type for LandXML export");
