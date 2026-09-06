@@ -1,0 +1,4 @@
+## 2026-09-06 - XSS in SVG Rendering requires SVG Profile in DOMPurify
+**Vulnerability:** The application was dynamically injecting user-controlled data into `dangerouslySetInnerHTML` for generating inline SVG visualizations in `CrossSectionView.tsx`. This created a Cross-Site Scripting (XSS) vulnerability.
+**Learning:** Using `DOMPurify` to mitigate this required specifically allowing SVG elements via `{ USE_PROFILES: { svg: true } }`. Without this profile, standard DOMPurify configuration strips many valid SVG components causing visualizations to break or not render correctly.
+**Prevention:** Always use `DOMPurify` before passing unsanitized HTML/SVG structures into `dangerouslySetInnerHTML`. When the structure relies on SVG components, ensure the `svg` profile is explicitly provided to retain visual functionalities while blocking malicious injections.
