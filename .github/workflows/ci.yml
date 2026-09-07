@@ -43,6 +43,7 @@ jobs:
           echo "LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib" >> $GITHUB_ENV
       - name: Build
         working-directory: metardu-v2/packages/metardu-sidecar
+        shell: bash
         run: |
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
             cargo build --release --no-default-features --features "shell-out instrument"
@@ -51,6 +52,7 @@ jobs:
           fi
       - name: Test
         working-directory: metardu-v2/packages/metardu-sidecar
+        shell: bash
         run: |
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
             cargo test --release --no-default-features --features "shell-out instrument"
