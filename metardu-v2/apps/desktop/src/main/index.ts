@@ -318,7 +318,7 @@ function registerIpcHandlers(): void {
     }
 
     // Call the exporter.
-    const result = await exporter.export(surveyOutput, options);
+    const result = await exporter.export(surveyOutput as any, options as any);
 
     // Show "Save As" dialog.
     const defaultName = `metardu-survey.${exporter.fileExtension}`;

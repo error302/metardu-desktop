@@ -67,7 +67,9 @@ jobs:
             libusb-1.0-0-dev \
             libudev-dev \
             libayatana-appindicator3-dev \
-            librsvg2-bin
+            librsvg2-bin \
+            libdbus-1-dev \
+            pkg-config
 
       - name: Install npm dependencies
         working-directory: metardu-v2
@@ -157,7 +159,9 @@ jobs:
             libclang-dev \
             clang \
             wine64 \
-            mingw-w64
+            mingw-w64 \
+            libdbus-1-dev \
+            pkg-config
 
       - name: Install npm dependencies
         working-directory: metardu-v2
@@ -239,7 +243,7 @@ jobs:
 
       - name: Install macOS build deps
         run: |
-          brew install gdal
+          brew install gdal llvm
           brew install libclang
 
       - name: Install npm dependencies
