@@ -51,8 +51,8 @@ export {
 
 export {
   pyQgisScriptExporter,
-  type PyqgisOptions,
-  type PyqgisOutput,
+  type PyQgisOptions,
+  type PyQgisOutput,
 } from "./pyqgis-script-generator.js";
 
 export {
