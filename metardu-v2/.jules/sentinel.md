@@ -1,0 +1,4 @@
+## 2026-09-08 - [XSS] Missing HTML Sanitization in SVG Renderers
+**Vulnerability:** Found an XSS vulnerability in `apps/desktop/src/renderer/views/CrossSectionView.tsx` where dynamically generated SVG strings (which include user-provided data like point features) were rendered directly using `dangerouslySetInnerHTML={{ __html: svgHtml }}` without any sanitization.
+**Learning:** In React, rendering raw HTML or SVG strings directly without sanitization can easily introduce XSS risks if user-controllable input gets embedded (e.g. from file imports or features).
+**Prevention:** Always use `DOMPurify` to sanitize raw HTML or SVG strings before rendering them via `dangerouslySetInnerHTML`. When sanitizing SVGs, explicitly pass `{ USE_PROFILES: { svg: true } }` to ensure legitimate SVG elements are not stripped out.
