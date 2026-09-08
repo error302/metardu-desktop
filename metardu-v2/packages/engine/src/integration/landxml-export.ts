@@ -17,7 +17,7 @@ import type { IntegrationExporter, IntegrationOptions, IntegrationOutput } from 
 
 // ─── Types ───────────────────────────────────────────────────────
 
-export interface LandxmlOptions extends IntegrationOptions {}
+export interface LandxmlOptions extends IntegrationOptions { srid?: number; }
 
 export interface LandxmlOutput extends IntegrationOutput {
   /** XML string content. */
@@ -47,7 +47,7 @@ function formatCoord(e: number, n: number): string {
 
 function exportCadastralXml(
   beacons: Array<{ label: string; position: { easting: number; northing: number }; description?: string }>,
-  countryCode: string,
+  _countryCode: string,
   projectName: string,
   surveyorName?: string,
   srid?: number,
@@ -202,6 +202,7 @@ export const landxmlExporter: IntegrationExporter<
   format: "landxml",
   mimeType: "application/xml",
   fileExtension: "xml",
+  description: "LandXML",
 
   validate(input, _options) {
     const hasBeacons =
@@ -210,9 +211,9 @@ export const landxmlExporter: IntegrationExporter<
       typeof input === "object" && input !== null && "tin" in input;
 
     if (!hasBeacons && !hasTin) {
-      return { ok: false, errors: ["Input must have allBeacons (cadastral) or tin (topographic)"] };
+      return { ok: false, errors: ["Input must have allBeacons (cadastral) or tin (topographic)"], warnings: [] };
     }
-    return { ok: true, errors: [] };
+    return { ok: true, errors: [], warnings: [] };
   },
 
   async export(input, options): Promise<LandxmlOutput> {
@@ -223,8 +224,8 @@ export const landxmlExporter: IntegrationExporter<
 
     const obj = input as Record<string, unknown>;
     const countryCode = options.countryCode ?? "KE";
-    const projectName = (options.projectMetadata as Record<string, unknown>)?.projectName as string ?? "Survey";
-    const surveyorName = (options.projectMetadata as Record<string, unknown>)?.surveyorName as string | undefined;
+    const projectName = (options.projectMetadata as unknown as Record<string, unknown>)?.projectName as string ?? "Survey";
+    const surveyorName = (options.projectMetadata as unknown as Record<string, unknown>)?.surveyorName as string | undefined;
 
     let xml: string;
 
