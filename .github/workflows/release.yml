@@ -67,7 +67,9 @@ jobs:
             libusb-1.0-0-dev \
             libudev-dev \
             libayatana-appindicator3-dev \
-            librsvg2-bin
+            librsvg2-bin \
+            pkg-config \
+            libdbus-1-dev
 
       - name: Install npm dependencies
         working-directory: metardu-v2
@@ -157,7 +159,9 @@ jobs:
             libclang-dev \
             clang \
             wine64 \
-            mingw-w64
+            mingw-w64 \
+            pkg-config \
+            libdbus-1-dev
 
       - name: Install npm dependencies
         working-directory: metardu-v2
