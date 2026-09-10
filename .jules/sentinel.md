@@ -1,0 +1,4 @@
+## 2024-09-10 - Prevent XSS in Cross-Section Viewer SVG Rendering
+**Vulnerability:** Unsanitized dynamic SVG string containing survey feature data rendered via `dangerouslySetInnerHTML` in React, opening a vector for stored XSS.
+**Learning:** Even when the majority of an SVG is dynamically built using layout constraints, if any user-generated text (like the feature names `p.feature` in survey inputs) is interpolated directly into SVG text nodes, it can execute scripts if rendered without sanitization. `DOMPurify` with the SVG profile (`USE_PROFILES: { svg: true }`) is critical here because the default DOMPurify profile strips out `<svg>` tags and SVG-specific tags which will break the rendering.
+**Prevention:** Always use `DOMPurify.sanitize(rawSvg, { USE_PROFILES: { svg: true } })` before passing dynamic SVG content to `dangerouslySetInnerHTML`.

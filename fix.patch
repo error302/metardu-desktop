@@ -1,0 +1,74 @@
+--- metardu-v2/packages/metardu-sidecar/src/main.rs
++++ metardu-v2/packages/metardu-sidecar/src/main.rs
+@@ -63,16 +63,16 @@
+     let (notif_tx, _) = broadcast::channel::<Notification>(256);
+     let mut notif_rx = notif_tx.subscribe();
+
+     let dispatcher = dispatcher::Dispatcher::new(notif_tx.clone());
+
++    let (tx, mut rx) = tokio::sync::mpsc::channel(32);
++    tokio::task::spawn_blocking(move || {
++        let mut reader = BufReader::new(io::stdin());
++        while let Ok(Some(req)) = read_message(&mut reader) {
++            if tx.blocking_send(req).is_err() {
++                break;
++            }
++        }
++    });
++
+     // Main loop: read request, dispatch, write response, and forward
+     // any streaming notifications to stdout.
+     loop {
+         tokio::select! {
+             // Branch 1: incoming request from the main process.
+-            req_result = tokio::task::spawn_blocking({
+-                let mut r = BufReader::new(io::stdin());
+-                move || read_message(&mut r)
+-            }) => {
+-                match req_result {
+-                    Ok(Ok(Some(req))) => {
+-                        info!(method = %req.method, id = %req.id, "dispatching request");
+-                        let resp = dispatcher.dispatch(req).await;
+-                        if let Err(e) = write_message(&mut writer, &resp) {
+-                            error!(error = %e, "Failed to write response, exiting");
+-                            break;
+-                        }
+-                    }
+-                    Ok(Ok(None)) => {
+-                        info!("stdin EOF received, shutting down");
+-                        // Signal all background tasks to stop.
+-                        drop(notif_tx);
+-                        break;
+-                    }
+-                    Ok(Err(e)) => {
+-                        warn!(error = %e, "Malformed request");
+-                        // Send generic error response so client doesn't hang.
+-                        let err_resp = Response::error(
+-                            "unknown".to_string(),
+-                            "parse_error".to_string(),
+-                            e.to_string(),
+-                        );
+-                        let _ = write_message(&mut writer, &err_resp);
+-                    }
+-                    Err(e) => {
+-                        error!(error = %e, "Task panic reading stdin");
+-                        break;
+-                    }
++            req = rx.recv() => {
++                match req {
++                    Some(req) => {
++                        info!(method = %req.method, id = %req.id, "dispatching request");
++                        let resp = dispatcher.dispatch(req).await;
++                        if let Err(e) = write_message(&mut writer, &resp) {
++                            error!(error = %e, "Failed to write response, exiting");
++                            break;
++                        }
++                    }
++                    None => {
++                        info!("stdin EOF received, shutting down");
++                        // Signal all background tasks to stop.
++                        drop(notif_tx);
++                        break;
++                    }
+                 }
+             }
