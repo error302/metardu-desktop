@@ -67,7 +67,9 @@ jobs:
             libusb-1.0-0-dev \
             libudev-dev \
             libayatana-appindicator3-dev \
-            librsvg2-bin
+            librsvg2-bin \
+            libdbus-1-dev \
+            pkg-config
 
       - name: Install npm dependencies
         working-directory: metardu-v2
@@ -157,7 +159,9 @@ jobs:
             libclang-dev \
             clang \
             wine64 \
-            mingw-w64
+            mingw-w64 \
+            libdbus-1-dev \
+            pkg-config
 
       - name: Install npm dependencies
         working-directory: metardu-v2
@@ -183,7 +187,7 @@ jobs:
         working-directory: metardu-v2/packages/metardu-sidecar
         env:
           LIBCLANG_PATH: /usr/lib/llvm-14/lib
-        run: cargo build --release
+        run: cargo build --release --no-default-features --features "shell-out instrument"
 
       - name: Build renderer + desktop
         working-directory: metardu-v2
@@ -240,7 +244,7 @@ jobs:
       - name: Install macOS build deps
         run: |
           brew install gdal
-          brew install libclang
+          brew install llvm
 
       - name: Install npm dependencies
         working-directory: metardu-v2
