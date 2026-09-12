@@ -1,0 +1,4 @@
+## 2024-09-12 - [HIGH] XSS Vulnerability in SVG Rendering via dangerouslySetInnerHTML
+**Vulnerability:** React components rendering raw SVG strings using `dangerouslySetInnerHTML` are susceptible to Cross-Site Scripting (XSS) if the input isn't validated or sanitized. In `CrossSectionView.tsx`, the `renderCrossSectionSvg` output was directly inserted into the DOM.
+**Learning:** Even internal tooling or components that appear to render "safe" data (like survey points) can be manipulated if the data source (e.g., loaded files, network responses) is untrusted. `dangerouslySetInnerHTML` is aptly named.
+**Prevention:** Always sanitize raw HTML or SVG strings with a robust library like `DOMPurify` before passing them to `dangerouslySetInnerHTML`. For SVGs, ensure the configuration profile `{ USE_PROFILES: { svg: true } }` is used so valid SVG tags aren't erroneously stripped.
