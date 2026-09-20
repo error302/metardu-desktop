@@ -73,7 +73,7 @@ function exportCadastralXml(
   }
 
   // Parcels
-  w(`${indent(2)}<Parcels>`;
+  w(`${indent(2)}<Parcels>`);
   w(`${indent(3)}<Parcel name="${esc(projectName)}" area="0" areaUnits="sqMeter" setState="proposed" setBack="0" setNumber="1">`);
 
   // Beacon coordinate list (closed polygon)
@@ -110,7 +110,7 @@ ${indent(5)}<BeaconType>Concrete Pillar</BeaconType>`);
   w(`${indent(2)}</Parcels>`);
 
   // Points
-  w(`${indent(2)}<CoordinateCollections>`;
+  w(`${indent(2)}<CoordinateCollections>`);
   w(`${indent(3)}<CoordinateCollection name="Beacons">`);
   for (const b of beacons) {
     w(`${indent(4)}<Pnt id="${esc(b.label)}" code="100">`);
