@@ -1,0 +1,5 @@
+
+## 2024-09-20 - [XSS] Unsanitized SVG rendering via dangerouslySetInnerHTML
+**Vulnerability:** The application was using `dangerouslySetInnerHTML` to render SVGs dynamically generated from user input (e.g., cross-section point features or labels). These SVGs were not sanitized before rendering, exposing the app to potential Cross-Site Scripting (XSS) vulnerabilities if a user input included malicious `<script>` tags or `onload` handlers within the SVG payload.
+**Learning:** React's `dangerouslySetInnerHTML` bypasses its built-in XSS protections. While generating structural SVGs manually, embedding arbitrary data (like `feature` labels from input) directly into the SVG string without encoding or sanitization creates an injection vector.
+**Prevention:** Always sanitize dynamically constructed HTML or SVG strings using a dedicated library like `DOMPurify` before injecting them via `dangerouslySetInnerHTML`. For SVGs, configure `DOMPurify` to allow SVG profiles (`{ USE_PROFILES: { svg: true } }`) to retain valid graphical elements while stripping executable scripts.
