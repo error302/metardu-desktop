@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { useSurveyState } from "../SurveyStateContext.js";
+import DOMPurify from "dompurify";
 
 interface CrossSectionPoint {
   offset: number;
@@ -206,6 +207,9 @@ export const CrossSectionView: React.FC = () => {
     });
   }, [currentSection, scale, showDesign, highlightCut]);
 
+  // Security: Sanitize SVG HTML to prevent XSS vulnerabilities
+  const sanitizedSvgHtml = DOMPurify.sanitize(svgHtml, { USE_PROFILES: { svg: true } });
+
   return (
     <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "12px", height: "100%", overflow: "auto" }}>
       <h2 style={{ fontSize: "var(--text-xl)", color: "var(--accent-primary)", fontFamily: "var(--font-mono)" }}>
@@ -245,7 +249,7 @@ export const CrossSectionView: React.FC = () => {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: "12px" }}>
         {/* SVG Rendering */}
         <div style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", padding: "8px", overflow: "auto" }}
-          dangerouslySetInnerHTML={{ __html: svgHtml }} />
+          dangerouslySetInnerHTML={{ __html: sanitizedSvgHtml }} />
 
         {/* Side Panel */}
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
