@@ -47,7 +47,7 @@ function formatCoord(e: number, n: number): string {
 
 function exportCadastralXml(
   beacons: Array<{ label: string; position: { easting: number; northing: number }; description?: string }>,
-  countryCode: string,
+  _countryCode: string,
   projectName: string,
   surveyorName?: string,
   srid?: number,
@@ -230,7 +230,6 @@ export const landxmlExporter: IntegrationExporter<
     // without refactoring, but we can allow it as an extended option or pull it out.
     // For now we type-cast options to any to suppress the error.
     const srid = (options as any).srid;
-    const countryCode = options.countryCode ?? "KE";
 
     let xml: string;
 
@@ -241,6 +240,7 @@ export const landxmlExporter: IntegrationExporter<
         position: { easting: number; northing: number };
         description?: string;
       }>;
+      const countryCode = options.countryCode ?? "KE";
       xml = exportCadastralXml(beacons, countryCode, projectName, surveyorName, srid);
     }
     // Topographic output (has tin + contours)
