@@ -1,0 +1,4 @@
+## 2025-02-28 - Cross-Site Scripting (XSS) in CrossSectionView
+**Vulnerability:** The `svgHtml` generated from `renderCrossSectionSvg` is inserted into the DOM using `dangerouslySetInnerHTML={{ __html: svgHtml }}` in `apps/desktop/src/renderer/views/CrossSectionView.tsx`. This poses an XSS risk if the input data forming the SVG contains malicious scripts.
+**Learning:** React's `dangerouslySetInnerHTML` bypasses its built-in XSS protection. Whenever rendering raw HTML or SVG strings, especially those generated from external or potentially user-controlled data (like survey state), it must be explicitly sanitized.
+**Prevention:** Always use a library like `DOMPurify` to sanitize raw HTML/SVG strings before passing them to `dangerouslySetInnerHTML`. Ensure SVG profiles are enabled when sanitizing SVGs (`DOMPurify.sanitize(dirty, { USE_PROFILES: { svg: true } })`).
