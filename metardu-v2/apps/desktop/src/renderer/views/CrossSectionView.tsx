@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback } from "react";
+import DOMPurify from "dompurify";
 import { useSurveyState } from "../SurveyStateContext.js";
 
 interface CrossSectionPoint {
@@ -197,13 +198,17 @@ export const CrossSectionView: React.FC = () => {
 
   const svgHtml = useMemo(() => {
     if (!currentSection) return "";
-    return renderCrossSectionSvg(currentSection, {
+    const rawSvg = renderCrossSectionSvg(currentSection, {
       width: 650,
       height: 380,
       scale,
       showDesign,
       highlightCut,
     });
+    // Security Fix: Sanitize SVG strings before using dangerouslySetInnerHTML
+    // to prevent Cross-Site Scripting (XSS) vulnerabilities if dynamic data
+    // contains malicious HTML or scripts.
+    return DOMPurify.sanitize(rawSvg, { USE_PROFILES: { svg: true } });
   }, [currentSection, scale, showDesign, highlightCut]);
 
   return (

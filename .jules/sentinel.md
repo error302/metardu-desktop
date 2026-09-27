@@ -1,0 +1,4 @@
+## 2026-09-27 - Cross-Site Scripting (XSS) via dynamically generated SVG
+**Vulnerability:** A cross-section SVG is rendered directly using `dangerouslySetInnerHTML` in `CrossSectionView.tsx` without sanitization. This is a severe XSS risk if the cross-section data contains malicious HTML or script tags, especially since the string contains dynamic content (e.g. `p.feature`).
+**Learning:** Even statically generated SVG structures string concatenations can be vulnerable if they include uncontrolled user input (e.g. from state or data files). Using `dangerouslySetInnerHTML` requires wrapping the output in a sanitization pass.
+**Prevention:** Always use `DOMPurify` to sanitize SVG/HTML strings before passing them to `dangerouslySetInnerHTML`. Ensure `USE_PROFILES: { svg: true }` is enabled when sanitizing SVG.
