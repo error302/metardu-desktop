@@ -1,0 +1,4 @@
+## 2024-05-28 - [Cross-Site Scripting (XSS) in CrossSectionView]
+**Vulnerability:** The application was dynamically rendering raw SVG data via `dangerouslySetInnerHTML` in the `CrossSectionView` component without sanitizing the output, presenting a Cross-Site Scripting (XSS) vulnerability.
+**Learning:** Even though SVG data is visually just graphics, SVGs can contain embedded JavaScript (e.g. `<script>` tags, `onload` attributes) which execute when rendered. Using `dangerouslySetInnerHTML` allows this payload to run in the application context.
+**Prevention:** Always sanitize dynamically generated HTML or SVG strings using a reliable sanitization library such as `DOMPurify` before rendering them. When sanitizing SVG strings, ensure to pass `{ USE_PROFILES: { svg: true } }` so the necessary graphic elements are retained while the script vectors are safely stripped out.
