@@ -1,0 +1,4 @@
+## 2026-10-03 - Prevent XSS in CrossSectionView SVG rendering
+**Vulnerability:** Cross-Site Scripting (XSS) vulnerability via unescaped rendering of raw SVG output in `CrossSectionView.tsx` using `dangerouslySetInnerHTML`.
+**Learning:** `dangerouslySetInnerHTML` allows direct injection of HTML and script elements when rendering unstructured components like strings or SVGs generated from unvalidated data structures. Any manipulation of inputs via unexpected SVG parameters or user-provided values in section rendering could trigger script execution in the Electron renderer or browser.
+**Prevention:** When using `dangerouslySetInnerHTML`, especially with external or generated contents like SVGs, always sanitize the string output using a library like `DOMPurify` before rendering. Retain necessary tags or properties (e.g., `{ USE_PROFILES: { svg: true } }`) to preserve the component's functionality while stripping potentially malicious code.
