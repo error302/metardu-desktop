@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { useSurveyState } from "../SurveyStateContext.js";
+import DOMPurify from "dompurify";
 
 interface CrossSectionPoint {
   offset: number;
@@ -245,7 +246,9 @@ export const CrossSectionView: React.FC = () => {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: "12px" }}>
         {/* SVG Rendering */}
         <div style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", padding: "8px", overflow: "auto" }}
-          dangerouslySetInnerHTML={{ __html: svgHtml }} />
+          // Security concern: XSS vulnerability from rendering unsanitized SVG/HTML
+          // Solution: Use DOMPurify to sanitize the SVG markup while retaining necessary tags
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(svgHtml, { USE_PROFILES: { svg: true } }) }} />
 
         {/* Side Panel */}
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
