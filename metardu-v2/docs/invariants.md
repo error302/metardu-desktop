@@ -64,8 +64,10 @@ GSI, etc.). A sandboxed renderer limits the blast radius of a parser bug.
 ### A5. Offline-first is structural
 
 Every compute path must work with zero network connectivity. Country
-config, forms, reference data, and geoid models ship inside the app
-bundle. Updates are explicit and versioned — no silent runtime fetch.
+config, forms, and applicable reference data ship inside the app bundle.
+Large geoid grids are explicit, versioned local data packages; a height
+conversion stays unavailable until a compatible grid is installed and
+validated. Updates are explicit — no silent runtime fetch.
 
 **Why:** Surveyors work in rural areas with no signal. A cloud-dependent
 survey tool is a tool that fails on the job.

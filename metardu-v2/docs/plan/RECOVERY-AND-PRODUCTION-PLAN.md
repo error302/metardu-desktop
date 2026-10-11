@@ -308,7 +308,7 @@ change** from current code. Master plan Section 4 + ADR-0004.
    - `packages/engine/src/surveying/stakeout.ts` —
      `KENYA_TOLERANCE_PRESETS`
    - `packages/engine/src/surveying/leveling.ts` — any Kenya refs
-   - `packages/engine/src/geodesy/geoid.ts` — `KENYA_GEOID_VALUES`
+   - `packages/engine/src/geodesy/geoid.ts` — remove illustrative city offsets; use sourced, versioned grid packages for height conversion
 5. Workflow modules read tolerances/SRIDs ONLY through
    `CountrySurveyConfig`. A literal `21037` anywhere outside
    `country-config/kenya.ts` is a failing review (enforced by

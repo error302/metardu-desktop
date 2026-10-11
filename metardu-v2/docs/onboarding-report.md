@@ -302,10 +302,10 @@ lines of code do not establish survey-grade behavior.
 | Module | LOC / status | Cited standard |
 |---|---|---|
 | Cassini-Soldner projection (exact) | 1,922 | Snyder, USGS PP 1395 |
-| Arc 1960 ↔ WGS 84 datum output | Helpers blocked; renderer review required | EPSG:1122 is 35 m; the existing datum view still needs a separately scoped correction |
+| Arc 1960 ↔ WGS 84 datum output | Helpers blocked; panel now reports operation unavailable | EPSG:1122 is 35 m; an area- and epoch-aware operation registry remains unimplemented |
 | Least Squares Adjustment (parametric + robust + network + 3D + sequential) | 3,560 | Ghilani & Wolf, *Adjustment Computations* |
 | EDM corrections (atmospheric, slope, sea-level, grid) | 302 | Ghilani & Wolf Ch. 6 |
-| Geoid (EGM96) ellipsoidal→orthometric | 336 | — |
+| Geoid grid interpolation / height formula | No verified grids bundled; conversion requires a provenance-bearing grid and fails outside coverage | — |
 | Traverse (Bowditch / Transit / Crandall / LSA) | 355 | Cap 299 precision standards |
 | Curves (circular, vertical, **clothoid** spiral) | 266 + ~500 | RDM 1.3 §5.2.4, AASHTO, Schofield & Breach Ch. 11 |
 | Subdivision (mutation per Cap 299) | 1,093 | Survey Act Cap 299 |

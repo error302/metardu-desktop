@@ -333,7 +333,7 @@ export const KENYA: CountrySurveyConfig = {
   geodeticFramework: {
     datum: "Arc 1960",
     primarySRID: 21037,
-    heightSystem: "KEN_GEOID (referenced; EGM2008 approximation used until KEN_GEOID grid is bundled)",
+    heightSystem: "KEN_GEOID referenced; no validated grid is bundled, so orthometric conversion is unavailable",
     projectionZones: [UTM_36S, UTM_37S, UTM_36N, UTM_37N],
   },
   toleranceTable: [

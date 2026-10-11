@@ -2388,3 +2388,12 @@ Stage Summary:
 - Latest focused verification: GNSS and workflow property tests **50 passed**; golden fixture checks **9 passed**; Rust geodesy **29 passed**; engine TypeScript check, desktop main/preload build, and engine workspace build passed. `git diff --check` passed before this addendum.
 - The desktop renderer datum panel still contains hard-coded 7-parameter values, invented control stations, and a 6.8 mm RMSE display. That panel was not changed in this scoped catalog/helper correction and remains a release blocker until replaced with evidence-backed controls and transformations.
 - These checks validate the corrected Kenya CRS definitions and blocked EPSG:1122 path only. They do not certify international transformation coverage, the renderer datum panel, or the desktop application as survey-grade.
+
+### Addendum — datum panel and geoid fail-closed behavior (2026-10-12)
+- Replaced the renderer's fabricated 7-parameter fit, control network, and 6.8 mm RMSE with an unavailable state that explains the operation evidence required. The panel states EPSG:1122's published 35 m accuracy and does not execute it.
+- Removed the unverified geoid result display, ignored model selector, and illustrative city offsets from the renderer. The panel reports that no authoritative geoid grid is installed and produces no height result.
+- Changed geoid conversion to require a metadata-bearing grid, validate interpolation dimensions and cell values, and fail outside coverage or at nodata without an approximate fallback. The legacy approximate API now throws. No geoid model data is bundled, so the model catalog is deliberately empty.
+- Updated Kenya and Ghana height-system profiles, CRS metadata comments, offline-first invariant, onboarding inventory, and recovery plan to distinguish expected models from installed grids.
+- Verification: `npx vitest run src/surveying/tests/critical-modules.test.ts --reporter=dot` — **37 passed**; engine `npx tsc --noEmit` — passed; engine workspace build — passed; desktop main/preload build — passed; renderer Vite build — passed.
+- Renderer-wide TypeScript checking still reports existing errors in other views/components; no diagnostic referenced `DatumTransformationView.tsx`. This limits the typecheck claim to the edited file's lack of a reported error and successful Vite build.
+- The grid API requires a 64-character SHA-256 metadata field but does not itself hash or validate file bytes. A verified loader and authoritative model packages remain required before any real geoid output can be enabled.

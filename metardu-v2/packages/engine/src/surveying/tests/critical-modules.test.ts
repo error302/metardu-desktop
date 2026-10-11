@@ -26,10 +26,12 @@ import {
 import {
   egm2008Approximate,
   convertHeight,
+  interpolateUndulation,
   ellipsoidalToOrthometric,
   orthometricToEllipsoidal,
   KENYA_GEOID_VALUES,
   GEOID_MODELS,
+  type GeoidGrid,
 } from "../../geodesy/geoid.js";
 import {
   CRS_DATABASE,
@@ -160,51 +162,64 @@ describe("Site Calibration", () => {
 // ═════════════════════════════════════════════════════════════════
 
 describe("Geoid Model", () => {
-  it("should compute approximate EGM2008 undulation for Nairobi", () => {
-    const N = egm2008Approximate(-1.2864, 36.8172);
-    // Nairobi geoid undulation is approximately -17 to -20 meters
-    expect(N).toBeLessThan(0); // Below ellipsoid
-    expect(N).toBeGreaterThan(-500); // Not extreme
-    expect(N).toBeLessThan(0); // Significant
+  const fixtureGrid = (): GeoidGrid => ({
+    id: "synthetic-bilinear-fixture",
+    name: "Synthetic interpolation fixture",
+    version: "test-only",
+    source: "unit-test fixture; not a geoid model",
+    checksumSha256: "0".repeat(64),
+    referenceEllipsoid: "test ellipsoid",
+    verticalDatum: "test vertical datum",
+    south: 0,
+    west: 0,
+    latStep: 1,
+    lngStep: 1,
+    rows: 2,
+    cols: 2,
+    // Row-major from NW: (1,0)=20, (1,1)=22, (0,0)=10, (0,1)=12.
+    values: new Float64Array([20, 22, 10, 12]),
   });
 
-  it("should convert ellipsoidal to orthometric height", () => {
-    // Nairobi: ellipsoidal height ~1713.5m, geoid ~-17.4m
-    // Orthometric = 1713.5 - (-17.4) = 1730.9m (above MSL)
-    const H = ellipsoidalToOrthometric(1713.5, -17.4);
-    expect(H).toBeCloseTo(1730.9, 1);
+  it("bilinearly interpolates a synthetic grid cell without asserting model accuracy", () => {
+    expect(interpolateUndulation(fixtureGrid(), 0.5, 0.5)).toBe(16);
+    expect(interpolateUndulation(fixtureGrid(), 1, 0)).toBe(20);
   });
 
-  it("should convert orthometric to ellipsoidal height", () => {
-    const h = orthometricToEllipsoidal(1730.9, -17.4);
-    expect(h).toBeCloseTo(1713.5, 1);
+  it("converts height only from a supplied grid and returns its provenance", () => {
+    const result = convertHeight(0.5, 0.5, 100, fixtureGrid());
+    expect(result.undulation).toBe(16);
+    expect(result.orthometric).toBe(84);
+    expect(result.model.id).toBe("synthetic-bilinear-fixture");
+    expect(result.model.source).toContain("unit-test fixture");
+    expect(result.model.verticalDatum).toBe("test vertical datum");
   });
 
-  it("should round-trip height conversion", () => {
-    const h = 1713.5;
-    const N = -17.4;
-    const H = ellipsoidalToOrthometric(h, N);
-    const hBack = orthometricToEllipsoidal(H, N);
-    expect(hBack).toBeCloseTo(h, 5);
+  it("returns null outside the grid and conversion fails without a fallback", () => {
+    const grid = fixtureGrid();
+    expect(interpolateUndulation(grid, 2, 2)).toBeNull();
+    expect(() => convertHeight(2, 2, 100, grid)).toThrow(/outside geoid grid.*no fallback/i);
   });
 
-  it("convertHeight should return undulation and source", () => {
-    const result = convertHeight(-1.2864, 36.8172, 1713.5);
-    expect(result.orthometric).toBeGreaterThan(1713.5); // H > h because N < 0
-    expect(result.undulation).toBeLessThan(0);
-    expect(result.source).toContain("EGM2008");
+  it("rejects malformed grids, missing provenance, and nodata cells", () => {
+    const shortGrid = { ...fixtureGrid(), values: new Float64Array([20, 22, 10]) };
+    expect(() => interpolateUndulation(shortGrid, 0.5, 0.5)).toThrow(/dimensions or spacing are invalid/i);
+
+    const missingSource = { ...fixtureGrid(), source: "" };
+    expect(() => interpolateUndulation(missingSource, 0.5, 0.5)).toThrow(/provenance and reference metadata/i);
+
+    const nodataGrid = { ...fixtureGrid(), values: new Float64Array([20, Number.NaN, 10, 12]) };
+    expect(() => interpolateUndulation(nodataGrid, 0.5, 0.5)).toThrow(/nodata or non-finite/i);
   });
 
-  it("Kenya geoid values should be available for major cities", () => {
-    expect(KENYA_GEOID_VALUES.Nairobi).toBeDefined();
-    expect(KENYA_GEOID_VALUES.Mombasa).toBeDefined();
-    expect(KENYA_GEOID_VALUES.Nairobi.undulation).toBeLessThan(0);
+  it("rejects non-finite height conversions", () => {
+    expect(() => ellipsoidalToOrthometric(Number.NaN, 1)).toThrow(/finite values/i);
+    expect(() => orthometricToEllipsoidal(1, Number.POSITIVE_INFINITY)).toThrow(/finite values/i);
   });
 
-  it("geoid models should be defined", () => {
-    expect(GEOID_MODELS.EGM2008).toBeDefined();
-    expect(GEOID_MODELS.AUSGeoid2020).toBeDefined();
-    expect(GEOID_MODELS.AUSGeoid2020.accuracyM).toBeLessThan(0.1); // Survey-grade
+  it("fails closed for legacy approximation calls and exposes no unsupported model catalog", () => {
+    expect(() => egm2008Approximate(-1.2864, 36.8172)).toThrow(/grid data is not installed/i);
+    expect(Object.keys(GEOID_MODELS)).toHaveLength(0);
+    expect(Object.keys(KENYA_GEOID_VALUES)).toHaveLength(0);
   });
 });
 

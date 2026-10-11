@@ -259,7 +259,7 @@ export const GHANA: CountrySurveyConfig = {
   geodeticFramework: {
     datum: "GGRN (Ghana Geodetic Reference Network, ITRF2008) / Leigon",
     primarySRID: 25000,
-    heightSystem: "GGRN ellipsoidal heights (ITRF2008); national geoid model referenced (EGM2008 approximation used until the GGRN geoid grid is bundled)",
+    heightSystem: "GGRN ellipsoidal heights (ITRF2008); no validated national geoid grid is bundled, so orthometric conversion is unavailable",
     projectionZones: [GHANA_METRE_GRID, ACCRA_NATIONAL_GRID, UTM_30N, UTM_31N],
     legacyDatums: [
       {

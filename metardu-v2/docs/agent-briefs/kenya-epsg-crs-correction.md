@@ -37,6 +37,6 @@ kenya-epsg-crs-correction
 
 ## Out of scope
 - Implementing a general datum-operation engine or enabling Arc 1960-to-WGS84 export.
-- Reworking the existing renderer datum panel's hard-coded transformation parameters and residuals; it has unrelated uncommitted geoid work and needs a separate brief before release.
+- Building the international operation catalogue or bundling authoritative datum and geoid grids. The renderer panel is handled in a follow-up and now reports unavailable operations without synthetic accuracy claims.
 - Reconstructing historical Kenya Cassini CRSs without authoritative local control documentation.
 - Auditing every other country's CRS profile in this task.

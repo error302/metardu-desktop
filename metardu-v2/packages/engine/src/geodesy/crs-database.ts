@@ -48,7 +48,7 @@ export interface CrsDefinition {
   scaleFactor?: number;
   /** Latitude of origin */
   latitudeOfOrigin?: number;
-  /** Geoid model to use for this CRS */
+  /** Expected vertical model identifier; this does not mean its grid is installed or validated. */
   geoidModel?: string;
 }
 
