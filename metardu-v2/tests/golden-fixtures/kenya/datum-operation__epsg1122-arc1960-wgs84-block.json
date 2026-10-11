@@ -1,0 +1,22 @@
+{
+  "name": "EPSG:1122 Arc 1960 to WGS 84 — blocked for survey-grade output",
+  "country": "KE",
+  "computation": "unsupported-datum-operation",
+  "source": {
+    "document": "EPSG::1122 — Arc 1960 to WGS 84 (1)",
+    "page": "EPSG registry",
+    "file": "https://epsg.org/transformation_1122/Arc-1960-to-WGS-84-1.html",
+    "notes": "EPSG:1122 is a geocentric translation from Arc 1960 (EPSG:4210) to WGS 84 (EPSG:4326). Its stated operation accuracy is 35 m; this is not a survey-grade transformation and the application blocks both directions pending a locally validated operation."
+  },
+  "transform": {
+    "method": "Geocentric translations",
+    "epsg_code": 1122,
+    "source_crs": "EPSG:4210",
+    "target_crs": "EPSG:4326",
+    "tx_m": -160,
+    "ty_m": -6,
+    "tz_m": -302,
+    "accuracy_m": 35,
+    "survey_grade_enabled": false
+  }
+}

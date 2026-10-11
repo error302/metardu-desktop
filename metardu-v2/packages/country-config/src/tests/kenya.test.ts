@@ -63,8 +63,10 @@ describe("Kenya config: geodetic framework", () => {
     expect(KENYA.geodeticFramework.heightSystem).toContain("KEN_GEOID");
   });
 
-  it("has at least 3 projection zones (UTM 37S, UTM 36S, Cassini-Nairobi)", () => {
-    expect(KENYA.geodeticFramework.projectionZones.length).toBeGreaterThanOrEqual(3);
+  it("lists the four authoritative Arc 1960 UTM zones covering Kenya", () => {
+    expect(KENYA.geodeticFramework.projectionZones).toHaveLength(4);
+    expect(KENYA.geodeticFramework.projectionZones.map((zone) => zone.srid).sort((a, b) => a - b))
+      .toEqual([21036, 21037, 21096, 21097]);
   });
 
   it("UTM 37S zone has the correct TM parameters", () => {
@@ -76,21 +78,25 @@ describe("Kenya config: geodetic framework", () => {
     expect(zone.false_easting_m).toBe(500_000.0);
     expect(zone.false_northing_m).toBe(10_000_000.0); // southern hemisphere
     expect(zone.scale_factor).toBe(0.9996);
-    expect(zone.ellipsoid).toBe("Clarke 1866");
+    expect(zone.ellipsoid).toBe("Clarke 1880 (RGS)");
+  });
+
+  it("defines northern and western zones with their EPSG hemisphere and false northing", () => {
+    const zones = new Map(KENYA.geodeticFramework.projectionZones.map((zone) => [zone.srid, zone]));
+    expect(zones.get(21036)).toMatchObject({ name: "Arc 1960 / UTM zone 36S", central_meridian_deg: 33, false_northing_m: 10_000_000 });
+    expect(zones.get(21096)).toMatchObject({ name: "Arc 1960 / UTM zone 36N", central_meridian_deg: 33, false_northing_m: 0 });
+    expect(zones.get(21097)).toMatchObject({ name: "Arc 1960 / UTM zone 37N", central_meridian_deg: 39, false_northing_m: 0 });
+    for (const zone of zones.values()) expect(zone.ellipsoid).toBe("Clarke 1880 (RGS)");
   });
 
   it("throws on unknown SRID", () => {
     expect(() => getProjectionZone(KENYA, 99999)).toThrow(/not found/i);
   });
 
-  it("documents the legacy Cassini→UTM re-establishment path", () => {
-    expect(KENYA.geodeticFramework.legacyDatums).toBeDefined();
-    expect(KENYA.geodeticFramework.legacyDatums!.length).toBeGreaterThanOrEqual(1);
-    const cassini = KENYA.geodeticFramework.legacyDatums!.find(
-      (d) => d.from.includes("Cassini"),
-    );
-    expect(cassini).toBeDefined();
-    expect(cassini!.to).toContain("Arc 1960");
+  it("does not publish an unauthenticated Cassini definition as an EPSG CRS or datum operation", () => {
+    expect(KENYA.geodeticFramework.projectionZones.map((zone) => zone.srid)).not.toContain(20537);
+    expect(KENYA.geodeticFramework.projectionZones.find((zone) => zone.method === "Cassini-Soldner")).toBeUndefined();
+    expect(KENYA.geodeticFramework.legacyDatums?.some((datum) => datum.from.includes("Cassini"))).not.toBe(true);
   });
 });
 

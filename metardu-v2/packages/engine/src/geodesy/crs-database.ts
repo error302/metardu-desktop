@@ -6,7 +6,7 @@
  * configure the correct CRS based on the project location.
  *
  * Supported countries:
- *   Kenya (KEN) — Arc 1960 / UTM zone 37S, Cassini-Soldner
+ *   Kenya (KEN) — Arc 1960 / UTM zones 36/37, northern and southern hemispheres
  *   Tanzania (TZA) — Arc 1960 / UTM zone 37S
  *   Uganda (UGA) — Arc 1960 / UTM zone 36N
  *   Rwanda (RWA) — WGS84 / UTM zone 36S
@@ -60,8 +60,8 @@ export const KENYA_CRS: CrsDefinition[] = [
     name: "Arc 1960 / UTM zone 37S",
     datum: "Arc 1960",
     projection: "UTM",
-    area: "Kenya — 36°E to 42°E",
-    bounds: [-5, 36, 5, 42],
+    area: "Kenya — 36°E to 42°E south of the equator",
+    bounds: [-5, 36, 0, 42],
     utmZone: 37,
     hemisphere: "S",
     falseEasting: 500000,
@@ -72,11 +72,26 @@ export const KENYA_CRS: CrsDefinition[] = [
   },
   {
     epsg: 21036,
+    name: "Arc 1960 / UTM zone 36S",
+    datum: "Arc 1960",
+    projection: "UTM",
+    area: "Kenya — 30°E to 36°E south of the equator",
+    bounds: [-5, 30, 0, 36],
+    utmZone: 36,
+    hemisphere: "S",
+    falseEasting: 500000,
+    falseNorthing: 10000000,
+    scaleFactor: 0.9996,
+    latitudeOfOrigin: 0,
+    geoidModel: "EGM2008",
+  },
+  {
+    epsg: 21096,
     name: "Arc 1960 / UTM zone 36N",
     datum: "Arc 1960",
     projection: "UTM",
-    area: "Kenya — 30°E to 36°E (western)",
-    bounds: [-5, 30, 5, 36],
+    area: "Kenya — 30°E to 36°E north of the equator",
+    bounds: [0, 30, 5, 36],
     utmZone: 36,
     hemisphere: "N",
     falseEasting: 500000,
@@ -86,17 +101,18 @@ export const KENYA_CRS: CrsDefinition[] = [
     geoidModel: "EGM2008",
   },
   {
-    epsg: 20537,
-    name: "Arc 1960 / Kenya Cassini-Soldner Grid",
+    epsg: 21097,
+    name: "Arc 1960 / UTM zone 37N",
     datum: "Arc 1960",
-    projection: "Cassini-Soldner",
-    area: "Kenya — Cassini-Soldner (historical cadastral)",
-    bounds: [-5, 33, 5, 42],
-    centralMeridian: 37.0,
-    falseEasting: 300000,
+    projection: "UTM",
+    area: "Kenya — 36°E to 42°E north of the equator",
+    bounds: [0, 36, 5, 42],
+    utmZone: 37,
+    hemisphere: "N",
+    falseEasting: 500000,
     falseNorthing: 0,
-    scaleFactor: 1.0,
-    latitudeOfOrigin: -0.5,
+    scaleFactor: 0.9996,
+    latitudeOfOrigin: 0,
     geoidModel: "EGM2008",
   },
 ];

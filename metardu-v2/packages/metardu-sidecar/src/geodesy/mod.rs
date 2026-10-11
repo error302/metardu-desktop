@@ -9,7 +9,7 @@
 //!   - `helmert.rs` — 7-parameter Helmert transform (Position Vector +
 //!     Position Transform conventions, both supported)
 //!   - `ecef.rs` — geodetic ↔ ECEF conversions (WGS84, Clarke 1866,
-//!     GRS80)
+//!     Clarke 1880 (RGS), GRS80)
 //!   - `projection.rs` — Transverse Mercator forward/inverse (Snyder +
 //!     Krüger series), UTM wrapper
 //!
@@ -47,13 +47,20 @@ pub mod datums {
         inverse_flattening: 298.257_223_563,
     };
 
-    /// Clarke 1866 (EPSG::7008) — used by Arc 1960, NAD27.
+    /// Clarke 1866 (EPSG::7008) — used by NAD27.
     /// Note: Clarke 1866 has no official 1/f value; we use the derived
     /// value from a=6378206.4 and b=6356583.8.
     pub const CLARKE_1866: Ellipsoid = Ellipsoid {
         name: "Clarke 1866",
         semi_major_a: 6_378_206.4,
         inverse_flattening: 294.978_698_2,
+    };
+
+    /// Clarke 1880 (RGS) (EPSG::7012) — the ellipsoid for Arc 1960.
+    pub const CLARKE_1880_RGS: Ellipsoid = Ellipsoid {
+        name: "Clarke 1880 (RGS)",
+        semi_major_a: 6_378_249.145,
+        inverse_flattening: 293.465,
     };
 
     /// GRS80 (EPSG::7019) — used by GDA2020, ETRS89, NAD83.
@@ -77,15 +84,16 @@ pub mod datums {
         inverse_flattening: 299.1528128,
     };
 
-    /// Pre-built Helmert parameter set for WGS84 → Arc 1960 (EPSG::1122).
+    /// EPSG::1122 parameters for Arc 1960 → WGS 84, in the published direction.
     ///
-    /// Source: EPSG registry. Position Vector transformation convention.
-    /// Used for Kenya survey work — Kenya's primary datum is Arc 1960,
-    /// SRID 21037 (Arc 1960 / UTM zone 37S).
-    pub const WGS84_TO_ARC1960: super::helmert::HelmertParams = super::helmert::HelmertParams {
+    /// Source: EPSG::1122, a 3-parameter geocentric translation with
+    /// stated accuracy of 35 m. This is not suitable for survey-grade
+    /// cadastral output; callers must not treat it as a local control
+    /// network or high-accuracy datum operation.
+    pub const ARC1960_TO_WGS84: super::helmert::HelmertParams = super::helmert::HelmertParams {
         tx: -160.0,
-        ty: -8.0,
-        tz: -300.0,
+        ty: -6.0,
+        tz: -302.0,
         rx_arcsec: 0.0,
         ry_arcsec: 0.0,
         rz_arcsec: 0.0,
@@ -93,12 +101,12 @@ pub mod datums {
         convention: super::helmert::TransformConvention::PositionVector,
     };
 
-    /// Inverse of WGS84_TO_ARC1960 — Arc 1960 → WGS84.
+    /// Inverse of EPSG::1122 for WGS 84 → Arc 1960.
     /// Sign of every parameter is flipped.
-    pub const ARC1960_TO_WGS84: super::helmert::HelmertParams = super::helmert::HelmertParams {
+    pub const WGS84_TO_ARC1960: super::helmert::HelmertParams = super::helmert::HelmertParams {
         tx: 160.0,
-        ty: 8.0,
-        tz: 300.0,
+        ty: 6.0,
+        tz: 302.0,
         rx_arcsec: 0.0,
         ry_arcsec: 0.0,
         rz_arcsec: 0.0,
@@ -111,14 +119,14 @@ pub mod datums {
 mod tests {
     use super::*;
 
-    /// Sanity: round-trip WGS84 ↔ Arc 1960 must reproduce the input
-    /// to within 1e-7 degrees (~11mm at the equator). This is the
-    /// structural defense against silent coordinate drift — if anyone
-    /// changes the Helmert constants, this test fails.
+    /// Arithmetic inverse sanity only: EPSG::1122 transforms Arc 1960 →
+    /// WGS 84 at 35 m stated accuracy and must not be used as survey-grade
+    /// output. The desktop blocks this operation pending a suitable local
+    /// control operation.
     ///
-    /// Golden fixture: tests/golden-fixtures/kenya/helmert__wgs84-to-arc1960-roundtrip.json
+    /// Accuracy gate: tests/golden-fixtures/kenya/datum-operation__epsg1122-arc1960-wgs84-block.json
     #[test]
-    fn test_wgs84_arc1960_roundtrip_nairobi() {
+    fn test_epsg1122_inverse_translation_roundtrip_nairobi() {
         let lat = -1.286_389_f64;
         let lon = 36.817_222_f64;
         let height = 1_713.5_f64;
@@ -146,7 +154,7 @@ mod tests {
     }
 
     /// UTM 37S forward projection for Nairobi. Cross-checked against
-    /// pyproj EPSG:4674 → EPSG:21037.
+    /// PROJ EPSG:4210 → EPSG:21037 (same Arc 1960 datum; projection only).
     ///
     /// Golden fixture: tests/golden-fixtures/kenya/projection__utm37s-forward-inverse.json
     #[test]
@@ -161,35 +169,27 @@ mod tests {
             false_easting_m: 500_000.0,
             false_northing_m: 10_000_000.0, // southern hemisphere
             scale_factor: 0.9996,
-            ellipsoid: datums::CLARKE_1866,
+            ellipsoid: datums::CLARKE_1880_RGS,
         };
 
         let (easting, northing) = transverse_mercator_forward(lat, lon, &params);
 
-        // Expected values from pyproj Arc 1960 geographic (EPSG:4674) →
-        // Arc 1960 / UTM 37S (EPSG:21037). pyproj uses Karney's Krüger
-        // series (nanometre accuracy); our Snyder series has ~2-5m drift
-        // at this distance from the central meridian (Nairobi is 2.2°
-        // west of CM 39°E).
-        //
-        // Tolerance 5m. Good enough for reconnaissance and QC work; NOT
-        // good enough for statutory cadastral output. Phase 6 (Kenya
-        // Form 3) will swap this implementation for Karney's Krüger
-        // n-series (already drafted in the git history — see the
-        // initial commit of projection.rs for the partial Krüger code
-        // that we'll finish then).
-        let expected_e = 257_108.88;
-        let expected_n = 9_857_724.34;
+        // Expected values from PROJ using the EPSG:4210 Arc 1960 geographic
+        // CRS and EPSG:21037 projected CRS. Earlier multi-metre differences
+        // came from using the wrong ellipsoid (Clarke 1866 instead of the
+        // EPSG-defined Clarke 1880 (RGS)), not from this projection series.
+        let expected_e = 257_108.884_269;
+        let expected_n = 9_857_724.336_100;
 
         assert!(
-            (easting - expected_e).abs() < 5.0,
+            (easting - expected_e).abs() < 0.001,
             "easting {} differs from expected {} by {}",
             easting,
             expected_e,
             (easting - expected_e).abs()
         );
         assert!(
-            (northing - expected_n).abs() < 5.0,
+            (northing - expected_n).abs() < 0.001,
             "northing {} differs from expected {} by {}",
             northing,
             expected_n,
@@ -210,7 +210,7 @@ mod tests {
             false_easting_m: 500_000.0,
             false_northing_m: 10_000_000.0,
             scale_factor: 0.9996,
-            ellipsoid: datums::CLARKE_1866,
+            ellipsoid: datums::CLARKE_1880_RGS,
         };
 
         let (e, n) = transverse_mercator_forward(lat, lon, &params);
@@ -246,5 +246,12 @@ mod tests {
     fn test_bessel_1841_lookup_succeeds() {
         let e = crate::compute_handlers::lookup_ellipsoid("Bessel 1841").unwrap();
         assert!((e.semi_major_a - 6377397.155).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_arc1960_clarke_1880_rgs_lookup_succeeds() {
+        let e = crate::compute_handlers::lookup_ellipsoid("Clarke 1880 (RGS)").unwrap();
+        assert!((e.semi_major_a - 6_378_249.145).abs() < 0.001);
+        assert!((e.inverse_flattening - 293.465).abs() < 1e-9);
     }
 }

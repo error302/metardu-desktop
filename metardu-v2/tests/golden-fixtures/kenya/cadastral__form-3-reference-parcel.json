@@ -6,7 +6,7 @@
     "document": "Survey Act Cap. 299, Form No. 3 + Kenya Survey Regulations 1994",
     "page": "Form 3 + §6 (drawing conventions)",
     "file": "docs/regulatory-sources/kenya/cadastral/form-3-spec.md",
-    "notes": "Synthetic test parcel. Coordinates verified against pyproj EPSG:4674 → EPSG:21037 (Arc 1960 / UTM zone 37S). Survey Act Cap. 299 form template NOT YET FILED — fixture values verified against the spec doc, not the regulation itself."
+    "notes": "Synthetic test parcel with coordinates already expressed in EPSG:21037 (Arc 1960 / UTM zone 37S); this fixture does not validate any datum transformation. Survey Act Cap. 299 form template NOT YET FILED — fixture values verified against the spec doc, not the regulation itself."
   },
   "input": {
     "parcel": {

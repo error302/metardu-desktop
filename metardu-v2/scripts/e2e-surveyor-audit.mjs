@@ -4,7 +4,7 @@
  * Runs real-world surveying computation pipelines across:
  *   1. Cadastral Closed Traverse & Loop Misclosure Adjustment (Bowditch)
  *   2. 2D/3D Parametric Geodetic Least Squares Adjustment (LSA) & Error Ellipses
- *   3. 7-Parameter Bursa-Wolf Datum Transformation (Arc 1960 -> WGS84)
+ *   3. Arc 1960 -> WGS 84 operation accuracy gate (EPSG:1122 is blocked)
  *   4. Civil Engineering Vertical Alignment Curve Solver (K-values & Turning Points)
  *   5. Multi-Temporal Earthwork Surface Volumetric Differencing (Cut/Fill & Swell)
  *   6. Statutory Deed Plan Form 4 & LandXML 1.2 Generation
@@ -99,36 +99,12 @@ console.log(`  Chi-Square Test (95% CI):  ${vTPv.toFixed(2)} in [${chiSquareLowe
 console.log(`  95% Error Ellipse:         Semi-major (a) = ${(semiMajorAxisA * 1000).toFixed(1)} mm, Semi-minor (b) = ${(semiMinorAxisB * 1000).toFixed(1)} mm, Azimuth = ${ellipseAzimuthDeg}°`);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WORKFLOW 3: 7-PARAMETER BURSA-WOLF DATUM TRANSFORMATION (Arc 1960 -> WGS84)
+// WORKFLOW 3: ARC 1960 -> WGS 84 OPERATION ACCURACY GATE
 // ─────────────────────────────────────────────────────────────────────────────
-console.log("\n[3] 7-PARAMETER BURSA-WOLF DATUM TRANSFORMATION (Arc 1960 -> WGS84)");
-const bursaWolfParams = {
-  dx: -160.245, // meters
-  dy: -6.128,
-  dz: -302.418,
-  rxSec: -0.8141, // arc-seconds
-  rySec: -0.3882,
-  rzSec: +0.2490,
-  scalePpm: -1.250, // parts per million
-};
-
-// Transforming test trigonometric point
-const testSrc = { X: 5210450.120, Y: 3820110.450, Z: -140220.800 };
-const scaleFactor = 1 + bursaWolfParams.scalePpm * 1e-6;
-const rxRad = (bursaWolfParams.rxSec * Math.PI) / (180 * 3600);
-const ryRad = (bursaWolfParams.rySec * Math.PI) / (180 * 3600);
-const rzRad = (bursaWolfParams.rzSec * Math.PI) / (180 * 3600);
-
-const tgtX = bursaWolfParams.dx + scaleFactor * (testSrc.X - rzRad * testSrc.Y + ryRad * testSrc.Z);
-const tgtY = bursaWolfParams.dy + scaleFactor * (rzRad * testSrc.X + testSrc.Y - rxRad * testSrc.Z);
-const tgtZ = bursaWolfParams.dz + scaleFactor * (-ryRad * testSrc.X + rxRad * testSrc.Y + testSrc.Z);
-
-console.log(`  Transformation Model:      Bursa-Wolf 7-Parameter Conformal 3D Similarity`);
-console.log(`  Translations (dX, dY, dZ): [${bursaWolfParams.dx}, ${bursaWolfParams.dy}, ${bursaWolfParams.dz}] m`);
-console.log(`  Rotations (Rx, Ry, Rz):    [${bursaWolfParams.rxSec}", ${bursaWolfParams.rySec}", ${bursaWolfParams.rzSec}"]`);
-console.log(`  Scale Factor:              ${bursaWolfParams.scalePpm} ppm`);
-console.log(`  Transformed Geocentric WGS84: X=${tgtX.toFixed(3)}, Y=${tgtY.toFixed(3)}, Z=${tgtZ.toFixed(3)} m`);
-console.log(`  Transformation Residuals:  3D RMSE = 5.8 mm (Sub-Centimeter Geodetic Grade)`);
+console.log("\n[3] ARC 1960 -> WGS 84 OPERATION ACCURACY GATE");
+console.log("  EPSG:1122 published operation accuracy: 35 m");
+console.log("  Result: BLOCKED — this operation is not suitable for survey-grade output.");
+console.log("  Required: a locally validated operation with control evidence and declared accuracy.");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WORKFLOW 4: CIVIL HIGHWAY VERTICAL CURVE & SUPERELEVATION ENGINE

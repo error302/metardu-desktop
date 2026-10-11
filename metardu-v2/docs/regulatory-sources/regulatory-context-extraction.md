@@ -115,9 +115,12 @@ coordinate systems, scales, and surveying methods used.
 
 ### Applied to MetaRDU
 
-This paper validates the architecture decision to build the Cassini→UTM
-legacy datum transformation as a first-class feature (master plan §5.2,
-already implemented in Phase 4 as `geodesy::datums::WGS84_TO_ARC1960`).
+This paper supports researching historical cadastral coordinate systems.
+The earlier statement that Cassini→UTM was already implemented through
+`geodesy::datums::WGS84_TO_ARC1960` is withdrawn: that constant describes
+the inverse of an Arc 1960 / WGS 84 operation and has no Cassini parameters.
+No authoritative Kenya Cassini definition or survey-grade transformation
+is available in the current profile, so Cassini work remains blocked.
 
 **New golden fixture added:**
 - `kenya/cadastral-map-types__positional-accuracies.json` — locks the

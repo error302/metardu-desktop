@@ -345,7 +345,10 @@ describe("CRS Database", () => {
     expect(CRS_DATABASE.AUS.length).toBe(7);
   });
 
-  it("Kenya should have 3 CRS (2 UTM + 1 Cassini)", () => {
-    expect(CRS_DATABASE.KEN.length).toBe(3);
+  it("Kenya should have 4 verified Arc 1960 UTM CRS definitions", () => {
+    expect(CRS_DATABASE.KEN.length).toBe(4);
+    expect(CRS_DATABASE.KEN.map((crs) => crs.epsg).sort((a, b) => a - b))
+      .toEqual([21036, 21037, 21096, 21097]);
+    expect(getCrsByEpsg(20537)).toBeNull();
   });
 });

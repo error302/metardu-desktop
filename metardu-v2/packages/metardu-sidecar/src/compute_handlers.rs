@@ -31,7 +31,7 @@ pub struct GeodeticToEcefParams {
     pub lat: f64,
     pub lon: f64,
     pub height: f64,
-    /// Ellipsoid name: "WGS84", "CLARKE_1866", "GRS80". Defaults to WGS84.
+    /// Ellipsoid name from country CRS configuration. Defaults to WGS84.
     #[serde(default = "default_ellipsoid_name")]
     pub ellipsoid: String,
 }
@@ -43,12 +43,13 @@ fn default_ellipsoid_name() -> String {
 pub(crate) fn lookup_ellipsoid(name: &str) -> Result<Ellipsoid, HandlerError> {
     match name {
         "WGS84" => Ok(datums::WGS84),
-        "CLARKE_1866" => Ok(datums::CLARKE_1866),
+        "Clarke 1866" | "CLARKE_1866" => Ok(datums::CLARKE_1866),
+        "Clarke 1880 (RGS)" | "CLARKE_1880_RGS" => Ok(datums::CLARKE_1880_RGS),
         "GRS80" => Ok(datums::GRS80),
         "Airy 1830" | "AIRY_1830" => Ok(datums::AIRY_1830),
         "Bessel 1841" | "BESSEL_1841" => Ok(datums::BESSEL_1841),
         other => Err(HandlerError::InvalidParams(format!(
-            "Unknown ellipsoid: {}. Supported: WGS84, CLARKE_1866, GRS80, Airy 1830, Bessel 1841",
+            "Unknown ellipsoid: {}. Supported: WGS84, CLARKE_1866, Clarke 1880 (RGS), GRS80, Airy 1830, Bessel 1841",
             other
         ))),
     }

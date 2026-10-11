@@ -10,7 +10,7 @@
  *
  *   1. ECEF ↔ geodetic round-trip: geodetic→ECEF→geodetic reproduces input
  *   2. Helmert identity: zero params = identity transform
- *   3. WGS84 ↔ Arc 1960 round-trip: WGS84→Arc1960→WGS84 reproduces input
+ *   3. Arc 1960 ↔ WGS84 unsupported operation fails closed
  *   4. Levelling tolerance: 10√K is always ≥ 0 and monotonically increasing
  *   5. Bearing symmetry: bearing(A→B) ± 180° = bearing(B→A)
  *   6. Polygon area: Shoelace area is always ≥ 0
@@ -78,24 +78,12 @@ describe("Property: Helmert identity (zero params = identity)", () => {
   });
 });
 
-// ─── 3. WGS84 ↔ Arc 1960 round-trip ─────────────────────────────
+// ─── 3. Unsupported Arc 1960 ↔ WGS84 operation guard ───────────
 
-describe("Property: WGS84 ↔ Arc 1960 round-trip", () => {
-  it("round-trips for any lat ∈ [-35, 15], lon ∈ [28, 52] (East Africa)", () => {
-    fc.assert(
-      fc.property(
-        fc.float({ min: -35, max: 15, noNaN: true }),
-        fc.float({ min: 28, max: 52, noNaN: true }),
-        fc.float({ min: 0, max: 5000, noNaN: true }),
-        (lat, lon, h) => {
-          const arc = wgs84ToArc1960(lat, lon, h);
-          const back = arc1960ToWgs84(arc.lat, arc.lon, arc.height);
-          expect(Math.abs(back.lat - lat)).toBeLessThan(1e-7);
-          expect(Math.abs(back.lon - lon)).toBeLessThan(1e-7);
-        },
-      ),
-      { numRuns: 100 },
-    );
+describe("Unsupported operation: WGS84 ↔ Arc 1960", () => {
+  it("fails closed because EPSG:1122 is not survey-grade", () => {
+    expect(() => wgs84ToArc1960(-1.2864, 36.8172, 1713.5)).toThrow(/35 m.*disabled for survey-grade output/);
+    expect(() => arc1960ToWgs84(-1.2864, 36.8172, 1713.5)).toThrow(/35 m.*disabled for survey-grade output/);
   });
 });
 

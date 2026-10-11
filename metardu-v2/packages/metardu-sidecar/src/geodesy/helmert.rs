@@ -183,16 +183,16 @@ mod tests {
         );
     }
 
-    /// WGS84 → Arc 1960 translation shift must be (-160, -8, -300) m
-    /// (with zero rotations and zero scale per EPSG::1122).
+    /// Published EPSG::1122 Arc 1960 → WGS 84 translations are
+    /// (-160, -6, -302) m (zero rotations and scale).
     #[test]
-    fn test_wgs84_to_arc1960_translation_magnitude() {
+    fn test_arc1960_to_wgs84_epsg1122_translation_values() {
         use crate::geodesy::datums;
         let p = ECEF { x: 5_105_954.307, y: 3_820_776.484, z: -142_538.557 };
-        let r = helmert_transform(&p, &datums::WGS84_TO_ARC1960);
+        let r = helmert_transform(&p, &datums::ARC1960_TO_WGS84);
         assert!((r.x - (p.x - 160.0)).abs() < 1e-6, "x shift wrong: {}", r.x - p.x);
-        assert!((r.y - (p.y - 8.0)).abs() < 1e-6, "y shift wrong: {}", r.y - p.y);
-        assert!((r.z - (p.z - 300.0)).abs() < 1e-6, "z shift wrong: {}", r.z - p.z);
+        assert!((r.y - (p.y - 6.0)).abs() < 1e-6, "y shift wrong: {}", r.y - p.y);
+        assert!((r.z - (p.z - 302.0)).abs() < 1e-6, "z shift wrong: {}", r.z - p.z);
     }
 
     /// DHDN (Bessel 1841) → ETRS89 (GRS80) Helmert sign-convention verification.

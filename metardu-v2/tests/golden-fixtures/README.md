@@ -1,9 +1,9 @@
 # Golden Fixtures — Hand-Verified Numeric Test Cases
 
 This directory holds hand-verified or cross-tool-verified numeric test
-cases for every regulatory computation in the app. CI runs them. If your
-change breaks a fixture, the change is wrong (or the fixture was wrong
-and you have an ADR explaining why).
+cases plus explicit blocker records for computations the app must refuse.
+CI runs them. If your change breaks a fixture, the change is wrong (or the
+fixture was wrong and you have an ADR explaining why).
 
 ## Naming convention
 
@@ -16,10 +16,10 @@ Examples:
   levelling closure tolerance for K=1km, K=4km, K=25km
 - `kenya/angular-misclosure__3-arcsec-per-station.json` — verifies
   3.0″ angular misclosure limit
-- `kenya/helmert__wgs84-to-arc1960-roundtrip.json` — round-trip
-  WGS84 ↔ Arc 1960 for a known control point
-- `kenya/cassini-to-utm37s__known-beacon.json` — Cassini → UTM 37S
-  re-establishment for a beacon with known historical coordinates
+- `kenya/datum-operation__epsg1122-arc1960-wgs84-block.json` — records
+  EPSG:1122 accuracy and asserts both cross-datum helpers fail closed
+- Kenya Cassini → UTM has no fixture because its authoritative local CRS
+  and control coordinates have not been verified
 - `kenya/traverse__bowditch-vs-ls-adjustment.json` — closed traverse
   adjusted both ways, compared against hand-computed reference
 
@@ -60,7 +60,7 @@ can't cite a source, the fixture is invalid — see invariant B1 in
 |---------|--------|--------|
 | `kenya/levelling__10sqrt-k-mm-tolerance.json` | ✅ Verified | Survey Regs 1994 Table 5.1 |
 | `kenya/angular-misclosure__3-arcsec-per-station.json` | ✅ Verified | Survey Regs 1994 §4.3 |
-| `kenya/helmert__wgs84-to-arc1960-roundtrip.json` | ✅ Verified | Arc 1960 Helmert params (EPSG::1122) |
+| `kenya/datum-operation__epsg1122-arc1960-wgs84-block.json` | ⛔ Blocked | EPSG::1122 accuracy is 35 m; cross-datum output is disabled |
 | `kenya/projection__utm37s-forward-inverse.json` | ✅ Verified | EPSG::21037 |
 | `kenya/cogo__traverse-bowditch-small.json` | ✅ Verified | Hand-computed, 4-station closed traverse |
 | `kenya/cogo__area-shoelace-vs-ellipsoidal.json` | ✅ Verified | Known parcel, planar vs ellipsoidal |

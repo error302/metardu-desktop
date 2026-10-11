@@ -11,7 +11,7 @@
   "projection": {
     "method": "Transverse Mercator (EPSG::9807)",
     "datum": "Arc 1960",
-    "ellipsoid": "Clarke 1866 (a=6378206.4 m, b=6356583.8 m, 1/f=294.9786982)",
+    "ellipsoid": "Clarke 1880 (RGS) (a=6378249.145 m, 1/f=293.465)",
     "central_meridian_deg": 39.0,
     "latitude_of_origin_deg": 0.0,
     "false_easting_m": 500000.0,
@@ -22,15 +22,15 @@
     {
       "name": "Nairobi (Arc 1960 lat/lon → UTM 37S)",
       "input_geographic": { "lat": -1.286389, "lon": 36.817222 },
-      "expected_projected": { "easting": 257108.88, "northing": 9857724.34 },
-      "precision_m": 1.0,
-      "notes": "Cross-checked against pyproj EPSG:4674 (Arc 1960 geographic) → EPSG:21037 (Arc 1960 / UTM 37S). The earlier fixture values (277341.4, 9857836.6) were wrong — likely from a different datum or a stale reference."
+      "expected_projected": { "easting": 257108.884269, "northing": 9857724.336100 },
+      "precision_m": 0.001,
+      "notes": "Cross-checked against pyproj EPSG:4210 (Arc 1960 geographic) → EPSG:21037 (Arc 1960 / UTM 37S), projection-only same-datum operation. EPSG:4674 is SIRGAS 2000 and is not Arc 1960."
     },
     {
       "name": "Mombasa (Arc 1960 lat/lon → UTM 37S)",
       "input_geographic": { "lat": -4.043477, "lon": 39.668595 },
-      "expected_projected": { "easting": 574216.93, "northing": 9553077.45 },
-      "precision_m": 1.0
+      "expected_projected": { "easting": 574216.934149, "northing": 9553077.446733 },
+      "precision_m": 0.001
     }
   ],
   "roundtrip_test": {

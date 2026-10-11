@@ -35,10 +35,11 @@ Kenya config will include (per master plan Section 4.1):
 - **Kenya has the tightest regulatory loop.** Form 3 is the highest-
   priority missing document. Building country-config around Kenya
   unblocks the most important downstream work.
-- **Kenya exercises the legacy-datum path.** Arc 1960 → WGS84 via
-  Helmert transformation is the same machinery South Africa's Cape →
-  Hartebeesthoek94 will need. Building it for Kenya first proves the
-  abstraction handles legacy-to-modern re-establishment generally.
+- **Kenya is the first legacy-datum profile, not proof of a ready
+  transformation pipeline.** EPSG:1122 (Arc 1960 → WGS 84) has 35 m
+  stated operation accuracy and does not qualify for survey-grade
+  output. The desktop keeps that cross-datum path disabled until a
+  locally validated operation and control evidence are available.
 
 ## Alternatives considered
 

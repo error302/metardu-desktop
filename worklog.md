@@ -2284,3 +2284,107 @@ Country configuration currently lists eight implemented profiles, but this does 
 
 ### Additional native verification
 - `cargo test --release --no-default-features --features instrument --bins`: the sidecar compiled, then **137 passed / 3 failed**. The failures are environment/config-sensitive pre-existing tests: disabled GDAL stub does not preserve the positive-interval error wording; two ODM tests could not create `/tmp/output` on Windows (access denied), and one also did not observe the expected no-photos message. No reprojection test failed.
+---
+Task ID: kenya-epsg-crs-correction
+Agent: Codex — 2026-10-12
+Task: Correct the Kenya UTM CRS catalog and remove unsupported CRS claims.
+
+Work Log:
+- Replaced the incorrect Kenya UTM assignments with EPSG:21036 (36S), EPSG:21037 (37S), EPSG:21096 (36N), and EPSG:21097 (37N), using their official Arc 1960 / UTM definitions and hemisphere-specific false northings.
+- Corrected Arc 1960 to use Clarke 1880 (RGS), semi-major axis 6378249.145 m and inverse flattening 293.465. Added exact Rust ellipsoid aliases and aligned the Kenya projection tests with that ellipsoid.
+- Removed the unsupported EPSG:20537 Cassini placeholder and the false zero-parameter Cassini-to-UTM transformation. Nairobi Cassini stays unavailable until its authoritative local definition and control fixture are established.
+- Corrected the Arc 1960 to WGS 84 (EPSG:1122) translation values to (-160, -6, -302) m and documented its 35 m stated operation accuracy. Cross-datum WGS 84 output remains blocked.
+- Replaced the incorrect EPSG:4674 source in the Kenya projection fixture with EPSG:4210 (Arc 1960) and clarified the cadastral sample is already in EPSG:21037.
+- Compared the Rust UTM implementation with PyProj 3.7.2 / PROJ using EPSG:4210 to EPSG:21037. Results:
+
+~~~text
+pyproj 3.7.2
+Nairobi (257108.8842685457, 9857724.336099727)
+Mombasa (574216.9341488153, 9553077.446732806)
+~~~
+
+### Verification evidence (verbatim)
+
+~~~text
+$ npx vitest run src/tests/kenya.test.ts src/tests/all-countries.test.ts --reporter=dot
+ ✓ src/tests/kenya.test.ts (58 tests) 51ms
+ ✓ src/tests/all-countries.test.ts (87 tests) 85ms
+
+ Test Files  2 passed (2)
+      Tests  145 passed (145)
+~~~
+
+~~~text
+$ npx vitest run src/geodesy/tests/crs-database.test.ts src/surveying/tests/critical-modules.test.ts --reporter=dot
+ ✓ src/geodesy/tests/crs-database.test.ts (7 tests) 11ms
+ ✓ src/surveying/tests/critical-modules.test.ts (38 tests) 35ms
+
+ Test Files  2 passed (2)
+      Tests  45 passed (45)
+~~~
+
+~~~text
+$ cargo test --release --no-default-features --features instrument geodesy:: -- --nocapture
+    Finished release profile [optimized] target(s) in 2m 58s
+     Running unittests src\main.rs (target\release\deps\metardu_sidecar-ca3363dc8e35f463.exe)
+
+running 29 tests
+test geodesy::ecef::tests::test_ecef_geodetic_roundtrip ... ok
+test geodesy::ecef::tests::test_nairobi_ecef_known_values ... ok
+test geodesy::helmert::tests::test_identity ... ok
+test geodesy::helmert::tests::test_convention_sign_flip ... ok
+test geodesy::helmert::tests::test_dhdn_etrs89_helmert_sign_convention ... ok
+test geodesy::projection::tests::test_equator_central_meridian_northing ... ok
+test geodesy::ecef::tests::test_wgs84_ellipsoid_values ... ok
+test geodesy::projection::tests::test_lcc_equatorial_straddle_negative_n ... ok
+test geodesy::helmert::tests::test_pure_translation ... ok
+test geodesy::helmert::tests::test_wgs84_to_arc1960_translation_magnitude ... ok
+test geodesy::projection::tests::test_lcc_roundtrip_sweep ... ok
+test geodesy::projection::tests::test_central_meridian_easting ... ok
+test geodesy::projection::tests::test_lcc_california_5_los_angeles ... ok
+test geodesy::projection::tests::test_lcc_epsg_gn72_worked_example ... ok
+test geodesy::projection::tests::test_lcc_new_york_long_island ... ok
+test geodesy::helmert::tests::test_pure_scale ... ok
+test geodesy::projection::tests::test_lcc_single_parallel_34n ... ok
+test geodesy::projection::tests::test_lcc_single_parallel_southern_34s ... ok
+test geodesy::projection::tests::test_lcc_southern_2sp_negative_n ... ok
+test geodesy::projection::tests::test_lcc_texas_south_central_san_antonio ... ok
+test geodesy::projection::tests::test_tm_roundtrip_nairobi ... ok
+test geodesy::projection::tests::test_utm37s_nairobi ... ok
+test geodesy::tests::test_airy_1830_lookup_succeeds ... ok
+test geodesy::tests::test_arc1960_clarke_1880_rgs_lookup_succeeds ... ok
+test geodesy::tests::test_bessel_1841_lookup_succeeds ... ok
+test geodesy::tests::test_helmert_identity ... ok
+test geodesy::tests::test_tm_forward_inverse_roundtrip ... ok
+test geodesy::tests::test_utm37s_forward_nairobi ... ok
+test geodesy::tests::test_wgs84_arc1960_roundtrip_nairobi ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 116 filtered out; finished in 0.01s
+~~~
+
+~~~text
+$ npx tsc --noEmit (packages/engine)
+(exit 0, no TypeScript diagnostics)
+~~~
+
+~~~text
+$ npm run build --workspace @metardu/desktop
+> @metardu/desktop@0.2.0 build
+> tsc -p tsconfig.json
+(exit 0)
+~~~
+
+- git diff --check — exit 0, no whitespace diagnostics.
+
+Stage Summary:
+- Four Kenya UTM zones now use registry-aligned identifiers and parameters. The independent Nairobi and Mombasa projections agree with PROJ to less than 1 mm.
+- Country-config: 145 focused tests passed. Engine CRS database and critical surveying modules: 45 focused tests passed. Rust geodesy: 29 tests passed. Engine TypeScript check and desktop main/preload build passed.
+- Full sidecar tests were not run in this task; the standard default build remains subject to the existing Windows GDAL import-library limitation recorded above. These focused checks do not establish complete international CRS operation coverage or survey-grade product certification.
+- Next: implement a global CRS/coordinate-operation registry with locally appropriate, verified operations and any required grid/epoch data before enabling non-WGS84 cross-datum output. Do not reintroduce a guessed Kenya Cassini definition.
+
+### Addendum — EPSG:1122 direction and public helper safety (2026-10-12)
+- Corrected the published EPSG:1122 direction to Arc 1960 (EPSG:4210) → WGS 84 (EPSG:4326), with translations (-160, -6, -302) m. The inverse WGS 84 → Arc 1960 uses (+160, +6, +302) m. Both remain unsuitable for survey-grade output at the published 35 m operation accuracy.
+- Disabled both duplicated TypeScript Arc 1960/WGS 84 helpers with an explicit error. Removed the false millimetre round-trip fixture and replaced it with a fixture that records the operation and its disabled state. Updated the golden-fixture harness and surveyor audit to avoid presenting unsupported accuracy as a result.
+- Latest focused verification: GNSS and workflow property tests **50 passed**; golden fixture checks **9 passed**; Rust geodesy **29 passed**; engine TypeScript check, desktop main/preload build, and engine workspace build passed. `git diff --check` passed before this addendum.
+- The desktop renderer datum panel still contains hard-coded 7-parameter values, invented control stations, and a 6.8 mm RMSE display. That panel was not changed in this scoped catalog/helper correction and remains a release blocker until replaced with evidence-backed controls and transformations.
+- These checks validate the corrected Kenya CRS definitions and blocked EPSG:1122 path only. They do not certify international transformation coverage, the renderer datum panel, or the desktop application as survey-grade.

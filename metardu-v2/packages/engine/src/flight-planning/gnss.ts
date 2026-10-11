@@ -1201,22 +1201,22 @@ export function parseRtcmFrame(data: Uint8Array): RtcmMessage | null {
 // PART 9: DATUM TRANSFORMATIONS (GNSS-specific)
 // ═══════════════════════════════════════════════════════════════════
 
-/** Arc 1960 to WGS84 Helmert 7-parameter transform (Kenya). */
+/** EPSG:1122 Arc 1960 → WGS 84 translation, published direction; 35 m accuracy. */
 export const ARC1960_TO_WGS84 = {
   tx: -160,  // translation X (meters)
-  ty: -8,
-  tz: -300,
+  ty: -6,
+  tz: -302,
   rx: 0,     // rotation (arcseconds)
   ry: 0,
   rz: 0,
   scale: 0,  // ppm
 };
 
-/** WGS84 to Arc 1960 Helmert 7-parameter transform (inverse). */
+/** Inverse of EPSG:1122 for WGS 84 → Arc 1960; not survey-grade. */
 export const WGS84_TO_ARC1960 = {
   tx: 160,
-  ty: 8,
-  tz: 300,
+  ty: 6,
+  tz: 302,
   rx: 0,
   ry: 0,
   rz: 0,
@@ -1293,16 +1293,15 @@ export function ecefToGeodetic(x: number, y: number, z: number): { lat: number; 
   };
 }
 
-/** Transform WGS84 coordinates to Arc 1960 (Kenya datum). */
-export function wgs84ToArc1960(lat: number, lon: number, height: number): { lat: number; lon: number; height: number } {
-  const ecef = geodeticToEcef(lat, lon, height);
-  const transformed = helmertTransform(ecef, WGS84_TO_ARC1960);
-  return ecefToGeodetic(transformed.x, transformed.y, transformed.z);
+const ARC1960_WGS84_UNSUPPORTED_MESSAGE =
+  "EPSG:1122 is a 35 m Arc 1960 to WGS 84 operation and is disabled for survey-grade output; a locally validated operation through the Rust sidecar is required.";
+
+/** Cross-datum output is blocked until a locally validated operation is available. */
+export function wgs84ToArc1960(_lat: number, _lon: number, _height: number): { lat: number; lon: number; height: number } {
+  throw new Error(ARC1960_WGS84_UNSUPPORTED_MESSAGE);
 }
 
-/** Transform Arc 1960 coordinates to WGS84. */
-export function arc1960ToWgs84(lat: number, lon: number, height: number): { lat: number; lon: number; height: number } {
-  const ecef = geodeticToEcef(lat, lon, height);
-  const transformed = helmertTransform(ecef, ARC1960_TO_WGS84);
-  return ecefToGeodetic(transformed.x, transformed.y, transformed.z);
+/** Cross-datum output is blocked until a locally validated operation is available. */
+export function arc1960ToWgs84(_lat: number, _lon: number, _height: number): { lat: number; lon: number; height: number } {
+  throw new Error(ARC1960_WGS84_UNSUPPORTED_MESSAGE);
 }

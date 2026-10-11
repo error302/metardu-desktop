@@ -295,12 +295,14 @@ And in `aerial-pipeline.ts:439`:
 
 ## 7. Math Engine — Strengths
 
-The engine is genuinely strong and well-cited to standard surveying literature.
+This inventory is not accuracy evidence. Each survey computation still
+requires independent known-answer or control-network validation; source
+lines of code do not establish survey-grade behavior.
 
-| Module | LOC | Cited standard |
+| Module | LOC / status | Cited standard |
 |---|---|---|
 | Cassini-Soldner projection (exact) | 1,922 | Snyder, USGS PP 1395 |
-| Helmert datum transform (Gauss-Newton) | 726 | Arc 1960 ↔ WGS84 |
+| Arc 1960 ↔ WGS 84 datum output | Helpers blocked; renderer review required | EPSG:1122 is 35 m; the existing datum view still needs a separately scoped correction |
 | Least Squares Adjustment (parametric + robust + network + 3D + sequential) | 3,560 | Ghilani & Wolf, *Adjustment Computations* |
 | EDM corrections (atmospheric, slope, sea-level, grid) | 302 | Ghilani & Wolf Ch. 6 |
 | Geoid (EGM96) ellipsoidal→orthometric | 336 | — |

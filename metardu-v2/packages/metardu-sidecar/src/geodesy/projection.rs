@@ -371,7 +371,7 @@ mod tests {
             false_easting_m: 500_000.0,
             false_northing_m: 10_000_000.0,
             scale_factor: 0.9996,
-            ellipsoid: datums::CLARKE_1866,
+            ellipsoid: datums::CLARKE_1880_RGS,
         };
 
         for (lat, lon) in [
@@ -402,23 +402,22 @@ mod tests {
         }
     }
 
-    /// Nairobi projected to UTM 37S (EPSG::21037). Cross-checked
-    /// against pyproj EPSG:4674 → EPSG:21037 (which uses Karney's
-    /// Krüger n-series, accurate to nanometres).
-    ///
-    /// Snyder series accuracy at this distance from the central meridian
-    /// (Nairobi is 2.2° west of CM 39°E) is ~2-5m. We use a 5m tolerance.
-    /// This is good enough for reconnaissance-level work but NOT for
-    /// statutory cadastral output — Phase 6 (Kenya Form 3) will require
-    /// swapping in the Karney Krüger implementation for nanometre
-    /// accuracy.
+    /// Nairobi projected to UTM 37S (EPSG::21037). Cross-checked against
+    /// the same-datum EPSG:4210 → EPSG:21037 projection in PROJ. This case
+    /// guards the configured ellipsoid as well as the TM implementation.
     #[test]
     fn test_utm37s_nairobi() {
-        let (e, n) = utm_forward(-1.286_389, 36.817_222, 37, true, datums::CLARKE_1866);
-        let expected_e = 257_108.88;
-        let expected_n = 9_857_724.34;
-        assert!((e - expected_e).abs() < 5.0, "e = {} (expected {}, drift {})", e, expected_e, e - expected_e);
-        assert!((n - expected_n).abs() < 5.0, "n = {} (expected {}, drift {})", n, expected_n, n - expected_n);
+        let (e, n) = utm_forward(-1.286_389, 36.817_222, 37, true, datums::CLARKE_1880_RGS);
+        let expected_e = 257_108.884_269;
+        let expected_n = 9_857_724.336_100;
+        assert!((e - expected_e).abs() < 0.001, "e = {} (expected {}, drift {})", e, expected_e, e - expected_e);
+        assert!((n - expected_n).abs() < 0.001, "n = {} (expected {}, drift {})", n, expected_n, n - expected_n);
+
+        let (e, n) = utm_forward(-4.043_477, 39.668_595, 37, true, datums::CLARKE_1880_RGS);
+        let expected_e = 574_216.934_149;
+        let expected_n = 9_553_077.446_733;
+        assert!((e - expected_e).abs() < 0.001, "Mombasa e = {} (expected {}, drift {})", e, expected_e, e - expected_e);
+        assert!((n - expected_n).abs() < 0.001, "Mombasa n = {} (expected {}, drift {})", n, expected_n, n - expected_n);
     }
 
     /// At the central meridian, easting equals the false easting (500km).
@@ -430,7 +429,7 @@ mod tests {
             false_easting_m: 500_000.0,
             false_northing_m: 10_000_000.0,
             scale_factor: 0.9996,
-            ellipsoid: datums::CLARKE_1866,
+            ellipsoid: datums::CLARKE_1880_RGS,
         };
         let (e, _n) = transverse_mercator_forward(0.0, 39.0, &params);
         assert!((e - 500_000.0).abs() < 0.1, "central meridian easting: {}", e);
@@ -445,7 +444,7 @@ mod tests {
             false_easting_m: 500_000.0,
             false_northing_m: 10_000_000.0,
             scale_factor: 0.9996,
-            ellipsoid: datums::CLARKE_1866,
+            ellipsoid: datums::CLARKE_1880_RGS,
         };
         let (_e, n) = transverse_mercator_forward(0.0, 39.0, &params);
         assert!((n - 10_000_000.0).abs() < 0.1, "equator CM northing: {}", n);
@@ -600,6 +599,7 @@ mod tests {
             i += 1.0;
         }
     }
+}
 
     // ─── LCC edge cases (negative n / degenerate parallel) ──────────
     //
@@ -699,5 +699,4 @@ mod tests {
         assert!((lat + 35.0).abs() < 1e-9, "lat={lat}");
         assert!((lon - 152.0).abs() < 1e-9, "lon={lon}");
     }
-}
 }

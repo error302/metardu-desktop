@@ -42,6 +42,19 @@ import type {
 
 // ─── Geodetic framework ──────────────────────────────────────────
 
+/** Arc 1960 / UTM zone 36S — EPSG::21036. */
+const UTM_36S: ProjectionZone = {
+  srid: 21036,
+  name: "Arc 1960 / UTM zone 36S",
+  method: "Transverse Mercator",
+  central_meridian_deg: 33.0,
+  latitude_of_origin_deg: 0.0,
+  false_easting_m: 500_000.0,
+  false_northing_m: 10_000_000.0,
+  scale_factor: 0.9996,
+  ellipsoid: "Clarke 1880 (RGS)",
+};
+
 /** Arc 1960 / UTM zone 37S — Kenya's primary cadastral CRS. EPSG::21037. */
 const UTM_37S: ProjectionZone = {
   srid: 21037,
@@ -52,42 +65,33 @@ const UTM_37S: ProjectionZone = {
   false_easting_m: 500_000.0,
   false_northing_m: 10_000_000.0,
   scale_factor: 0.9996,
-  ellipsoid: "Clarke 1866",
+  ellipsoid: "Clarke 1880 (RGS)",
 };
 
-/** Arc 1960 / UTM zone 37N — used for northern Kenya (rare). EPSG::21037 is the southern form. */
-const UTM_37N: ProjectionZone = {
-  srid: 21036,
-  name: "Arc 1960 / UTM zone 36S",
+/** Arc 1960 / UTM zone 36N — EPSG::21096. */
+const UTM_36N: ProjectionZone = {
+  srid: 21096,
+  name: "Arc 1960 / UTM zone 36N",
   method: "Transverse Mercator",
   central_meridian_deg: 33.0,
   latitude_of_origin_deg: 0.0,
   false_easting_m: 500_000.0,
-  false_northing_m: 10_000_000.0,
+  false_northing_m: 0.0,
   scale_factor: 0.9996,
-  ellipsoid: "Clarke 1866",
+  ellipsoid: "Clarke 1880 (RGS)",
 };
 
-/**
- * Cassini-Soldner (Kenya colony) — the legacy projection used in
- * pre-1960 deeds. Boundary re-establishment work often requires
- * Cassini → UTM transformation via the Arc 1960 datum.
- *
- * This is a placeholder zone definition; the full Cassini parameter
- * set (per-colony origin) is documented in
- * docs/regulatory-sources/kenya/cadastral/survey-regulations-1994.pdf
- * §3.2.
- */
-const CASSINI_NAIROBI: ProjectionZone = {
-  srid: 21097, // EPSG assigned SRID for Nairobi Cassini (illustrative)
-  name: "Arc 1960 / Cassini-Soldner (Nairobi)",
-  method: "Cassini-Soldner",
-  central_meridian_deg: 36.78,
-  latitude_of_origin_deg: -1.28,
-  false_easting_m: 30_000.0,
-  false_northing_m: 30_000.0,
-  scale_factor: 1.0,
-  ellipsoid: "Clarke 1866",
+/** Arc 1960 / UTM zone 37N — EPSG::21097. */
+const UTM_37N: ProjectionZone = {
+  srid: 21097,
+  name: "Arc 1960 / UTM zone 37N",
+  method: "Transverse Mercator",
+  central_meridian_deg: 39.0,
+  latitude_of_origin_deg: 0.0,
+  false_easting_m: 500_000.0,
+  false_northing_m: 0.0,
+  scale_factor: 0.9996,
+  ellipsoid: "Clarke 1880 (RGS)",
 };
 
 // ─── Tolerance table ─────────────────────────────────────────────
@@ -330,19 +334,7 @@ export const KENYA: CountrySurveyConfig = {
     datum: "Arc 1960",
     primarySRID: 21037,
     heightSystem: "KEN_GEOID (referenced; EGM2008 approximation used until KEN_GEOID grid is bundled)",
-    projectionZones: [UTM_37S, UTM_37N, CASSINI_NAIROBI],
-    legacyDatums: [
-      {
-        from: "Cassini-Soldner (Kenya colony)",
-        to: "Arc 1960 / UTM zone 37S",
-        helmert: {
-          tx: 0, ty: 0, tz: 0,
-          rx_arcsec: 0, ry_arcsec: 0, rz_arcsec: 0,
-          scale_ppm: 0,
-        },
-        source: "Cassini→UTM transformation uses the published Cassini parameters + Arc 1960 datum; no separate Helmert required (same ellipsoid, Clarke 1866).",
-      },
-    ],
+    projectionZones: [UTM_36S, UTM_37S, UTM_36N, UTM_37N],
   },
   toleranceTable: [
     LEVELLING_TOLERANCE,
