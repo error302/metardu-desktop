@@ -2253,3 +2253,34 @@ Objective: Make MetaRDU Desktop production-ready, verify end-to-end in a real br
 ### Recommended follow-up (tech debt)
 - Renderer is NOT covered by apps/desktop tsconfig (include excludes src/renderer). 3,122 latent tsc type errors — retrofit strict checking in a dedicated effort.
 - frontend/main.tsx is now orphaned (superseded by renderer/main.tsx) — safe to delete later.
+
+---
+
+## 2026-10-12 — Fail-closed WGS84 reprojection guard
+
+Task ID: `crs-reprojection-fail-closed`
+
+### Changes
+- Added a desktop-main geodesy bridge that uses only the Rust sidecar inverse-projection handlers and only when the configured source datum is WGS 84. It selects the configured source SRID, validates finite projected input and geographic output, and rejects unsupported SRIDs/projections.
+- Removed the TypeScript inverse-projection fallback from the active export/map bridge. WGS84 export now reports a visible error when the sidecar or a supported WGS84 source operation is unavailable.
+- GeoJSON now aborts the whole output on any failed or invalid point transformation; it no longer mixes native projected coordinates into an EPSG:4326 file.
+- GeoPackage now applies the callback to cadastral beacon and parcel geometries and updates beacon bounds in the output CRS. Failed/invalid transformations abort the package. Source-coordinate attributes and source-plane area remain unchanged.
+- Added focused desktop geodesy and integration regressions, plus the implementation brief at `metardu-v2/docs/agent-briefs/crs-reprojection-fail-closed.md`.
+
+### Verification evidence
+- `npx vitest run src/integration/tests/wgs84-output.test.ts --reporter=dot` (engine): **11 passed**.
+- `npx vitest run src/tests/geodesy.test.ts --reporter=dot` (desktop): **5 passed**.
+- `npx vitest run --reporter=dot` (desktop): **212 passed, 7 skipped**.
+- `npx tsc --noEmit` (engine): **passed**.
+- `npm run build --workspace @metardu/desktop` (desktop main/preload): **passed**.
+- `npm run build:renderer`: **passed**, Vite built 2,453 modules in 12.53s; bundler emitted existing Node-module externalization warnings.
+- `npx tsc --noEmit -p tsconfig.renderer-check.json`: **not clean**; 49 workspace renderer diagnostics remain, with none reported in the edited `MapView.tsx` or `main/index.ts`.
+- Full engine Vitest: **856 passed, 2 failed**. Both failures are the existing PyQGIS script-generator tests spawning `python3`, which Windows cannot resolve in this environment. `py -3 -m py_compile` passed for both generated Python fixtures.
+- `git diff --check`: **passed**.
+- The default sidecar release test is blocked because the local Windows environment lacks the GDAL import library `gdal_i.lib`. A no-default-features test attempt also showed the existing `tokio_serial` optional-feature mismatch; an instrument-feature build was attempted separately and its final result is recorded below.
+
+### International coverage limitation
+Country configuration currently lists eight implemented profiles, but this does not mean all eight can be transformed to WGS84. The existing inverse-projection handlers do not perform regional datum operations. This change therefore blocks WGS84 export for non-WGS84 source datums (including Arc 1960, OSGB36/ETRS89, GDA2020, Hartebeesthoek94, NAD83(2011), and Ghana’s configured datum) until a complete verified operation, including required grids/epochs where applicable, is available. Native-CRS export remains available. This is an interim safety guard, not a claim of global CRS coverage or survey-grade qualification.
+
+### Additional native verification
+- `cargo test --release --no-default-features --features instrument --bins`: the sidecar compiled, then **137 passed / 3 failed**. The failures are environment/config-sensitive pre-existing tests: disabled GDAL stub does not preserve the positive-interval error wording; two ODM tests could not create `/tmp/output` on Windows (access denied), and one also did not observe the expected no-photos message. No reprojection test failed.

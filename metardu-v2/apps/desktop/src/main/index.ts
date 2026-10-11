@@ -32,6 +32,7 @@ import { getCountryConfig, crsLabelForCountry, type CountryCode, type TitleBlock
 import { registerSyncIpcHandlers } from "./sync.js";
 import { registerProjectIpcHandlers } from "./projects.js";
 import { registerInstrumentIpcHandlers } from "./instrument.js";
+import { makeProjectToWgs84 } from "./geodesy.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -172,85 +173,6 @@ async function startSidecar(): Promise<SidecarClient | null> {
   return client;
 }
 
-// ─── Projected → WGS84 dispatch (shared by export + map overlay) ──
-// Per ADR-0005 invariant A1: the actual projection math lives in the
-// sidecar (Rust). This builds the inverse-projection callback for a
-// country's primary SRID by dispatching on the zone's projection method:
-//   - Lambert Conformal Conic (US SPCS TX/CA/NY) → geodesy.lcc_inverse
-//   - Transverse Mercator (ZA Lo belts, AU MGA, GB BNG, DE GK) →
-//     geodesy.tm_inverse, or geodesy.utm_inverse for UTM-named zones
-// Returns null when the zone is unsupported or the sidecar is offline.
-function makeProjectToWgs84(
-  countryCode: string,
-): ((easting: number, northing: number) => Promise<{ lat: number; lon: number }>) | null {
-  if (!sidecar || !sidecar.isRunning()) return null;
-  const config = getCountryConfig(countryCode as CountryCode);
-  const srid = config.geodeticFramework.primarySRID;
-  const zone = config.geodeticFramework.projectionZones.find((z: { srid: number }) => z.srid === srid);
-  if (!zone) return null;
-
-  if (zone.method === "Lambert Conformal Conic") {
-    if (zone.standard_parallel_1_deg === undefined || zone.standard_parallel_2_deg === undefined) {
-      console.error(
-        `[geo] LCC zone ${zone.srid} missing standard parallels — cannot reproject to WGS84`,
-      );
-      return null;
-    }
-    return async (easting: number, northing: number) => {
-      return sidecar!.call<{ lat: number; lon: number }>(
-        "geodesy.lcc_inverse",
-        {
-          easting,
-          northing,
-          standard_parallel_1_deg: zone.standard_parallel_1_deg,
-          standard_parallel_2_deg: zone.standard_parallel_2_deg,
-          latitude_of_origin_deg: zone.latitude_of_origin_deg,
-          central_meridian_deg: zone.central_meridian_deg,
-          false_easting_m: zone.false_easting_m,
-          false_northing_m: zone.false_northing_m,
-          ellipsoid: zone.ellipsoid,
-        },
-      );
-    };
-  }
-
-  if (zone.method === "Transverse Mercator") {
-    const zoneMatch = zone.name.match(/UTM zone (\d+)([NS])/i);
-    if (zoneMatch) {
-      const utmZone = parseInt(zoneMatch[1]!, 10);
-      const isSouthern = zoneMatch[2]!.toUpperCase() === "S";
-      return async (easting: number, northing: number) => {
-        return sidecar!.call<{ lat: number; lon: number }>(
-          "geodesy.utm_inverse",
-          { easting, northing, zone: utmZone, is_southern: isSouthern, ellipsoid: zone.ellipsoid },
-        );
-      };
-    }
-    return async (easting: number, northing: number) => {
-      return sidecar!.call<{ lat: number; lon: number }>(
-        "geodesy.tm_inverse",
-        {
-          easting,
-          northing,
-          central_meridian_deg: zone.central_meridian_deg,
-          latitude_of_origin_deg: zone.latitude_of_origin_deg,
-          false_easting_m: zone.false_easting_m,
-          false_northing_m: zone.false_northing_m,
-          scale_factor: zone.scale_factor,
-          ellipsoid: zone.ellipsoid,
-        },
-      );
-    };
-  }
-
-  // Unsupported projection method (e.g. Cassini-Soldner legacy zones) —
-  // no automatic WGS84 reprojection.
-  console.warn(
-    `[geo] zone ${zone.srid} uses unsupported method '${zone.method}' — WGS84 reprojection unavailable`,
-  );
-  return null;
-}
-
 // ─── IPC handlers ─────────────────────────────────────────────────
 // Every IPC handler is a thin wrapper around a sidecar RPC call. The
 // preload bridge exposes these as `window.metardu.sidecar.call(method, params)`.
@@ -291,8 +213,14 @@ function registerIpcHandlers(): void {
     // the sidecar (Rust) — this callback is the bridge, never in-engine
     // math. Shared with the map overlay via makeProjectToWgs84.
     if (options.outputWgs84) {
-      const toWgs84 = makeProjectToWgs84(options.countryCode as string);
-      if (toWgs84) options.projectToWgs84 = toWgs84;
+      const toWgs84 = makeProjectToWgs84(options.countryCode as string, sidecar);
+      if (!toWgs84) {
+        throw new Error(
+          `WGS84 export is unavailable for '${String(options.countryCode)}'. ` +
+          "A running Rust sidecar and a configured WGS84 source datum are required; export in the native CRS instead.",
+        );
+      }
+      options.projectToWgs84 = toWgs84;
     }
 
     // Call the exporter.
@@ -408,14 +336,16 @@ function registerIpcHandlers(): void {
     countryCode: string,
     points: Array<{ easting: number; northing: number }>,
   ): Promise<Array<{ lat: number; lon: number }>> => {
-    const toWgs84 = makeProjectToWgs84(countryCode);
+    const toWgs84 = makeProjectToWgs84(countryCode, sidecar);
     if (!toWgs84) {
       throw new Error(
-        `WGS84 reprojection unavailable for country '${countryCode}' — ` +
-        `sidecar offline or unsupported projection method.`,
+        `WGS84 map reprojection is unavailable for '${countryCode}'. ` +
+        "A running Rust sidecar and a configured WGS84 source datum are required.",
       );
     }
-    const results = await Promise.all(points.map((p) => toWgs84(p.easting, p.northing)));
+    const config = getCountryConfig(countryCode as CountryCode);
+    const sourceSrid = config.geodeticFramework.primarySRID;
+    const results = await Promise.all(points.map((p) => toWgs84(p.easting, p.northing, sourceSrid)));
     return results.map((r) => ({ lat: r.lat, lon: r.lon }));
   });
 

@@ -515,7 +515,10 @@ async function writeCadastralLayers(
       );
     }
     const unc = uncertaintyToColumns(u);
-    const [_rx, _ry] = reproject ? await reproject(beacon.position.easting, beacon.position.northing) : [beacon.position.easting, beacon.position.northing]; const wkb = encodePointWKB(_rx, _ry);
+    const [x, y] = reproject
+      ? await reproject(beacon.position.easting, beacon.position.northing)
+      : [beacon.position.easting, beacon.position.northing];
+    const wkb = encodePointWKB(x, y);
     const geom = wrapGeoPackageBinary(wkb, srid);
     insertFeature(db, "beacons", geom, {
       feature_type: "beacon",
@@ -526,7 +529,7 @@ async function writeCadastralLayers(
       easting: beacon.position.easting,
       northing: beacon.position.northing,
     }, ["description", "easting", "northing"]);
-    allBeaconCoords.push([beacon.position.easting, beacon.position.northing]);
+    allBeaconCoords.push([x, y]);
   }
   updateLayerBounds(db, "beacons", allBeaconCoords);
   layers.push("beacons");
@@ -541,10 +544,13 @@ async function writeCadastralLayers(
       { name: "area_sqm", type: "REAL" },
       { name: "beacon_count", type: "INTEGER" },
     ]);
-    const ring: [number, number][] = output.allBeacons.map((b) => [
+    const sourceRing: [number, number][] = output.allBeacons.map((b) => [
       b.position.easting,
       b.position.northing,
     ]);
+    const ring = reproject
+      ? await Promise.all(sourceRing.map(([easting, northing]) => reproject(easting, northing)))
+      : sourceRing;
     const wkb = encodePolygonWKB(ring);
     const geom = wrapGeoPackageBinary(wkb, srid);
     // Shoelace area
@@ -1043,6 +1049,9 @@ export const geoPackageExporter: IntegrationExporter<
         const cb = options.projectToWgs84;
         reproject = async (e: number, n: number) => {
           const wgs = await cb(e, n, srid);
+          if (!Number.isFinite(wgs.lon) || !Number.isFinite(wgs.lat) || Math.abs(wgs.lat) > 90 || Math.abs(wgs.lon) > 180) {
+            throw new Error("WGS84 reprojection returned invalid longitude/latitude.");
+          }
           return [wgs.lon, wgs.lat];
         };
         outputSrid = 4326;
@@ -1078,6 +1087,7 @@ export const geoPackageExporter: IntegrationExporter<
           outputSrid,
           includeParcel,
           warnings,
+          reproject,
         );
       } else if (surveyType === "topographic") {
         const output = input as TopoWorkflowOutput;

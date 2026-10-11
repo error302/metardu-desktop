@@ -1022,18 +1022,24 @@ export const geoJsonExporter: IntegrationExporter<
             const [e, n] = feature.geometry.coordinates;
             try {
               const wgs84 = await callback(e, n, srid);
+              if (!Number.isFinite(wgs84.lon) || !Number.isFinite(wgs84.lat) || Math.abs(wgs84.lat) > 90 || Math.abs(wgs84.lon) > 180) {
+                throw new Error("transformation returned invalid longitude/latitude");
+              }
               feature.geometry.coordinates = [wgs84.lon, wgs84.lat];
             } catch (err) {
-              warnings.push(`Reprojection failed for feature ${feature.id}: ${(err as Error).message}`);
+              throw new Error(`WGS84 reprojection failed for feature ${feature.id}: ${(err as Error).message}`);
             }
           } else if (feature.geometry.type === "LineString") {
             const newCoords: [number, number][] = [];
             for (const [e, n] of feature.geometry.coordinates) {
               try {
                 const wgs84 = await callback(e, n, srid);
+                if (!Number.isFinite(wgs84.lon) || !Number.isFinite(wgs84.lat) || Math.abs(wgs84.lat) > 90 || Math.abs(wgs84.lon) > 180) {
+                  throw new Error("transformation returned invalid longitude/latitude");
+                }
                 newCoords.push([wgs84.lon, wgs84.lat]);
-              } catch {
-                newCoords.push([e, n]); // keep original on error
+              } catch (err) {
+                throw new Error(`WGS84 reprojection failed for feature ${feature.id}: ${(err as Error).message}`);
               }
             }
             feature.geometry.coordinates = newCoords;
@@ -1044,9 +1050,12 @@ export const geoJsonExporter: IntegrationExporter<
               for (const [e, n] of ring) {
                 try {
                   const wgs84 = await callback(e, n, srid);
+                  if (!Number.isFinite(wgs84.lon) || !Number.isFinite(wgs84.lat) || Math.abs(wgs84.lat) > 90 || Math.abs(wgs84.lon) > 180) {
+                    throw new Error("transformation returned invalid longitude/latitude");
+                  }
                   newRing.push([wgs84.lon, wgs84.lat]);
-                } catch {
-                  newRing.push([e, n]);
+                } catch (err) {
+                  throw new Error(`WGS84 reprojection failed for feature ${feature.id}: ${(err as Error).message}`);
                 }
               }
               newRings.push(newRing);

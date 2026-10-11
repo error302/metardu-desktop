@@ -4,7 +4,7 @@
  * provided, coordinates are reprojected to WGS84 and CRS changes to 4326.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { geoJsonExporter } from "../geojson-export.js";
 import { geoPackageExporter } from "../geopackage-export.js";
 import { qgsProjectExporter } from "../qgs-project-generator.js";
@@ -70,6 +70,34 @@ describe("GeoJSON — outputWgs84", () => {
     expect(result.crsUrn).toBe("urn:ogc:def:crs:EPSG::21037");
   });
 
+  it("refuses the whole WGS84 export if any coordinate conversion fails", async () => {
+    const input = await kenyaCadastral();
+    let calls = 0;
+    const failsAfterFirstPoint = async (_e: number, _n: number, _srid: number) => {
+      calls += 1;
+      if (calls === 2) throw new Error("verified transformation is unavailable");
+      return { lat: -1.22, lon: 36.90 };
+    };
+
+    await expect(geoJsonExporter.export(input, {
+      countryCode: "KE",
+      projectMetadata: baseMetadata,
+      outputWgs84: true,
+      projectToWgs84: failsAfterFirstPoint,
+    })).rejects.toThrow(/WGS84 reprojection failed.*verified transformation is unavailable/);
+    expect(calls).toBe(2);
+  });
+
+  it("rejects invalid longitude/latitude returned by the conversion callback", async () => {
+    const input = await kenyaCadastral();
+    await expect(geoJsonExporter.export(input, {
+      countryCode: "KE",
+      projectMetadata: baseMetadata,
+      outputWgs84: true,
+      projectToWgs84: async () => ({ lat: 91, lon: 36.90 }),
+    })).rejects.toThrow(/invalid longitude\/latitude/);
+  });
+
   it("uses native CRS when outputWgs84 not set (default)", async () => {
     const input = await kenyaCadastral();
     const result = await geoJsonExporter.export(input, {
@@ -83,12 +111,14 @@ describe("GeoJSON — outputWgs84", () => {
 describe("GeoPackage — outputWgs84", () => {
   it("registers EPSG:4326 when callback provided", async () => {
     const input = await kenyaCadastral();
+    const callback = vi.fn(mockCallback);
     const result = await geoPackageExporter.export(input, {
       countryCode: "KE", projectMetadata: baseMetadata,
-      outputWgs84: true, projectToWgs84: mockCallback,
+      outputWgs84: true, projectToWgs84: callback,
     });
     expect(result.crsUrn).toBe("urn:ogc:def:crs:EPSG::4326");
     expect(result.bytes.length).toBeGreaterThan(1000);
+    expect(callback).toHaveBeenCalled();
   });
 
   it("emits warning when outputWgs84=true but no callback", async () => {
@@ -99,6 +129,26 @@ describe("GeoPackage — outputWgs84", () => {
     });
     expect(result.warnings.some((w) => w.includes("no projectToWgs84 callback"))).toBe(true);
     expect(result.crsUrn).toBe("urn:ogc:def:crs:EPSG::21037");
+  });
+
+  it("does not return a GeoPackage after a coordinate conversion fails", async () => {
+    const input = await kenyaCadastral();
+    await expect(geoPackageExporter.export(input, {
+      countryCode: "KE",
+      projectMetadata: baseMetadata,
+      outputWgs84: true,
+      projectToWgs84: async () => { throw new Error("verified transformation is unavailable"); },
+    })).rejects.toThrow(/verified transformation is unavailable/);
+  });
+
+  it("rejects invalid longitude/latitude from the conversion callback", async () => {
+    const input = await kenyaCadastral();
+    await expect(geoPackageExporter.export(input, {
+      countryCode: "KE",
+      projectMetadata: baseMetadata,
+      outputWgs84: true,
+      projectToWgs84: async () => ({ lat: -91, lon: 36.90 }),
+    })).rejects.toThrow(/invalid longitude\/latitude/);
   });
 });
 
