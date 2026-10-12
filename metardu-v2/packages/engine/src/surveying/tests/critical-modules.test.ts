@@ -35,9 +35,10 @@ import {
 } from "../../geodesy/geoid.js";
 import {
   CRS_DATABASE,
-  findCrsForLocation,
+  listCrsCandidatesForLocation,
+  listCrsCatalogEntriesByEpsg,
   getCrsByEpsg,
-  listSupportedCountries,
+  listCrsCatalogJurisdictions,
 } from "../../geodesy/crs-database.js";
 
 // ═════════════════════════════════════════════════════════════════
@@ -301,69 +302,51 @@ describe("Error Ellipse", () => {
 // 5. CRS DATABASE TESTS
 // ═════════════════════════════════════════════════════════════════
 
-describe("CRS Database", () => {
-  it("should have 13 countries", () => {
-    const countries = listSupportedCountries();
-    expect(countries.length).toBe(13);
+describe("CRS catalog discovery", () => {
+  const hasCandidate = (jurisdiction: string, lat: number, lng: number, epsg: number) =>
+    listCrsCandidatesForLocation(jurisdiction, lat, lng).some(
+      (candidate) => candidate.crs.epsg === epsg,
+    );
+
+  it("lists CRS metadata jurisdictions without claiming complete country support", () => {
+    expect(listCrsCatalogJurisdictions()).toHaveLength(13);
   });
 
-  it("should find CRS for Nairobi (Kenya UTM 37S)", () => {
-    const crs = findCrsForLocation(-1.2864, 36.8172);
-    expect(crs).not.toBeNull();
-    expect(crs!.epsg).toBe(21037); // Arc 1960 / UTM 37S
+  it("returns candidates only within the surveyor-selected jurisdiction", () => {
+    const candidates = listCrsCandidatesForLocation("KEN", -1.2864, 36.8172);
+    expect(hasCandidate("KEN", -1.2864, 36.8172, 21037)).toBe(true);
+    expect(candidates.every((candidate) => candidate.jurisdiction === "KEN")).toBe(true);
   });
 
-  it("should find CRS for Perth, Australia (MGA zone 50)", () => {
-    const crs = findCrsForLocation(-31.9505, 115.8605);
-    expect(crs).not.toBeNull();
-    expect(crs!.epsg).toBe(7850); // GDA2020 / MGA zone 50
-    expect(crs!.geoidModel).toBe("AUSGeoid2020");
+  it("returns catalogued candidates for several jurisdictions", () => {
+    expect(hasCandidate("AUS", -31.9505, 115.8605, 7850)).toBe(true);
+    expect(hasCandidate("AUS", -33.8688, 151.2093, 7856)).toBe(true);
+    expect(hasCandidate("ARE", 25.2048, 55.2708, 32640)).toBe(true);
+    expect(hasCandidate("GBR", 51.5074, -0.1278, 27700)).toBe(true);
+    expect(hasCandidate("USA", 40.7128, -74.006, 32618)).toBe(true);
   });
 
-  it("should find CRS for Sydney, Australia (MGA zone 56)", () => {
-    const crs = findCrsForLocation(-33.8688, 151.2093);
-    expect(crs).not.toBeNull();
-    expect(crs!.epsg).toBe(7856); // GDA2020 / MGA zone 56
+  it("keeps both Kenya zones as candidates on their shared boundary", () => {
+    const candidates = listCrsCandidatesForLocation("KEN", -1, 36);
+    expect(candidates.map(({ crs }) => crs.epsg)).toEqual([21036, 21037]);
   });
 
-  it("should find CRS for Dubai, UAE", () => {
-    const crs = findCrsForLocation(25.2048, 55.2708);
-    expect(crs).not.toBeNull();
-    expect(crs!.epsg).toBe(32640); // WGS 84 / UTM 40N
+  it("exposes duplicate EPSG metadata conflicts instead of choosing the first", () => {
+    expect(listCrsCatalogEntriesByEpsg(21037).map(({ jurisdiction }) => jurisdiction))
+      .toEqual(["KEN", "TZA"]);
+    expect(getCrsByEpsg(21037)).toBeNull();
+    expect(getCrsByEpsg(2053)?.centralMeridian).toBe(27);
+    expect(CRS_DATABASE.AUS).toHaveLength(7);
+    expect(CRS_DATABASE.KEN).toHaveLength(4);
   });
 
-  it("should find CRS for London, UK", () => {
-    const crs = findCrsForLocation(51.5074, -0.1278);
-    expect(crs).not.toBeNull();
-    expect(crs!.epsg).toBe(27700); // OSGB36 / British National Grid
-    expect(crs!.geoidModel).toBe("OSGM15");
+  it("rejects invalid coordinates and jurisdiction codes", () => {
+    expect(() => listCrsCandidatesForLocation("KEN", Number.NaN, 0)).toThrow(RangeError);
+    expect(() => listCrsCandidatesForLocation("KEN", 0, 181)).toThrow(RangeError);
+    expect(() => listCrsCandidatesForLocation("Kenya", 0, 0)).toThrow(RangeError);
   });
 
-  it("should find CRS for New York, USA", () => {
-    const crs = findCrsForLocation(40.7128, -74.0060);
-    expect(crs).not.toBeNull();
-    expect(crs!.epsg).toBe(32618); // WGS 84 / UTM 18N
-  });
-
-  it("should get CRS by EPSG code", () => {
-    const crs = getCrsByEpsg(21037);
-    expect(crs).not.toBeNull();
-    expect(crs!.name).toContain("Arc 1960");
-    expect(crs!.utmZone).toBe(37);
-  });
-
-  it("should return null for unknown EPSG", () => {
-    expect(getCrsByEpsg(99999)).toBeNull();
-  });
-
-  it("Australia should have 7 MGA zones", () => {
-    expect(CRS_DATABASE.AUS.length).toBe(7);
-  });
-
-  it("Kenya should have 4 verified Arc 1960 UTM CRS definitions", () => {
-    expect(CRS_DATABASE.KEN.length).toBe(4);
-    expect(CRS_DATABASE.KEN.map((crs) => crs.epsg).sort((a, b) => a - b))
-      .toEqual([21036, 21037, 21096, 21097]);
-    expect(getCrsByEpsg(20537)).toBeNull();
+  it("returns no candidates when the selected jurisdiction is not catalogued", () => {
+    expect(listCrsCandidatesForLocation("XXX", 0, 0)).toEqual([]);
   });
 });
