@@ -2561,3 +2561,9 @@ $ git diff --check
 
 - No local product tests were run. The fixes require GitHub Actions confirmation. Run #260 will validate this revision; results are pending at push time.
 - This remains a CI repair. It does not establish global survey-grade product readiness or close the documented field validation gaps.
+
+
+### CI feedback iteration — Electron smoke and three-platform sidecar pass (2026-10-12)
+- GitHub Actions run #260 (`38197793304`) on `72cc89148dd9a665243d934aaf9ebb43ae970144`: Ubuntu, macOS, and Windows sidecar build/tests passed; Node 22 and Node 24 full jobs passed, including the Electron sidecar smoke test. Node 20 failed in the engine tests with process exit 139 (segmentation fault) after two test files completed and while the GeoJSON exporter suite was executing. This was not an assertion failure, and the single-thread pool change did not resolve it.
+- Added verbose per-test output for the Node 20 engine command only, preserving the one-worker threads pool, to identify the last test before the process exits in the next run.
+- The exact failing test case is not yet established. No local product tests were run; next validation is the pushed GitHub Actions matrix.
