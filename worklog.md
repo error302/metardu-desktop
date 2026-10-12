@@ -2489,3 +2489,37 @@ Test Files  1 passed (1)
 
 - Engine lint/build and desktop `npx tsc --noEmit` all exited 0. Desktop typecheck printed no diagnostics. `git diff --check` on the scoped files exited 0.
 - Product limits remain: no user-driven mission-area editor/export flow in the desktop UI; no installed, byte-verified EGM96 package; no physical DJI device validation. The commit is an engine contract correction, not a field-ready desktop feature claim.
+
+---
+Task ID: ci-native-survey-deps
+Agent: Codex (2026-10-12)
+Task: Repair native geospatial dependencies in CI and release workflows
+
+Work Log:
+- Reviewed the prior GitHub Actions failures: Linux lacked `dbus-1.pc`; Windows lacked the GDAL import library `gdal_i.lib`. TypeScript Node 20/24 cells were downstream failures because they build the Rust sidecar first.
+- Added `libdbus-1-dev` to both Linux CI dependency steps and both Linux release-sidecar dependency lists. Added Homebrew `dbus` to macOS CI and release installs.
+- Pinned `echoix/setup-OSGeo4W` to immutable revision `f4311523e39f2c8b10e34ebbc3f2ff437ecfb9ed`, installed `gdal-devel`, located `gdal_i.lib` for `GDAL_LIB_DIR`, and configured Windows Cargo steps to run through `OSGeo4W.bat`.
+- Added `metardu-v2/docs/agent-briefs/ci-native-survey-deps.md` with the scope, constraints, and independent acceptance criteria.
+
+Verification evidence (verbatim terminal output):
+
+~~~text
+$ python - (PyYAML 6.0.2; parses .github/workflows/ci.yml and .github/workflows/release.yml)
+.github/workflows/ci.yml: YAML parsed; jobs=sidecar, typescript
+.github/workflows/release.yml: YAML parsed; jobs=release-linux, release-windows, release-macos
+CI dependency assertions: passed
+
+$ git diff --check
+(exit 0; no output)
+
+$ git status --short --branch
+## codex/fix-ci-native-survey-deps
+ M .github/workflows/ci.yml
+ M .github/workflows/release.yml
+?? metardu-v2/docs/agent-briefs/ci-native-survey-deps.md
+~~~
+
+Stage Summary:
+- Local YAML parsing and whitespace validation pass. GitHub Actions has not yet run against this branch; no platform build or test is claimed as passing.
+- The release workflow still documents its existing Windows packaging limitation: it builds a Linux-native sidecar for the Windows installer. Fixing Windows release cross-compilation is a separate product gate.
+- Next: push this scoped branch, open its PR, and record the real Actions matrix result here.

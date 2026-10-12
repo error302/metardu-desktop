@@ -35,17 +35,44 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgdal-dev libclang-dev clang
+          sudo apt-get install -y libgdal-dev libclang-dev clang libdbus-1-dev
       - name: Install macOS deps
         if: matrix.os == 'macos-latest'
         run: |
-          brew install gdal
+          brew install gdal dbus
           echo "LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib" >> $GITHUB_ENV
-      - name: Build
+      - name: Install Windows GDAL development files
+        if: matrix.os == 'windows-latest'
+        id: osgeo4w
+        uses: echoix/setup-OSGeo4W@f4311523e39f2c8b10e34ebbc3f2ff437ecfb9ed # v0.2.0
+        with:
+          packages: gdal-devel
+      - name: Locate Windows GDAL import library
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        env:
+          OSGEO4W_ROOT: ${{ steps.osgeo4w.outputs.root }}
+        run: |
+          $gdalLibrary = Get-ChildItem -Path $env:OSGEO4W_ROOT -Filter gdal_i.lib -File -Recurse -ErrorAction Stop | Select-Object -First 1
+          if ($null -eq $gdalLibrary) { throw "OSGeo4W gdal-devel did not install gdal_i.lib" }
+          "GDAL_LIB_DIR=$($gdalLibrary.DirectoryName)" >> $env:GITHUB_ENV
+      - name: Build (Linux/macOS)
+        if: matrix.os != 'windows-latest'
         working-directory: metardu-v2/packages/metardu-sidecar
         run: cargo build --release
-      - name: Test
+      - name: Build (Windows with OSGeo4W)
+        if: matrix.os == 'windows-latest'
         working-directory: metardu-v2/packages/metardu-sidecar
+        shell: cmd /D /E:ON /V:OFF /S /C "CALL ${{ steps.osgeo4w.outputs.root }}\OSGeo4W.bat "{0}""
+        run: cargo build --release
+      - name: Test (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        working-directory: metardu-v2/packages/metardu-sidecar
+        run: cargo test --release
+      - name: Test (Windows with OSGeo4W)
+        if: matrix.os == 'windows-latest'
+        working-directory: metardu-v2/packages/metardu-sidecar
+        shell: cmd /D /E:ON /V:OFF /S /C "CALL ${{ steps.osgeo4w.outputs.root }}\OSGeo4W.bat "{0}""
         run: cargo test --release
 
   # ─── TypeScript engine + packages ───────────────────────────────
@@ -67,7 +94,7 @@ jobs:
       - name: Install Linux deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgdal-dev libclang-dev clang
+          sudo apt-get install -y libgdal-dev libclang-dev clang libdbus-1-dev
       - name: Install npm deps
         working-directory: metardu-v2
         run: npm install --no-audit --no-fund

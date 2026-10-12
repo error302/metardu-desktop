@@ -63,6 +63,7 @@ jobs:
             libgdal-dev \
             libclang-dev \
             clang \
+            libdbus-1-dev \
             libsecret-1-dev \
             libusb-1.0-0-dev \
             libudev-dev \
@@ -156,6 +157,7 @@ jobs:
             libgdal-dev \
             libclang-dev \
             clang \
+            libdbus-1-dev \
             wine64 \
             mingw-w64
 
@@ -239,7 +241,7 @@ jobs:
 
       - name: Install macOS build deps
         run: |
-          brew install gdal
+          brew install gdal dbus
           brew install libclang
 
       - name: Install npm dependencies
