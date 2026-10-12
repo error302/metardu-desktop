@@ -1,7 +1,7 @@
 /**
  * MapView — OpenLayers-based satellite/street basemap view.
  *
- * Professional-grade GIS and survey mapping workstation:
+ * Survey mapping workspace:
  *   - Dual-mode: Active Project Survey Geometry overlay + Standalone GIS & Cadastral Mapping.
  *   - National-grid overlays use the Rust sidecar and reject unsupported datum operations.
  *   - Multi-layer basemap switcher (Esri High-Res Satellite, OpenStreetMap, OpenTopoMap).
@@ -9,7 +9,7 @@
  *   - Coordinate Go-To Search (Easting/Northing or Lat/Lon).
  *   - Live Cursor Coordinate HUD (WGS84, National Grid UTM, and Zoom).
  *   - Layer Visibility Manager (Beacons, Boundaries, Contours, Spot Heights, Error Ellipses).
- *   - 300 DPI Statutory Print Plan Preview, PDF, and PNG Exporters.
+ *   - Draft print-layout preview and PDF/PNG export.
  */
 
 import React, { useEffect, useRef, useState, useCallback } from "react";

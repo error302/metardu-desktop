@@ -2693,3 +2693,74 @@ Post-stage verification:
 $ git diff --cached --check
 exit 0; no whitespace diagnostics
 ~~~
+
+---
+Task ID: desktop-capability-claims-honesty
+Date: 2026-10-12
+Task: Remove unsupported claims from deliverables and registry workspace
+
+Changed files:
+- metardu-v2/packages/ui-components/src/panels/AppShell.tsx
+- metardu-v2/apps/desktop/src/renderer/views/DeedPlanView.tsx
+- metardu-v2/apps/desktop/src/renderer/views/MapView.tsx
+- metardu-v2/apps/desktop/src/renderer/views/RegistryArchiveView.tsx
+- metardu-v2/apps/desktop/src/tests/capability-claims-honesty.test.ts
+- metardu-v2/docs/agent-briefs/desktop-capability-claims-honesty.md
+- worklog.md
+
+Verification evidence:
+
+~~~text
+$ npx --no-install vitest run src/tests/capability-claims-honesty.test.ts
+Test Files 1 passed (1)
+     Tests 2 passed (2)
+~~~
+
+~~~text
+$ npm run test --workspace @metardu/desktop
+Test Files 16 passed | 1 skipped (17)
+     Tests 223 passed | 7 skipped (230)
+~~~
+
+~~~text
+$ npx --no-install tsc --noEmit -p tsconfig.renderer-check.json --pretty false
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npx --no-install tsc --noEmit -p apps/desktop/tsconfig.json --pretty false
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npx --no-install tsc --noEmit (packages/engine)
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npm test (packages/engine)
+Test Files 45 passed (45)
+     Tests 862 passed (862)
+~~~
+
+~~~text
+$ cargo build --release (packages/metardu-sidecar)
+error: failed to run custom build command for gdal-sys v0.10.0; windows-msvc requires gdal_i.lib in GDAL_LIB_DIR or GDAL_HOME\\lib.
+~~~
+
+~~~text
+$ cargo test --release (packages/metardu-sidecar)
+error: failed to run custom build command for gdal-sys v0.10.0; windows-msvc requires gdal_i.lib in GDAL_LIB_DIR or GDAL_HOME\\lib.
+~~~
+
+~~~text
+$ git diff --check
+exit 0; no whitespace diagnostics
+~~~
+
+Scope notes:
+- The registry view no longer displays synthetic title/parcel records or an inert national-search control. Navigation and workflow copy no longer claim unsupported module counts, certified statutory plans, signing, or portal submission.
+- No IPC or preload boundary changed. No statutory document geometry or computation behavior changed.
+- The shared METARDU Web/Desktop subscription remains the product decision; this change does not implement server account verification. Desktop must not unlock from unverified local or browser state.
+- The sidecar could not compile or run tests in this Windows environment because GDAL's MSVC import library is absent.
+- The pre-existing staged deletion of metardu-v2/frontend/main.tsx and unrelated untracked/generated files were left untouched.
