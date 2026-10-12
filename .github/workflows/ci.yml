@@ -47,6 +47,7 @@ jobs:
         uses: echoix/setup-OSGeo4W@f4311523e39f2c8b10e34ebbc3f2ff437ecfb9ed # v0.2.0
         with:
           packages: gdal-devel
+          root: C:/OSGeo4W
       - name: Locate Windows GDAL import library
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -63,7 +64,7 @@ jobs:
       - name: Build (Windows with OSGeo4W)
         if: matrix.os == 'windows-latest'
         working-directory: metardu-v2/packages/metardu-sidecar
-        shell: cmd /D /E:ON /V:OFF /S /C "CALL ${{ steps.osgeo4w.outputs.root }}\OSGeo4W.bat "{0}""
+        shell: cmd /D /E:ON /V:OFF /S /C "CALL C:/OSGeo4W/OSGeo4W.bat "{0}""
         run: cargo build --release
       - name: Test (Linux/macOS)
         if: matrix.os != 'windows-latest'
@@ -72,7 +73,7 @@ jobs:
       - name: Test (Windows with OSGeo4W)
         if: matrix.os == 'windows-latest'
         working-directory: metardu-v2/packages/metardu-sidecar
-        shell: cmd /D /E:ON /V:OFF /S /C "CALL ${{ steps.osgeo4w.outputs.root }}\OSGeo4W.bat "{0}""
+        shell: cmd /D /E:ON /V:OFF /S /C "CALL C:/OSGeo4W/OSGeo4W.bat "{0}""
         run: cargo test --release
 
   # ─── TypeScript engine + packages ───────────────────────────────
