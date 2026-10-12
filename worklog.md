@@ -2834,3 +2834,74 @@ Stage Summary:
 - The route regression tests pass. The full Web typecheck remains red on the unrelated Puppeteer `waitUntil` type at `src/lib/pdf/generatePdf.ts:41`.
 - Automatic review rejected pushing to the separate Web GitHub repository because its ownership/trust could not be verified. I did not retry or use another push path; the commit remains local pending owner approval.
 - No Web deployment was performed or verified. Desktop account authorization, entitlement API, protected credential storage, server revocation, and offline policy remain unimplemented; Desktop still does not verify or grant access.
+
+---
+Task ID: desktop-lulc-data-integrity
+Date: 2026-10-12
+Task: Replace misleading LULC defaults and calculations with explicit draft data handling
+
+Changed files:
+- `metardu-v2/apps/desktop/src/renderer/views/LULCView.tsx`
+- `metardu-v2/apps/desktop/src/tests/lulc-integrity.test.ts`
+- `metardu-v2/docs/agent-briefs/desktop-lulc-data-integrity.md`
+- `worklog.md`
+
+Work Log:
+- Removed the preloaded Kenya polygons and default Kenya jurisdiction. The jurisdiction now comes from the active project or a user selection when the project has no jurisdiction.
+- Replaced country-branded class lists with generic thematic tags, clearly marked as non-statutory and not image-derived. Imported polygons start unclassified and can be manually tagged.
+- Removed keyword/size classification, false confidence values, renderer-side shoelace area, fabricated imagery metadata, and the bounding-box geometry synthesized from topographic points.
+- Kept raw polygon coordinates and source attributes. GeoJSON import accepts simple 2D Polygon rings only and rejects unsupported rings or malformed coordinates as a whole. Draft CSV carries raw coordinates, project context, original identifiers, generic tags, and source attributes.
+- Project save and export now state `DRAFT` / `UNVERIFIED`; no area, CRS, units, statutory class, raster metadata, or plan export is inferred. North arrow and scale bar are hidden on the raw-coordinate preview.
+- Added regression coverage for empty/no-sample source state, raw GeoJSON import, strict unsupported geometry rejection, and draft CSV metadata round-trip.
+- Read `AGENT.md`, invariants, ADR-0001, product plan, relevant renderer context, map geometry extraction, sidecar sources, and recent worklog entries. The master plan required by `AGENT.md` is absent from this checkout; no new compute or jurisdiction capability was introduced.
+- No IPC, main-process, preload, subscription, or Web repository files changed. The shared paid Web account policy remains as documented in the product plan.
+
+Verification:
+~~~text
+$ npx vitest run --config vitest-desktop-final-dcf018c83e014f38a3ba562de4022853.mjs apps/desktop/src/tests
+Test Files  17 passed | 1 skipped (18)
+     Tests  227 passed | 7 skipped (234)
+Exit code: 0
+~~~
+
+~~~text
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No TypeScript diagnostics; exit code 0.
+
+$ npx tsc --noEmit -p apps/desktop/tsconfig.json
+No TypeScript diagnostics; exit code 0.
+
+$ npx tsc --noEmit (packages/engine)
+No TypeScript diagnostics; exit code 0.
+~~~
+
+~~~text
+$ npx vitest run --config ../../vitest-desktop-2e9e5448a16e4be9884460ec742bfd35.mjs src (packages/engine)
+Test Files  45 passed (45)
+     Tests  862 passed (862)
+Exit code: 0
+~~~
+
+The repository's default Vitest config failed to load because its `vite.config.ts` ESM imports were loaded through a CommonJS config path. The desktop and engine suites were run successfully with temporary `.mjs` configs, then those temporary files were removed.
+
+~~~text
+$ cargo build --release (packages/metardu-sidecar)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\\lib.
+Exit code: 1
+
+$ cargo test --release (packages/metardu-sidecar)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\\lib.
+Exit code: 1
+~~~
+
+~~~text
+$ git diff --check
+Exit code: 0; no whitespace diagnostics.
+~~~
+
+Stage Summary:
+- The LULC workspace now preserves geometry as explicitly unverified raw input. CRS-aware measurements, raster parsing/classification, and statutory land-use schemes remain unavailable and are not represented as working features.
+- Desktop and engine TypeScript checks and their test suites passed. Rust build/test remain blocked by the absent GDAL MSVC import library; this renderer-only task did not change Rust code or the IPC boundary.
+- This closes one concrete integrity defect, not the full international survey-grade release gates. Continue the wider module audit and implement CRS/units and sidecar-backed raster/area workflows before claiming those capabilities.
