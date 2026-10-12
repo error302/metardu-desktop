@@ -30,11 +30,13 @@ ci-native-survey-deps
 - [ ] GitHub Actions TypeScript matrix builds all three Node versions.
 - [ ] Release Linux/macOS sidecar build dependency lists include DBus development libraries.
 - [ ] macOS CI and release install LLVM and set `LIBCLANG_PATH` from `brew --prefix llvm`.
+- [ ] GDAL 3.13 builds use the published GeoRust 0.19.0 crate with a documented local vendor patch matching the merged upstream compatibility changes, until a published release includes them.
 - [ ] Windows CI locates the installed `gdal_i.lib`, GDAL headers, and version macros; sets `GDAL_LIB_DIR`, `GDAL_INCLUDE_DIR`, and `GDAL_VERSION`; and executes Cargo inside the OSGeo4W environment.
 - [ ] GCP export resolves the display name for the configured `primarySRID`, so multi-zone countries cannot emit a different zone label; existing Node-matrix coverage passes.
 
 ### Tests
 - [ ] Existing CI package and sidecar test jobs pass; no new product tests are introduced.
+- [ ] Existing Electron sidecar ping integration test passes with the single-reader stdin loop.
 - [ ] Workflow YAML parses and `git diff --check` passes; no new product tests are introduced.
 
 ## Anti-hallucination clause
