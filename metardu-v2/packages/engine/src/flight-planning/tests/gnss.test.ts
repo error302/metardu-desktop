@@ -398,12 +398,11 @@ describe("Datum transformations", () => {
     expect(back.height).toBeCloseTo(1713.5, 1);
   });
 
-  it("should round-trip WGS84 ↔ Arc 1960", () => {
-    const lat = -1.2864, lon = 36.8172, h = 1713.5;
-    const arc = wgs84ToArc1960(lat, lon, h);
-    const back = arc1960ToWgs84(arc.lat, arc.lon, arc.height);
-    expect(back.lat).toBeCloseTo(lat, 7);
-    expect(back.lon).toBeCloseTo(lon, 7);
+  it("blocks the unverified 35 m WGS84 ↔ Arc 1960 operation", () => {
+    expect(() => wgs84ToArc1960(-1.2864, 36.8172, 1713.5))
+      .toThrow(/35 m.*disabled for survey-grade output/);
+    expect(() => arc1960ToWgs84(-1.2864, 36.8172, 1713.5))
+      .toThrow(/35 m.*disabled for survey-grade output/);
   });
 
   it("Helmert with zero params should be identity", () => {

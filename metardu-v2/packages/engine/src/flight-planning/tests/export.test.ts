@@ -8,6 +8,7 @@
  *   - The unified `exportMission` function dispatches correctly
  */
 import { describe, it, expect } from "vitest";
+import { inflateRawSync } from "node:zlib";
 import {
   generateLawnmowerWaypoints,
   computeFlightPlanParameters,
@@ -20,7 +21,9 @@ import {
   exportSenseflyXml,
   exportKml,
   SUPPORTED_EXPORT_FORMATS,
+  type DjiKmzOptions,
 } from "../../index.js";
+import type { GeoidGrid } from "../../geodesy/geoid.js";
 
 // Helper: generate a small test mission
 function getTestWaypoints(): Waypoint[] {
@@ -45,6 +48,58 @@ function getTestWaypoints(): Waypoint[] {
 }
 
 const TEST_WPS = getTestWaypoints();
+
+// Synthetic format-validation fixture only. It is not a published geoid model
+// and must never be used to claim EGM96 accuracy.
+const TEST_GEOID_GRID: GeoidGrid = {
+  id: "synthetic-egm96-test-grid",
+  name: "Synthetic test grid",
+  version: "test-only",
+  source: "unit-test fixture; not authoritative",
+  checksumSha256: "0".repeat(64),
+  referenceEllipsoid: "WGS84",
+  verticalDatum: "EGM96",
+  south: -2,
+  west: 36,
+  latStep: 1,
+  lngStep: 1,
+  rows: 2,
+  cols: 2,
+  values: Float64Array.of(25, 25, 25, 25),
+};
+
+function getDjiOptions(waypoints: Waypoint[], overrides: Partial<DjiKmzOptions> = {}): DjiKmzOptions {
+  return {
+    ellipsoidHeightsMeters: waypoints.map((_, i) => 100 + i),
+    egm96Grid: TEST_GEOID_GRID,
+    aircraft: { droneEnumValue: 77, droneSubEnumValue: 0 }, // DJI Mavic 3 Enterprise
+    payload: { payloadEnumValue: 66, payloadPositionIndex: 0 }, // DJI Mavic 3E camera
+    globalSpeedMs: 7,
+    takeoffSecurityHeightM: 30,
+    returnToHomeHeightM: 60,
+    ...overrides,
+  };
+}
+
+function unzipTextEntries(bytes: Uint8Array): Map<string, string> {
+  const entries = new Map<string, string>();
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 0;
+  while (offset + 30 <= bytes.length && view.getUint32(offset, true) === 0x04034b50) {
+    const method = view.getUint16(offset + 8, true);
+    const compressedSize = view.getUint32(offset + 18, true);
+    const nameLength = view.getUint16(offset + 26, true);
+    const extraLength = view.getUint16(offset + 28, true);
+    const nameStart = offset + 30;
+    const name = new TextDecoder().decode(bytes.subarray(nameStart, nameStart + nameLength));
+    const dataStart = nameStart + nameLength + extraLength;
+    const compressed = bytes.subarray(dataStart, dataStart + compressedSize);
+    const content = method === 8 ? inflateRawSync(compressed) : compressed;
+    entries.set(name, new TextDecoder().decode(content));
+    offset = dataStart + compressedSize;
+  }
+  return entries;
+}
 
 describe("SUPPORTED_EXPORT_FORMATS", () => {
   it("should list all 5 formats", () => {
@@ -204,13 +259,13 @@ describe("exportKml", () => {
 
 describe("exportDjiKmz", () => {
   it("should return a Uint8Array (KMZ = ZIP binary)", async () => {
-    const bytes = await exportDjiKmz(TEST_WPS);
+    const bytes = await exportDjiKmz(TEST_WPS, getDjiOptions(TEST_WPS));
     expect(bytes).toBeInstanceOf(Uint8Array);
     expect(bytes.length).toBeGreaterThan(100); // non-trivial size
   });
 
   it("KMZ should start with PK ZIP signature (0x504B0304)", async () => {
-    const bytes = await exportDjiKmz(TEST_WPS);
+    const bytes = await exportDjiKmz(TEST_WPS, getDjiOptions(TEST_WPS));
     // ZIP local file header signature: 0x04034b50 (little-endian: 50 4B 03 04)
     expect(bytes[0]).toBe(0x50); // P
     expect(bytes[1]).toBe(0x4B); // K
@@ -219,7 +274,35 @@ describe("exportDjiKmz", () => {
   });
 
   it("should throw for empty waypoints", async () => {
-    await expect(exportDjiKmz([])).rejects.toThrow(/empty/);
+    await expect(exportDjiKmz([], getDjiOptions([]))).rejects.toThrow(/empty/);
+  });
+
+  it("writes DJI's template and executable files with explicit height modes", async () => {
+    const bytes = await exportDjiKmz(TEST_WPS, getDjiOptions(TEST_WPS, { missionName: "Survey <North> & West" }));
+    const files = unzipTextEntries(bytes);
+    const template = files.get("wpmz/template.kml");
+    const waylines = files.get("wpmz/waylines.wpml");
+
+    expect(template).toContain("<wpml:author>Survey &lt;North&gt; &amp; West</wpml:author>");
+    expect(template).toContain("<wpml:heightMode>EGM96</wpml:heightMode>");
+    expect(template).toContain("<wpml:ellipsoidHeight>100</wpml:ellipsoidHeight>");
+    expect(template).toContain("<wpml:height>75</wpml:height>");
+    expect(waylines).toContain("<wpml:executeHeightMode>WGS84</wpml:executeHeightMode>");
+    expect(waylines).toContain("<wpml:executeHeight>100</wpml:executeHeight>");
+    expect(files.has("wpmz/res/wml.waypoints")).toBe(false);
+    expect((waylines!.match(/<wpml:actionActuatorFunc>takePhoto<\/wpml:actionActuatorFunc>/g) ?? []).length)
+      .toBe(TEST_WPS.filter((wp) => wp.isPhoto).length);
+  });
+
+  it("requires explicit vertical data instead of interpreting altitudeMeters", async () => {
+    await expect(exportDjiKmz(TEST_WPS, {} as DjiKmzOptions)).rejects.toThrow(/ellipsoid height/);
+  });
+
+  it("requires an explicit takeoff security height", async () => {
+    const options = getDjiOptions(TEST_WPS);
+    const { takeoffSecurityHeightM: _ignored, ...withoutTakeoffHeight } = options;
+    await expect(exportDjiKmz(TEST_WPS, withoutTakeoffHeight as DjiKmzOptions))
+      .rejects.toThrow(/take-off security height/);
   });
 });
 
@@ -261,7 +344,7 @@ describe("exportMission — unified dispatcher", () => {
   });
 
   it("should dispatch to DJI KMZ format", async () => {
-    const result = await exportMission(TEST_WPS, { format: "dji-kmz" });
+    const result = await exportMission(TEST_WPS, { format: "dji-kmz", ...getDjiOptions(TEST_WPS) });
     expect(result.format).toBe("dji-kmz");
     expect(result.fileExtension).toBe(".kmz");
     expect(result.mimeType).toBe("application/vnd.google-earth.kmz");
@@ -275,6 +358,31 @@ describe("exportMission — unified dispatcher", () => {
   });
 });
 
+describe("vertical-reference export safety", () => {
+  it("does not relabel imported heights in formats without validated conversion", async () => {
+    const importedWgs84Heights = TEST_WPS.map((waypoint) => ({
+      ...waypoint,
+      altitudeReference: "WGS84" as const,
+    }));
+
+    expect(() => exportArduPilotWaypoints(importedWgs84Heights)).toThrow(/validated conversion/);
+    expect(() => exportLitchiCsv(importedWgs84Heights)).toThrow(/validated conversion/);
+    expect(() => exportSenseflyXml(importedWgs84Heights)).toThrow(/validated conversion/);
+    expect(() => exportKml(importedWgs84Heights)).toThrow(/validated conversion/);
+    await expect(exportMission(importedWgs84Heights, { format: "kml" }))
+      .rejects.toThrow(/validated conversion/);
+  });
+
+  it("requires separately supplied ellipsoid heights and grid data for DJI re-export", async () => {
+    const importedWgs84Heights = TEST_WPS.map((waypoint) => ({
+      ...waypoint,
+      altitudeReference: "WGS84" as const,
+    }));
+    await expect(exportDjiKmz(importedWgs84Heights, getDjiOptions(importedWgs84Heights)))
+      .resolves.toBeInstanceOf(Uint8Array);
+  });
+});
+
 // ─── Integration test: end-to-end mission generation + export ───────
 describe("end-to-end: 50ha Nairobi survey with all 5 exports", () => {
   it("should generate waypoints and export to all 5 formats without error", async () => {
@@ -282,7 +390,9 @@ describe("end-to-end: 50ha Nairobi survey with all 5 exports", () => {
     expect(wps.length).toBeGreaterThan(10);
 
     for (const fmt of SUPPORTED_EXPORT_FORMATS) {
-      const result = await exportMission(wps, { format: fmt.format } as any);
+      const result = fmt.format === "dji-kmz"
+        ? await exportMission(wps, { format: fmt.format, ...getDjiOptions(wps) })
+        : await exportMission(wps, { format: fmt.format } as any);
       expect(result.format).toBe(fmt.format);
       expect(result.fileExtension).toBe(fmt.fileExtension);
 

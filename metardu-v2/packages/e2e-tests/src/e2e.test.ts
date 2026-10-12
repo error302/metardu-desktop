@@ -37,6 +37,7 @@ import {
   importMission,
   generateFlightPlanReport,
   type Waypoint,
+  type GeoidGrid,
 } from "../../engine/src/index.js";
 
 // IPC schemas import
@@ -63,6 +64,35 @@ const CAMERA_ID = "dji-mavic-3-enterprise";
 const ALTITUDE_M = 75;
 const FRONT_OVERLAP = 0.75;
 const SIDE_OVERLAP = 0.65;
+// Synthetic format-validation fixture only; it is not authoritative EGM96 data.
+const TEST_GEOID_GRID: GeoidGrid = {
+  id: "synthetic-egm96-test-grid",
+  name: "Synthetic test grid",
+  version: "test-only",
+  source: "unit-test fixture; not authoritative",
+  checksumSha256: "0".repeat(64),
+  referenceEllipsoid: "WGS84",
+  verticalDatum: "EGM96",
+  south: -2,
+  west: 36,
+  latStep: 1,
+  lngStep: 1,
+  rows: 2,
+  cols: 2,
+  values: Float64Array.of(25, 25, 25, 25),
+};
+
+function getDjiOptions(waypoints: Waypoint[]) {
+  return {
+    ellipsoidHeightsMeters: waypoints.map((wp) => wp.altitudeMeters + 1725),
+    egm96Grid: TEST_GEOID_GRID,
+    aircraft: { droneEnumValue: 77, droneSubEnumValue: 0 },
+    payload: { payloadEnumValue: 66, payloadPositionIndex: 0 },
+    globalSpeedMs: 7,
+    takeoffSecurityHeightM: 30,
+    returnToHomeHeightM: 60,
+  };
+}
 
 // ─── E2E Test Suite ────────────────────────────────────────────────
 
@@ -114,7 +144,7 @@ describe("E2E: Full Pipeline — Flight Planning → Export → Import → Round
   // ─── Step 2: Mission Export (all 5 formats) ─────────────────────
 
   it("Step 2a: Should export to DJI KMZ (valid ZIP binary)", async () => {
-    const result = await exportMission(waypoints, { format: "dji-kmz" });
+    const result = await exportMission(waypoints, { format: "dji-kmz", ...getDjiOptions(waypoints) });
     expect(result.bytes).toBeDefined();
     expect(result.bytes![0]).toBe(0x50); // PK signature
     expect(result.bytes!.length).toBeGreaterThan(1000);
@@ -187,9 +217,10 @@ describe("E2E: Full Pipeline — Flight Planning → Export → Import → Round
   });
 
   it("Step 3e: DJI KMZ round-trip should preserve coordinates", async () => {
-    const exported = await exportMission(waypoints, { format: "dji-kmz" });
+    const exported = await exportMission(waypoints, { format: "dji-kmz", ...getDjiOptions(waypoints) });
     const imported = await importMission("dji-kmz", exported.bytes!);
     expect(imported.length).toBe(waypoints.length);
+    expect(imported.every((wp) => wp.altitudeReference === "WGS84")).toBe(true);
     for (let i = 0; i < imported.length; i++) {
       expect(imported[i]!.latitude).toBeCloseTo(waypoints[i]!.latitude, 4);
       expect(imported[i]!.longitude).toBeCloseTo(waypoints[i]!.longitude, 4);

@@ -2,7 +2,7 @@
  * Mission export — unified entry point for all formats.
  *
  * Each format has its own module:
- *   - dji-kmz.ts        → DJI Pilot 2 / Litchi KMZ (wpml format)
+ *   - dji-kmz.ts        → DJI WPML KMZ (template + executable wayline)
  *   - ardupilot-waypoints.ts → ArduPilot / PX4 .waypoints (QGC WPL 110)
  *   - litchi-csv.ts     → Litchi CSV
  *   - sensefly-xml.ts   → senseFly eMotion XML (eBee X)
@@ -19,7 +19,7 @@ import { exportLitchiCsv, type LitchiCsvOptions } from "./litchi-csv.js";
 import { exportSenseflyXml, type SenseflyXmlOptions } from "./sensefly-xml.js";
 import { exportKml, type KmlOptions } from "./generic-kml.js";
 
-export { exportDjiKmz, type DjiKmzOptions } from "./dji-kmz.js";
+export { exportDjiKmz, type DjiAircraftProfile, type DjiKmzOptions, type DjiPayloadProfile } from "./dji-kmz.js";
 export { exportArduPilotWaypoints, type ArduPilotWaypointsOptions } from "./ardupilot-waypoints.js";
 export { exportLitchiCsv, type LitchiCsvOptions } from "./litchi-csv.js";
 export { exportSenseflyXml, type SenseflyXmlOptions } from "./sensefly-xml.js";
@@ -149,9 +149,9 @@ export const SUPPORTED_EXPORT_FORMATS: ReadonlyArray<{
   {
     format: "dji-kmz",
     label: "DJI KMZ (wpml)",
-    description: "DJI Pilot 2 and Litchi-compatible waypoint mission file (KMZ = ZIP with template.kml + wml.waypoints)",
+    description: "DJI WPML KMZ with editable template.kml and executable waylines.wpml; requires explicit ellipsoid heights, a caller-supplied EGM96 grid whose package bytes were verified by a trusted loader, and aircraft/camera profiles",
     fileExtension: ".kmz",
-    platforms: ["DJI Mavic 3 Enterprise", "DJI Phantom 4 RTK", "DJI Matrice 350", "Litchi"],
+    platforms: ["DJI Mavic 3 Enterprise", "DJI Mavic 3 Thermal", "DJI Mavic 3 Multispectral", "DJI Matrice 30 series", "DJI Matrice 300 RTK", "DJI Matrice 350 RTK"],
   },
   {
     format: "ardupilot-waypoints",

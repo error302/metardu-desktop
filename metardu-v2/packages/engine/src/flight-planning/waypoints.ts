@@ -42,6 +42,11 @@ export interface Waypoint {
    * - In terrain-aware mode: altitude AMSL (above mean sea level)
    */
   altitudeMeters: number;
+  /**
+   * Vertical reference for altitudeMeters when known. Omitted means the
+   * source format or workflow did not provide enough evidence to identify it.
+   */
+  altitudeReference?: "WGS84" | "EGM96" | "relativeToStartPoint" | "AGL" | "unknown";
   /** Flight line index (0-based). Waypoints on the same line have the same value. */
   flightLine: number;
   /** Whether this waypoint triggers a photo capture (true) or is a turn waypoint (false) */
@@ -52,6 +57,26 @@ export interface Waypoint {
   speedMs?: number;
   /** Optional: gimbal pitch in degrees (0=horizontal, -90=nadir/straight down) */
   gimbalPitchDegrees?: number;
+}
+
+/**
+ * Refuse to relabel an explicitly referenced imported height in an exporter
+ * that has no validated conversion for the source/target vertical datums.
+ * Legacy/planned waypoints with no reference retain their existing behavior.
+ */
+export function assertUnconvertedVerticalReferences(
+  waypoints: readonly Waypoint[],
+  targetFormat: string,
+): void {
+  const references = [...new Set(
+    waypoints.flatMap((waypoint) => waypoint.altitudeReference === undefined ? [] : [waypoint.altitudeReference]),
+  )];
+  if (references.length > 0) {
+    throw new Error(
+      `${targetFormat} export cannot safely reuse waypoint altitude reference(s) ${references.join(", ")}; ` +
+      "a validated conversion to the target vertical reference is required.",
+    );
+  }
 }
 
 /**

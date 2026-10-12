@@ -12,7 +12,7 @@
  * from sample missions; senseFly does not publish the schema publicly).
  */
 
-import type { Waypoint } from "../waypoints.js";
+import { assertUnconvertedVerticalReferences, type Waypoint } from "../waypoints.js";
 
 export interface SenseflyXmlOptions {
   /**
@@ -39,6 +39,7 @@ export function exportSenseflyXml(
   if (waypoints.length === 0) {
     throw new Error("Cannot export senseFly XML: waypoints array is empty");
   }
+  assertUnconvertedVerticalReferences(waypoints, "senseFly XML");
 
   const missionName = options.missionName ?? "MetaRDU Mission";
   const defaultSpeed = options.defaultSpeedMs ?? 15;

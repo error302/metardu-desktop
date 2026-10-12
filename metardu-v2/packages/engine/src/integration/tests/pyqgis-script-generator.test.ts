@@ -380,12 +380,19 @@ describe("pyQgisScriptExporter — Case 12: each survey type produces a non-empt
 // ─── Golden fixture tests ────────────────────────────────────────
 
 import { readFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const __dirname_fixture = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = join(__dirname_fixture, "fixtures");
+const PYTHON_EXECUTABLE = process.platform === "win32" ? "python" : "python3";
+
+function compilePythonFixture(filename: string): void {
+  execFileSync(PYTHON_EXECUTABLE, ["-m", "py_compile", join(FIXTURES_DIR, filename)], {
+    stdio: "pipe",
+  });
+}
 
 describe("pyQgisScriptExporter — golden .py fixtures", () => {
   it("kenya-cadastral.py exists and is valid Python syntax", () => {
@@ -400,12 +407,9 @@ describe("pyQgisScriptExporter — golden .py fixtures", () => {
     expect(script).toContain("QColor(255, 0, 0)"); // Kenya red crosses
     expect(script).toContain("golden-pyqgis-ke-001"); // adjustment run ID
 
-    // Validate Python syntax via python3 -m py_compile.
-    // Skip if python3 isn't available (rare in CI but possible).
+    // Validate Python syntax using the platform's conventional interpreter.
     try {
-      execSync(`python3 -m py_compile ${join(FIXTURES_DIR, "kenya-cadastral.py")}`, {
-        stdio: "pipe",
-      });
+      compilePythonFixture("kenya-cadastral.py");
     } catch (e) {
       throw new Error(
         `kenya-cadastral.py is not valid Python: ${(e as Error).message}`,
@@ -424,9 +428,7 @@ describe("pyQgisScriptExporter — golden .py fixtures", () => {
     expect(script).toContain("golden-pyqgis-topo-ke-001");
 
     try {
-      execSync(`python3 -m py_compile ${join(FIXTURES_DIR, "kenya-topographic.py")}`, {
-        stdio: "pipe",
-      });
+      compilePythonFixture("kenya-topographic.py");
     } catch (e) {
       throw new Error(
         `kenya-topographic.py is not valid Python: ${(e as Error).message}`,

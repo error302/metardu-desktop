@@ -25,6 +25,7 @@ import {
   importMission,
   type Waypoint,
 } from "../../index.js";
+import type { GeoidGrid } from "../../geodesy/geoid.js";
 
 // Generate a known set of waypoints for testing
 function getTestWaypoints(): Waypoint[] {
@@ -42,6 +43,36 @@ function getTestWaypoints(): Waypoint[] {
       ],
     },
   });
+}
+
+// Synthetic format-validation fixture only; it is not authoritative EGM96 data.
+const TEST_GEOID_GRID: GeoidGrid = {
+  id: "synthetic-egm96-test-grid",
+  name: "Synthetic test grid",
+  version: "test-only",
+  source: "unit-test fixture; not authoritative",
+  checksumSha256: "0".repeat(64),
+  referenceEllipsoid: "WGS84",
+  verticalDatum: "EGM96",
+  south: -2,
+  west: 36,
+  latStep: 1,
+  lngStep: 1,
+  rows: 2,
+  cols: 2,
+  values: Float64Array.of(25, 25, 25, 25),
+};
+
+function getDjiOptions(waypoints: Waypoint[]) {
+  return {
+    ellipsoidHeightsMeters: waypoints.map((_, i) => 100 + i),
+    egm96Grid: TEST_GEOID_GRID,
+    aircraft: { droneEnumValue: 77, droneSubEnumValue: 0 },
+    payload: { payloadEnumValue: 66, payloadPositionIndex: 0 },
+    globalSpeedMs: 7,
+    takeoffSecurityHeightM: 30,
+    returnToHomeHeightM: 60,
+  };
 }
 
 // Tolerance for round-trip comparison
@@ -177,13 +208,18 @@ describe("Round-trip: DJI KMZ", () => {
   it("export → import should preserve waypoint coordinates", async () => {
     const original = getTestWaypoints();
 
-    const exportResult = await exportMission(original, { format: "dji-kmz" });
+    const exportResult = await exportMission(original, { format: "dji-kmz", ...getDjiOptions(original) });
     expect(exportResult.bytes).toBeDefined();
 
     const imported = await importMission("dji-kmz", exportResult.bytes!);
 
     expect(imported.length).toBe(original.length);
-    compareWaypoints(original, imported);
+    imported.forEach((wp, i) => {
+      expect(wp.latitude).toBeCloseTo(original[i]!.latitude, 5);
+      expect(wp.longitude).toBeCloseTo(original[i]!.longitude, 5);
+    });
+    expect(imported.every((wp) => wp.altitudeReference === "WGS84")).toBe(true);
+    expect(imported.map((wp) => wp.altitudeMeters)).toEqual(getDjiOptions(original).ellipsoidHeightsMeters);
   });
 
   it("should throw on non-KMZ input", async () => {
@@ -202,7 +238,9 @@ describe("Cross-format consistency", () => {
     const roundTrips: Record<string, Waypoint[]> = {};
 
     for (const fmt of formats) {
-      const exportResult = await exportMission(original, { format: fmt });
+      const exportResult = fmt === "dji-kmz"
+        ? await exportMission(original, { format: fmt, ...getDjiOptions(original) })
+        : await exportMission(original, { format: fmt });
       const content = exportResult.text ?? exportResult.bytes!;
       const imported = await importMission(fmt, content as any);
       roundTrips[fmt] = imported;

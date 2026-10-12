@@ -1,50 +1,69 @@
 /**
  * DJI KMZ (wpml) mission export.
  *
- * Generates a KMZ file containing a `wpmz/res/wml.waypoints` XML document
- * in the DJI Pilot 2 / Litchi waypoint format.
+ * Generates a DJI WPML KMZ containing an editable template and executable wayline.
  *
  * The KMZ is a ZIP archive containing:
  *   wpmz/
- *     res/
- *       wml.waypoints   (the actual waypoint XML, despite the extension it's XML)
- *     template.kml      (mission metadata)
+ *     template.kml
+ *     waylines.wpml
  *
  * References:
  *   - DJI WPML spec: https://developer.dji.com/doc/cloud-api-tutorial/en/api-reference/dji-wpml/overview.html
  *   - Litchi CSV-compatible waypoints: https://flylitchi.com/help/how-to-create-and-edit-missions
  *
  * The wpml format uses a two-file structure:
- *   1. template.kml: mission-level config (takeoff security height, global speed, etc.)
- *   2. wml.waypoints: per-waypoint detail (lat, lng, height, actions)
+ *   1. template.kml: editable mission settings and EGM96 template heights
+ *   2. waylines.wpml: executable route with WGS84 ellipsoid heights
  */
 
 import type { Waypoint } from "../waypoints.js";
+import { convertHeight, type GeoidGrid } from "../../geodesy/geoid.js";
+
+export interface DjiAircraftProfile {
+  /** DJI WPML droneEnumValue from DJI's current aircraft enumeration. */
+  droneEnumValue: number;
+  /** DJI WPML droneSubEnumValue when the selected aircraft has a subtype. */
+  droneSubEnumValue?: number;
+}
+
+export interface DjiPayloadProfile {
+  /** DJI WPML payloadEnumValue from DJI's current camera enumeration. */
+  payloadEnumValue: number;
+  /** Main gimbal is normally 0; use the DJI profile's actual mount position. */
+  payloadPositionIndex: number;
+}
 
 /**
  * Options for DJI KMZ export.
  */
 export interface DjiKmzOptions {
+  /** Explicit WGS84 ellipsoid height for every waypoint, in waypoint order. */
+  ellipsoidHeightsMeters: readonly number[];
   /**
-   * Altitude reference mode.
-   * - "EGM96" (default, DJI standard): height above the EGM96 geoid (≈ MSL)
-   * - "WGS84": height above the WGS84 ellipsoid
-   * - "relative" / "takeoff": height above the takeoff point
-   *
-   * For photogrammetry missions, "EGM96" is recommended because it gives
-   * consistent AGL when terrain-aware altitude is used.
+   * Caller-supplied WGS84-to-EGM96 grid for paired template heights.
+   * A trusted loader must verify package bytes and checksum before passing
+   * the grid here; this exporter validates metadata shape, values, and coverage,
+   * but cannot authenticate the source or checksum claim.
    */
-  altitudeReference?: "EGM96" | "WGS84" | "relative" | "takeoff";
+  egm96Grid: GeoidGrid;
+  /** Aircraft identity matching the aircraft that will fly the mission. */
+  aircraft: DjiAircraftProfile;
+  /** Camera identity and mount position matching the aircraft payload. */
+  payload: DjiPayloadProfile;
   /**
    * Global auto-flight speed in m/s. Individual waypoints can override.
    * Default: drone's cruise speed.
    */
-  globalSpeedMs?: number;
+  globalSpeedMs: number;
   /**
    * Takeoff security height in meters. The drone ascends to this height
-   * before flying to the first waypoint. Default 30m.
+   * before flying to the first waypoint. The operator must choose it for
+   * the aircraft and site; no operational height is assumed.
    */
-  takeoffSecurityHeightM?: number;
+  takeoffSecurityHeightM: number;
+  /** Return-to-home height relative to takeoff. Required by DJI waylines. */
+  returnToHomeHeightM: number;
   /**
    * Mission name (shown in DJI Pilot). Default "MetaRDU Mission".
    */
@@ -57,196 +76,294 @@ export interface DjiKmzOptions {
 }
 
 /**
- * Generate the `template.kml` content for a DJI wpml mission.
- *
- * This file contains mission-level configuration.
+ * Generate the editable DJI template. Waypoint heights in this file use EGM96
+ * and are paired with their source WGS84 ellipsoid heights.
  */
-function generateTemplateKml(
-  waypoints: Waypoint[],
-  options: Required<DjiKmzOptions>
-): string {
-  const first = waypoints[0]!;
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="http://www.dji.com/wpmz/1.0.2">
-  <Document>
-    <wpml:missionConfig>
+function createMissionConfig(options: NormalizedDjiKmzOptions): string {
+  const droneSubType = options.aircraft.droneSubEnumValue === undefined
+    ? ""
+    : `<wpml:droneSubEnumValue>${options.aircraft.droneSubEnumValue}</wpml:droneSubEnumValue>`;
+  return `    <wpml:missionConfig>
       <wpml:flyToWaylineMode>safely</wpml:flyToWaylineMode>
       <wpml:finishAction>goHome</wpml:finishAction>
       <wpml:exitOnRCLost>executeLostAction</wpml:exitOnRCLost>
       <wpml:executeRCLostAction>goBack</wpml:executeRCLostAction>
+      <wpml:takeOffSecurityHeight>${options.takeoffSecurityHeightM}</wpml:takeOffSecurityHeight>
       <wpml:globalTransitionalSpeed>${options.globalSpeedMs}</wpml:globalTransitionalSpeed>
+      <wpml:globalRTHHeight>${options.returnToHomeHeightM}</wpml:globalRTHHeight>
       <wpml:droneInfo>
-        <wpml:droneEnumValue>68</wpml:droneEnumValue>
-        <wpml:droneSubEnumValue>0</wpml:droneSubEnumValue>
+        <wpml:droneEnumValue>${options.aircraft.droneEnumValue}</wpml:droneEnumValue>
+        ${droneSubType}
       </wpml:droneInfo>
       <wpml:payloadInfo>
-        <wpml:payloadEnumValue>52</wpml:payloadEnumValue>
-        <wpml:payloadSubEnumValue>0</wpml:payloadSubEnumValue>
-        <wpml:positionX>0</wpml:positionX>
-        <wpml:positionY>0</wpml:positionY>
-        <wpml:positionZ>0</wpml:positionZ>
+        <wpml:payloadEnumValue>${options.payload.payloadEnumValue}</wpml:payloadEnumValue>
+        <wpml:payloadPositionIndex>${options.payload.payloadPositionIndex}</wpml:payloadPositionIndex>
       </wpml:payloadInfo>
-      <wpml:takeoffSecurityHeight>${options.takeoffSecurityHeightM}</wpml:takeoffSecurityHeight>
-      <wpml:takeoffRefPoint>
-        <wpml:longitude>${first.longitude.toFixed(8)}</wpml:longitude>
-        <wpml:latitude>${first.latitude.toFixed(8)}</wpml:latitude>
-      </wpml:takeoffRefPoint>
-    </wpml:missionConfig>
+    </wpml:missionConfig>`;
+}
+
+function photoActionGroup(index: number, payloadPositionIndex: number): string {
+  return `
+      <wpml:actionGroup>
+        <wpml:actionGroupId>0</wpml:actionGroupId>
+        <wpml:actionGroupStartIndex>${index}</wpml:actionGroupStartIndex>
+        <wpml:actionGroupEndIndex>${index}</wpml:actionGroupEndIndex>
+        <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
+        <wpml:actionTrigger><wpml:actionTriggerType>reachPoint</wpml:actionTriggerType></wpml:actionTrigger>
+        <wpml:action>
+          <wpml:actionId>0</wpml:actionId>
+          <wpml:actionActuatorFunc>takePhoto</wpml:actionActuatorFunc>
+          <wpml:actionActuatorFuncParam>
+            <wpml:fileSuffix>point-${String(index + 1).padStart(5, "0")}</wpml:fileSuffix>
+            <wpml:payloadPositionIndex>${payloadPositionIndex}</wpml:payloadPositionIndex>
+          </wpml:actionActuatorFuncParam>
+        </wpml:action>
+      </wpml:actionGroup>`;
+}
+
+function waylineActionGroup(
+  index: number,
+  payloadPositionIndex: number,
+  gimbalPitchDeg: number,
+  isPhoto: boolean,
+): string {
+  const photoAction = isPhoto
+    ? `
+        <wpml:action>
+          <wpml:actionId>1</wpml:actionId>
+          <wpml:actionActuatorFunc>takePhoto</wpml:actionActuatorFunc>
+          <wpml:actionActuatorFuncParam>
+            <wpml:fileSuffix>point-${String(index + 1).padStart(5, "0")}</wpml:fileSuffix>
+            <wpml:payloadPositionIndex>${payloadPositionIndex}</wpml:payloadPositionIndex>
+          </wpml:actionActuatorFuncParam>
+        </wpml:action>`
+    : "";
+  return `
+      <wpml:actionGroup>
+        <wpml:actionGroupId>0</wpml:actionGroupId>
+        <wpml:actionGroupStartIndex>${index}</wpml:actionGroupStartIndex>
+        <wpml:actionGroupEndIndex>${index}</wpml:actionGroupEndIndex>
+        <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
+        <wpml:actionTrigger><wpml:actionTriggerType>reachPoint</wpml:actionTriggerType></wpml:actionTrigger>
+        <wpml:action>
+          <wpml:actionId>0</wpml:actionId>
+          <wpml:actionActuatorFunc>gimbalRotate</wpml:actionActuatorFunc>
+          <wpml:actionActuatorFuncParam>
+            <wpml:gimbalRotateMode>absoluteAngle</wpml:gimbalRotateMode>
+            <wpml:gimbalPitchRotateEnable>1</wpml:gimbalPitchRotateEnable>
+            <wpml:gimbalPitchRotateAngle>${formatNumber(gimbalPitchDeg)}</wpml:gimbalPitchRotateAngle>
+            <wpml:gimbalRollRotateEnable>0</wpml:gimbalRollRotateEnable>
+            <wpml:gimbalRollRotateAngle>0</wpml:gimbalRollRotateAngle>
+            <wpml:gimbalYawRotateEnable>0</wpml:gimbalYawRotateEnable>
+            <wpml:gimbalYawRotateAngle>0</wpml:gimbalYawRotateAngle>
+            <wpml:gimbalRotateTimeEnable>0</wpml:gimbalRotateTimeEnable>
+            <wpml:gimbalRotateTime>0</wpml:gimbalRotateTime>
+            <wpml:payloadPositionIndex>${payloadPositionIndex}</wpml:payloadPositionIndex>
+          </wpml:actionActuatorFuncParam>
+        </wpml:action>${photoAction}
+      </wpml:actionGroup>`;
+}
+
+function waypointHeadingParam(wp: Waypoint): string {
+  if (wp.headingDegrees === undefined) {
+    return "<wpml:waypointHeadingParam><wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode></wpml:waypointHeadingParam>";
+  }
+  return `<wpml:waypointHeadingParam>
+        <wpml:waypointHeadingMode>smoothTransition</wpml:waypointHeadingMode>
+        <wpml:waypointHeadingAngle>${formatNumber(toDjiHeading(wp.headingDegrees))}</wpml:waypointHeadingAngle>
+        <wpml:waypointHeadingPathMode>followBadArc</wpml:waypointHeadingPathMode>
+      </wpml:waypointHeadingParam>`;
+}
+
+function waypointTurnParam(): string {
+  return `<wpml:waypointTurnParam>
+        <wpml:waypointTurnMode>toPointAndStopWithDiscontinuityCurvature</wpml:waypointTurnMode>
+        <wpml:waypointTurnDampingDist>0</wpml:waypointTurnDampingDist>
+      </wpml:waypointTurnParam>`;
+}
+
+function generateTemplateKml(
+  waypoints: Waypoint[],
+  ellipsoidHeights: readonly number[],
+  egm96Heights: readonly number[],
+  options: NormalizedDjiKmzOptions,
+): string {
+  const placemarks = waypoints.map((wp, i) => `    <Placemark>
+      <Point><coordinates>${wp.longitude.toFixed(8)},${wp.latitude.toFixed(8)}</coordinates></Point>
+      <wpml:index>${i}</wpml:index>
+      <wpml:ellipsoidHeight>${formatNumber(ellipsoidHeights[i]!)}</wpml:ellipsoidHeight>
+      <wpml:height>${formatNumber(egm96Heights[i]!)}</wpml:height>
+      <wpml:useGlobalHeight>0</wpml:useGlobalHeight>
+      <wpml:useGlobalSpeed>0</wpml:useGlobalSpeed>
+      <wpml:waypointSpeed>${formatNumber(wp.speedMs ?? options.globalSpeedMs)}</wpml:waypointSpeed>
+      <wpml:useGlobalHeadingParam>0</wpml:useGlobalHeadingParam>
+      ${waypointHeadingParam(wp)}
+      <wpml:useGlobalTurnParam>0</wpml:useGlobalTurnParam>
+      ${waypointTurnParam()}
+      <wpml:useStraightLine>1</wpml:useStraightLine>
+      <wpml:gimbalPitchAngle>${formatNumber(wp.gimbalPitchDegrees ?? options.globalGimbalPitchDeg)}</wpml:gimbalPitchAngle>${wp.isPhoto ? photoActionGroup(i, options.payload.payloadPositionIndex) : ""}
+    </Placemark>`).join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="http://www.dji.com/wpmz/1.0.2">
+  <Document>
+    <wpml:author>${xmlEscape(options.missionName)}</wpml:author>
+${createMissionConfig(options)}
     <Folder>
       <wpml:templateType>waypoint</wpml:templateType>
       <wpml:templateId>0</wpml:templateId>
+      <wpml:waylineCoordinateSysParam>
+        <wpml:coordinateMode>WGS84</wpml:coordinateMode>
+        <wpml:heightMode>EGM96</wpml:heightMode>
+      </wpml:waylineCoordinateSysParam>
       <wpml:autoFlightSpeed>${options.globalSpeedMs}</wpml:autoFlightSpeed>
-      <wpml:waypointHeadingParam>
+      <wpml:gimbalPitchMode>usePointSetting</wpml:gimbalPitchMode>
+      <wpml:globalWaypointHeadingParam>
         <wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode>
-      </wpml:waypointHeadingParam>
-      <wpml:waypointTurnParam>
-        <wpml:waypointTurnMode>coordinateTurn</wpml:waypointTurnMode>
-        <wpml:waypointTurnDampingDist>0</wpml:waypointTurnDampingDist>
-      </wpml:waypointTurnParam>
-      <wpml:waypointGimbalHeadingParam>
-        <wpml:waypointGimbalHeadingMode>followWayline</wpml:waypointGimbalHeadingMode>
-        <wpml:gimbalPitch>${options.globalGimbalPitchDeg}</wpml:gimbalPitch>
-      </wpml:waypointGimbalHeadingParam>
-      <Placemark>
-        <wpml:index>0</wpml:index>
-        <Point>
-          <coordinates>${first.longitude.toFixed(8)},${first.latitude.toFixed(8)}</coordinates>
-        </Point>
-        <wpml:waypointHeadingParam>
-          <wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode>
-        </wpml:waypointHeadingParam>
-        <wpml:waypointTurnParam>
-          <wpml:waypointTurnMode>coordinateTurn</wpml:waypointTurnMode>
-          <wpml:waypointTurnDampingDist>0</wpml:waypointTurnDampingDist>
-        </wpml:waypointTurnParam>
-        <wpml:waypointGimbalHeadingParam>
-          <wpml:waypointGimbalHeadingMode>followWayline</wpml:waypointGimbalHeadingMode>
-          <wpml:gimbalPitch>${options.globalGimbalPitchDeg}</wpml:gimbalPitch>
-        </wpml:waypointGimbalHeadingParam>
-        <wpml:waypointContent>
-          <wpml:waypointSpeed>${options.globalSpeedMs}</wpml:waypointSpeed>
-          <wpml:waypointHeight>${first.altitudeMeters.toFixed(2)}</wpml:waypointHeight>
-          <wpml:useGlobalHeight>0</wpml:useGlobalHeight>
-          <wpml:useGlobalSpeed>1</wpml:useGlobalSpeed>
-          <wpml:useGlobalTurnParam>1</wpml:useGlobalTurnParam>
-          <wpml:useGlobalHeadingParam>1</wpml:useGlobalHeadingParam>
-          <wpml:waypointHeadingParam>
-            <wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode>
-          </wpml:waypointHeadingParam>
-          <wpml:actionGroup>
-            <wpml:actionGroupId>0</wpml:actionGroupId>
-            <wpml:actionGroupStartIndex>0</wpml:actionGroupStartIndex>
-            <wpml:actionGroupEndIndex>${waypoints.length - 1}</wpml:actionGroupEndIndex>
-            <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
-            <wpml:actionTrigger>
-              <wpml:actionTriggerType>reachPoint</wpml:actionTriggerType>
-            </wpml:actionTrigger>
-            <wpml:action>
-              <wpml:actionActuatorFunc>takePhoto</wpml:actionActuatorFunc>
-              <wpml:actionActuatorFuncParam>
-                <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
-                <wpml:useGlobalPayloadLensIndex>1</wpml:useGlobalPayloadLensIndex>
-              </wpml:actionActuatorFuncParam>
-            </wpml:action>
-          </wpml:actionGroup>
-        </wpml:waypointContent>
-      </Placemark>
+        <wpml:waypointHeadingPathMode>followBadArc</wpml:waypointHeadingPathMode>
+      </wpml:globalWaypointHeadingParam>
+      <wpml:globalWaypointTurnMode>toPointAndStopWithDiscontinuityCurvature</wpml:globalWaypointTurnMode>
+      <wpml:globalUseStraightLine>1</wpml:globalUseStraightLine>
+${placemarks}
     </Folder>
   </Document>
 </kml>`;
 }
 
-/**
- * Generate the `wml.waypoints` content (per-waypoint detail).
- *
- * Despite the `.waypoints` extension, this file is XML.
- */
-function generateWaypointsXml(
+function generateWaylinesWpml(
   waypoints: Waypoint[],
-  options: Required<DjiKmzOptions>
+  ellipsoidHeights: readonly number[],
+  options: NormalizedDjiKmzOptions,
 ): string {
-  const placemarks = waypoints.map((wp, i) => {
-    const speed = wp.speedMs ?? options.globalSpeedMs;
-    const gimbalPitch = wp.gimbalPitchDegrees ?? options.globalGimbalPitchDeg;
-    const heading = wp.headingDegrees ?? 0;
-
-    return `      <Placemark>
-        <wpml:index>${i}</wpml:index>
-        <Point>
-          <coordinates>${wp.longitude.toFixed(8)},${wp.latitude.toFixed(8)}</coordinates>
-        </Point>
-        <wpml:waypointContent>
-          <wpml:waypointSpeed>${speed}</wpml:waypointSpeed>
-          <wpml:waypointHeight>${wp.altitudeMeters.toFixed(2)}</wpml:waypointHeight>
-          <wpml:useGlobalHeight>0</wpml:useGlobalHeight>
-          <wpml:useGlobalSpeed>1</wpml:useGlobalSpeed>
-          <wpml:useGlobalTurnParam>1</wpml:useGlobalTurnParam>
-          <wpml:useGlobalHeadingParam>1</wpml:useGlobalHeadingParam>
-          <wpml:waypointHeadingParam>
-            <wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode>
-            <wpml:waypointHeadingAngle>${heading.toFixed(2)}</wpml:waypointHeadingAngle>
-          </wpml:waypointHeadingParam>
-          <wpml:waypointGimbalHeadingParam>
-            <wpml:waypointGimbalHeadingMode>followWayline</wpml:waypointGimbalHeadingMode>
-            <wpml:gimbalPitch>${gimbalPitch}</wpml:gimbalPitch>
-          </wpml:waypointGimbalHeadingParam>
-          <wpml:actionGroup>
-            <wpml:actionGroupId>${i}</wpml:actionGroupId>
-            <wpml:actionGroupStartIndex>${i}</wpml:actionGroupStartIndex>
-            <wpml:actionGroupEndIndex>${i}</wpml:actionGroupEndIndex>
-            <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
-            <wpml:actionTrigger>
-              <wpml:actionTriggerType>reachPoint</wpml:actionTriggerType>
-            </wpml:actionTrigger>
-            <wpml:action>
-              <wpml:actionActuatorFunc>takePhoto</wpml:actionActuatorFunc>
-              <wpml:actionActuatorFuncParam>
-                <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
-                <wpml:useGlobalPayloadLensIndex>1</wpml:useGlobalPayloadLensIndex>
-              </wpml:actionActuatorFuncParam>
-            </wpml:action>
-          </wpml:actionGroup>
-        </wpml:waypointContent>
-      </Placemark>`;
-  }).join("\n");
-
-  const first = waypoints[0]!;
+  const placemarks = waypoints.map((wp, i) => `    <Placemark>
+      <Point><coordinates>${wp.longitude.toFixed(8)},${wp.latitude.toFixed(8)}</coordinates></Point>
+      <wpml:index>${i}</wpml:index>
+      <wpml:executeHeight>${formatNumber(ellipsoidHeights[i]!)}</wpml:executeHeight>
+      <wpml:waypointSpeed>${formatNumber(wp.speedMs ?? options.globalSpeedMs)}</wpml:waypointSpeed>
+      ${waypointHeadingParam(wp)}
+      ${waypointTurnParam()}
+      <wpml:useStraightLine>1</wpml:useStraightLine>${waylineActionGroup(i, options.payload.payloadPositionIndex, wp.gimbalPitchDegrees ?? options.globalGimbalPitchDeg, wp.isPhoto)}
+    </Placemark>`).join("\n");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="http://www.dji.com/wpmz/1.0.2">
   <Document>
-    <wpml:missionConfig>
-      <wpml:flyToWaylineMode>safely</wpml:flyToWaylineMode>
-      <wpml:finishAction>goHome</wpml:finishAction>
-      <wpml:exitOnRCLost>executeLostAction</wpml:exitOnRCLost>
-      <wpml:executeRCLostAction>goBack</wpml:executeRCLostAction>
-      <wpml:globalTransitionalSpeed>${options.globalSpeedMs}</wpml:globalTransitionalSpeed>
-      <wpml:takeoffSecurityHeight>${options.takeoffSecurityHeightM}</wpml:takeoffSecurityHeight>
-      <wpml:takeoffRefPoint>
-        <wpml:longitude>${first.longitude.toFixed(8)}</wpml:longitude>
-        <wpml:latitude>${first.latitude.toFixed(8)}</wpml:latitude>
-      </wpml:takeoffRefPoint>
-    </wpml:missionConfig>
+${createMissionConfig(options)}
     <Folder>
-      <wpml:templateType>waypoint</wpml:templateType>
       <wpml:templateId>0</wpml:templateId>
+      <wpml:executeHeightMode>WGS84</wpml:executeHeightMode>
+      <wpml:waylineId>0</wpml:waylineId>
       <wpml:autoFlightSpeed>${options.globalSpeedMs}</wpml:autoFlightSpeed>
-      <wpml:waypointHeadingParam>
-        <wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode>
-      </wpml:waypointHeadingParam>
-      <wpml:waypointTurnParam>
-        <wpml:waypointTurnMode>coordinateTurn</wpml:waypointTurnMode>
-        <wpml:waypointTurnDampingDist>0</wpml:waypointTurnDampingDist>
-      </wpml:waypointTurnParam>
-      <wpml:waypointGimbalHeadingParam>
-        <wpml:waypointGimbalHeadingMode>followWayline</wpml:waypointGimbalHeadingMode>
-        <wpml:gimbalPitch>${options.globalGimbalPitchDeg}</wpml:gimbalPitch>
-      </wpml:waypointGimbalHeadingParam>
 ${placemarks}
     </Folder>
   </Document>
 </kml>`;
+}
+
+interface NormalizedDjiKmzOptions {
+  ellipsoidHeightsMeters: readonly number[];
+  egm96Grid: GeoidGrid;
+  aircraft: DjiAircraftProfile;
+  payload: DjiPayloadProfile;
+  globalSpeedMs: number;
+  takeoffSecurityHeightM: number;
+  returnToHomeHeightM: number;
+  missionName: string;
+  globalGimbalPitchDeg: number;
+}
+
+function normalizeOptions(options: DjiKmzOptions, waypointCount: number): NormalizedDjiKmzOptions {
+  if (!options || typeof options !== "object") {
+    throw new TypeError("DJI KMZ export requires explicit mission, aircraft, payload, and vertical-reference options");
+  }
+  if (!Array.isArray(options.ellipsoidHeightsMeters) || options.ellipsoidHeightsMeters.length !== waypointCount) {
+    throw new RangeError("DJI export requires one explicit WGS84 ellipsoid height for every waypoint");
+  }
+  if (options.ellipsoidHeightsMeters.some((height) => !Number.isFinite(height))) {
+    throw new RangeError("DJI export ellipsoid heights must all be finite");
+  }
+  if (!options.egm96Grid || typeof options.egm96Grid.verticalDatum !== "string") {
+    throw new TypeError("DJI KMZ export requires an EGM96 grid with provenance metadata");
+  }
+  if (options.egm96Grid.verticalDatum.trim().toUpperCase() !== "EGM96") {
+    throw new TypeError("DJI template heights require a caller-supplied grid labelled EGM96");
+  }
+  if (typeof options.egm96Grid.referenceEllipsoid !== "string" || !/^(WGS ?84)$/i.test(options.egm96Grid.referenceEllipsoid.trim())) {
+    throw new TypeError("DJI paired ellipsoid heights require a WGS84 reference ellipsoid geoid grid");
+  }
+  if (!options.aircraft || !options.payload) {
+    throw new TypeError("DJI KMZ export requires an explicit aircraft and camera profile");
+  }
+  if (!Number.isInteger(options.aircraft.droneEnumValue) || options.aircraft.droneEnumValue < 0) {
+    throw new RangeError("DJI aircraft profile requires a non-negative droneEnumValue");
+  }
+  if (options.aircraft.droneSubEnumValue !== undefined && (!Number.isInteger(options.aircraft.droneSubEnumValue) || options.aircraft.droneSubEnumValue < 0)) {
+    throw new RangeError("DJI aircraft subtype must be a non-negative integer");
+  }
+  if (!Number.isInteger(options.payload.payloadEnumValue) || options.payload.payloadEnumValue < 0) {
+    throw new RangeError("DJI payload profile requires a non-negative payloadEnumValue");
+  }
+  if (!Number.isInteger(options.payload.payloadPositionIndex) || options.payload.payloadPositionIndex < 0 || options.payload.payloadPositionIndex > 2) {
+    throw new RangeError("DJI payload position index must be 0, 1, or 2");
+  }
+  if (!Number.isFinite(options.globalSpeedMs) || options.globalSpeedMs <= 0 || options.globalSpeedMs > 15) {
+    throw new RangeError("DJI global flight speed must be greater than 0 and no more than 15 m/s");
+  }
+  const takeoffSecurityHeightM = options.takeoffSecurityHeightM;
+  if (!Number.isFinite(takeoffSecurityHeightM) || takeoffSecurityHeightM < 1.2 || takeoffSecurityHeightM > 1500) {
+    throw new RangeError("DJI take-off security height must be between 1.2 and 1500 m");
+  }
+  if (!Number.isFinite(options.returnToHomeHeightM) || options.returnToHomeHeightM <= 0) {
+    throw new RangeError("DJI return-to-home height must be a positive finite number of metres");
+  }
+  const missionName = options.missionName ?? "MetaRDU Survey Mission";
+  if (!missionName.trim() || missionName.length > 200) {
+    throw new RangeError("DJI mission name must contain 1 to 200 characters");
+  }
+  const globalGimbalPitchDeg = options.globalGimbalPitchDeg ?? -90;
+  if (!Number.isFinite(globalGimbalPitchDeg) || globalGimbalPitchDeg < -90 || globalGimbalPitchDeg > 30) {
+    throw new RangeError("DJI gimbal pitch must be between -90 and 30 degrees");
+  }
+  return {
+    ...options,
+    takeoffSecurityHeightM,
+    missionName,
+    globalGimbalPitchDeg,
+  };
+}
+
+function validateWaypoints(waypoints: Waypoint[]): void {
+  if (waypoints.length === 0) throw new Error("Cannot export KMZ: waypoints array is empty");
+  if (waypoints.length > 65_536) throw new RangeError("DJI WPML supports at most 65,536 waypoints per wayline");
+  for (const [index, wp] of waypoints.entries()) {
+    if (!Number.isFinite(wp.latitude) || wp.latitude < -90 || wp.latitude > 90 ||
+        !Number.isFinite(wp.longitude) || wp.longitude < -180 || wp.longitude > 180) {
+      throw new RangeError(`DJI waypoint ${index} has invalid WGS84 coordinates`);
+    }
+    if (wp.speedMs !== undefined && (!Number.isFinite(wp.speedMs) || wp.speedMs <= 0 || wp.speedMs > 15)) {
+      throw new RangeError(`DJI waypoint ${index} speed must be greater than 0 and no more than 15 m/s`);
+    }
+    if (wp.headingDegrees !== undefined && (!Number.isFinite(wp.headingDegrees) || wp.headingDegrees < -180 || wp.headingDegrees > 360)) {
+      throw new RangeError(`DJI waypoint ${index} heading must be between -180 and 360 degrees`);
+    }
+    if (wp.gimbalPitchDegrees !== undefined && (!Number.isFinite(wp.gimbalPitchDegrees) || wp.gimbalPitchDegrees < -90 || wp.gimbalPitchDegrees > 30)) {
+      throw new RangeError(`DJI waypoint ${index} gimbal pitch must be between -90 and 30 degrees`);
+    }
+  }
+}
+
+function formatNumber(value: number): string {
+  return value.toFixed(3).replace(/\.?0+$/, "");
+}
+
+function toDjiHeading(degrees: number): number {
+  return ((degrees + 180) % 360 + 360) % 360 - 180;
+}
+
+function xmlEscape(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;",
+  })[char]!);
 }
 
 /**
@@ -261,27 +378,23 @@ ${placemarks}
  */
 export async function exportDjiKmz(
   waypoints: Waypoint[],
-  options: DjiKmzOptions = {}
+  options: DjiKmzOptions
 ): Promise<Uint8Array> {
-  if (waypoints.length === 0) {
-    throw new Error("Cannot export KMZ: waypoints array is empty");
-  }
-
-  const merged: Required<DjiKmzOptions> = {
-    altitudeReference: options.altitudeReference ?? "EGM96",
-    globalSpeedMs: options.globalSpeedMs ?? 15,
-    takeoffSecurityHeightM: options.takeoffSecurityHeightM ?? 30,
-    missionName: options.missionName ?? "MetaRDU Mission",
-    globalGimbalPitchDeg: options.globalGimbalPitchDeg ?? -90,
-  };
-
-  const templateKml = generateTemplateKml(waypoints, merged);
-  const waypointsXml = generateWaypointsXml(waypoints, merged);
+  validateWaypoints(waypoints);
+  const normalized = normalizeOptions(options, waypoints.length);
+  const egm96Heights = waypoints.map((wp, i) => convertHeight(
+    wp.latitude,
+    wp.longitude,
+    normalized.ellipsoidHeightsMeters[i]!,
+    normalized.egm96Grid,
+  ).orthometric);
+  const templateKml = generateTemplateKml(waypoints, normalized.ellipsoidHeightsMeters, egm96Heights, normalized);
+  const waylinesWpml = generateWaylinesWpml(waypoints, normalized.ellipsoidHeightsMeters, normalized);
 
   // Build the ZIP archive (KMZ = ZIP)
   return await buildKmzZip([
     { path: "wpmz/template.kml", content: templateKml },
-    { path: "wpmz/res/wml.waypoints", content: waypointsXml },
+    { path: "wpmz/waylines.wpml", content: waylinesWpml },
   ]);
 }
 
@@ -298,7 +411,7 @@ async function buildKmzZip(
   files: Array<{ path: string; content: string }>
 ): Promise<Uint8Array> {
   // Use Node's built-in zlib for deflate compression
-  const { deflateSync } = await import("node:zlib");
+  const { deflateRawSync } = await import("node:zlib");
 
   const encoder = new TextEncoder();
   const localFileHeaders: Uint8Array[] = [];
@@ -309,7 +422,8 @@ async function buildKmzZip(
 
   for (const file of files) {
     const contentBytes = encoder.encode(file.content);
-    const compressed = deflateSync(Buffer.from(contentBytes));
+    // ZIP method 8 stores raw DEFLATE, without a zlib wrapper.
+    const compressed = deflateRawSync(Buffer.from(contentBytes));
 
     // CRC32 of the uncompressed content
     const crc = crc32(contentBytes);

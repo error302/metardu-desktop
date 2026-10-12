@@ -6,7 +6,7 @@
  *   - Litchi CSV
  *   - senseFly eMotion XML
  *   - Generic KML 2.2
- *   - DJI KMZ (wpml) — ZIP containing template.kml + wml.waypoints
+ *   - DJI KMZ (WPML) — ZIP containing template.kml + waylines.wpml
  *
  * Each importer returns a normalized Waypoint[] that can be round-tripped
  * back through the exporter and compared for verification.
@@ -345,91 +345,122 @@ export function importKml(content: string): Waypoint[] {
 // ─── DJI KMZ import ────────────────────────────────────────────────
 
 /**
- * Parse a DJI KMZ file (ZIP containing wpmz/res/wml.waypoints).
+ * Parse a DJI KMZ file (ZIP containing the executable wpmz/waylines.wpml).
  *
  * @param bytes KMZ file as a Uint8Array
  */
 export async function importDjiKmz(bytes: Uint8Array): Promise<Waypoint[]> {
   const files = unzipKmz(bytes);
 
-  // Find the wml.waypoints file (path may vary slightly between DJI versions)
-  const wpFile = files.find((f) => f.path.includes("wml.waypoints")) ??
-                 files.find((f) => f.path.endsWith(".waypoints"));
-  if (!wpFile) {
+  const waylinesFile = files.find((f) => f.path.replace(/\\/g, "/").endsWith("wpmz/waylines.wpml"));
+  if (waylinesFile) {
+    return parseDjiWaylines(new TextDecoder().decode(waylinesFile.content));
+  }
+
+  // Read the legacy MetaRDU archive format for migration. Its height reference
+  // was never declared, so values remain explicitly unknown after import.
+  const legacyFile = files.find((f) => f.path.replace(/\\/g, "/").includes("wml.waypoints")) ??
+    files.find((f) => f.path.endsWith(".waypoints"));
+  if (!legacyFile) {
     throw new Error(
-      `KMZ does not contain a wml.waypoints file. Found: ${files.map((f) => f.path).join(", ")}`
+      `KMZ does not contain wpmz/waylines.wpml. Found: ${files.map((f) => f.path).join(", ")}`
     );
   }
 
-  const xml = new TextDecoder().decode(wpFile.content);
-  return parseDjiWpmlWaypoints(xml);
+  return parseLegacyDjiWaypoints(new TextDecoder().decode(legacyFile.content));
 }
 
 /**
- * Parse the DJI wpml wml.waypoints XML content.
+ * Parse DJI's executable WPML. Each route declares its own height mode; retain
+ * that reference instead of treating every numeric height as an ellipsoid value.
  */
-function parseDjiWpmlWaypoints(xml: string): Waypoint[] {
+function parseDjiWaylines(xml: string): Waypoint[] {
   if (!xml.includes("<kml") || !xml.includes("wpml:")) {
-    throw new Error("XML does not appear to be a DJI wpml waypoints file");
+    throw new Error("XML does not appear to be a DJI WPML waylines file");
   }
-
   const waypoints: Waypoint[] = [];
+  const folderRegex = /<Folder>([\s\S]*?)<\/Folder>/g;
+  let folderMatch: RegExpExecArray | null;
+  while ((folderMatch = folderRegex.exec(xml)) !== null) {
+    const folder = folderMatch[1]!;
+    const modeMatch = folder.match(/<wpml:executeHeightMode>([^<]+)<\/wpml:executeHeightMode>/);
+    if (!modeMatch) throw new Error("DJI wayline is missing its executeHeightMode declaration");
+    const rawMode = modeMatch[1]!.trim();
+    const altitudeReference: Waypoint["altitudeReference"] = rawMode === "WGS84" || rawMode === "relativeToStartPoint"
+      ? rawMode
+      : "unknown";
+    const pmRegex = /<Placemark>([\s\S]*?)<\/Placemark>/g;
+    let match: RegExpExecArray | null;
+    while ((match = pmRegex.exec(folder)) !== null) {
+      const block = match[1]!;
+      const coordMatch = block.match(/<coordinates>\s*([^<]+?)\s*<\/coordinates>/);
+      if (!coordMatch) continue;
+      const coordParts = coordMatch[1]!.trim().split(",");
+      if (coordParts.length < 2) continue;
+      const longitude = Number(coordParts[0]);
+      const latitude = Number(coordParts[1]);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+        throw new Error("DJI wayline contains invalid WGS84 waypoint coordinates");
+      }
+      const heightMatch = block.match(/<wpml:executeHeight>([^<]+)<\/wpml:executeHeight>/);
+      if (!heightMatch) throw new Error("DJI wayline waypoint is missing executeHeight");
+      const altitudeMeters = Number(heightMatch[1]);
+      if (!Number.isFinite(altitudeMeters)) throw new Error("DJI wayline contains a non-finite executeHeight");
+      const headingMatch = block.match(/<wpml:waypointHeadingAngle>([^<]+)<\/wpml:waypointHeadingAngle>/);
+      const gimbalMatch = block.match(/<wpml:gimbalPitchRotateAngle>([^<]+)<\/wpml:gimbalPitchRotateAngle>/) ??
+        block.match(/<wpml:gimbalPitchAngle>([^<]+)<\/wpml:gimbalPitchAngle>/);
+      const speedMatch = block.match(/<wpml:waypointSpeed>([^<]+)<\/wpml:waypointSpeed>/);
+      const heading = headingMatch ? Number(headingMatch[1]) : undefined;
+      const gimbal = gimbalMatch ? Number(gimbalMatch[1]) : undefined;
+      const speed = speedMatch ? Number(speedMatch[1]) : undefined;
+      waypoints.push({
+        index: waypoints.length,
+        latitude,
+        longitude,
+        altitudeMeters,
+        altitudeReference,
+        flightLine: 0,
+        isPhoto: block.includes("<wpml:actionActuatorFunc>takePhoto</wpml:actionActuatorFunc>"),
+        ...(heading === undefined || !Number.isFinite(heading) ? {} : { headingDegrees: heading }),
+        ...(gimbal === undefined || !Number.isFinite(gimbal) ? {} : { gimbalPitchDegrees: gimbal }),
+        ...(speed === undefined || !Number.isFinite(speed) ? {} : { speedMs: speed }),
+      });
+    }
+  }
+  if (waypoints.length === 0) {
+    throw new Error("No executable <Placemark> waypoints found in DJI waylines.wpml");
+  }
+  return waypoints;
+}
 
-  // Extract all <Placemark> blocks
+function parseLegacyDjiWaypoints(xml: string): Waypoint[] {
+  if (!xml.includes("<kml") || !xml.includes("wpml:")) {
+    throw new Error("XML does not appear to be a legacy MetaRDU DJI WPML file");
+  }
+  const waypoints: Waypoint[] = [];
   const pmRegex = /<Placemark>([\s\S]*?)<\/Placemark>/g;
   let match: RegExpExecArray | null;
-  let idx = 0;
-
   while ((match = pmRegex.exec(xml)) !== null) {
     const block = match[1]!;
-
-    // Extract coordinates from <Point><coordinates>lng,lat</coordinates>
-    const coordMatch = block.match(/<coordinates>([^<]+)<\/coordinates>/);
-    if (!coordMatch) continue;
-
-    const coordParts = coordMatch[1]!.trim().split(",");
-    if (coordParts.length < 2) continue;
-
-    const lng = parseFloat(coordParts[0]!);
-    const lat = parseFloat(coordParts[1]!);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-
-    // Extract waypoint height from <wpml:waypointHeight>
+    const coordMatch = block.match(/<coordinates>\s*([^<]+?)\s*<\/coordinates>/);
     const heightMatch = block.match(/<wpml:waypointHeight>([^<]+)<\/wpml:waypointHeight>/);
-    const alt = heightMatch ? parseFloat(heightMatch[1]!) : 0;
-
-    // Extract heading from <wpml:waypointHeadingAngle>
-    const headingMatch = block.match(/<wpml:waypointHeadingAngle>([^<]+)<\/wpml:waypointHeadingAngle>/);
-    const heading = headingMatch ? parseFloat(headingMatch[1]!) : 0;
-
-    // Extract gimbal pitch from <wpml:gimbalPitch>
-    const gimbalMatch = block.match(/<wpml:gimbalPitch>([^<]+)<\/wpml:gimbalPitch>/);
-    const gimbal = gimbalMatch ? parseFloat(gimbalMatch[1]!) : -90;
-
-    // Extract speed from <wpml:waypointSpeed>
-    const speedMatch = block.match(/<wpml:waypointSpeed>([^<]+)<\/wpml:waypointSpeed>/);
-    const speed = speedMatch ? parseFloat(speedMatch[1]!) : undefined;
-
-    // Determine if this waypoint has a photo action
-    const isPhoto = block.includes("takePhoto");
-
+    if (!coordMatch || !heightMatch) continue;
+    const [longitudeText, latitudeText] = coordMatch[1]!.trim().split(",");
+    const longitude = Number(longitudeText);
+    const latitude = Number(latitudeText);
+    const altitudeMeters = Number(heightMatch[1]);
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude) || !Number.isFinite(altitudeMeters)) continue;
     waypoints.push({
-      index: idx++,
-      latitude: lat,
-      longitude: lng,
-      altitudeMeters: Number.isFinite(alt) ? alt : 0,
+      index: waypoints.length,
+      latitude,
+      longitude,
+      altitudeMeters,
+      altitudeReference: "unknown",
       flightLine: 0,
-      isPhoto,
-      headingDegrees: heading,
-      gimbalPitchDegrees: gimbal,
-      speedMs: Number.isFinite(speed) ? speed : undefined,
+      isPhoto: block.includes("takePhoto"),
     });
   }
-
-  if (waypoints.length === 0) {
-    throw new Error("No <Placemark> waypoints found in DJI wpml XML");
-  }
-
+  if (waypoints.length === 0) throw new Error("No legacy MetaRDU DJI WPML waypoints found");
   return waypoints;
 }
 
@@ -554,7 +585,7 @@ interface ZipEntry {
  */
 function unzipKmz(bytes: Uint8Array): ZipEntry[] {
   // Lazy-load zlib only when needed
-  const { inflateSync } = require("node:zlib");
+  const { inflateRawSync, inflateSync } = require("node:zlib");
   const entries: ZipEntry[] = [];
 
   // Find all local file headers (signature 0x04034b50)
@@ -586,8 +617,15 @@ function unzipKmz(bytes: Uint8Array): ZipEntry[] {
         // Stored (no compression)
         content = compressedData;
       } else if (compressionMethod === 8) {
-        // Deflate
-        content = new Uint8Array(inflateSync(Buffer.from(compressedData)));
+        // ZIP method 8 is raw DEFLATE. Accept zlib-wrapped data only for the
+        // legacy MetaRDU writer, which incorrectly wrapped its DEFLATE stream.
+        try {
+          content = new Uint8Array(inflateRawSync(Buffer.from(compressedData)));
+        } catch (error) {
+          const legacyMetaRduEntry = fileName.replace(/\\/g, "/").startsWith("wpmz/");
+          if (!legacyMetaRduEntry) throw error;
+          content = new Uint8Array(inflateSync(Buffer.from(compressedData)));
+        }
       } else {
         throw new Error(`Unsupported ZIP compression method: ${compressionMethod} for file ${fileName}`);
       }

@@ -19,7 +19,7 @@
  *   - actions: semicolon-separated list of actions, e.g., "0(2)" means "take photo, wait 2s"
  */
 
-import type { Waypoint } from "../waypoints.js";
+import { assertUnconvertedVerticalReferences, type Waypoint } from "../waypoints.js";
 
 export interface LitchiCsvOptions {
   /**
@@ -53,6 +53,7 @@ export function exportLitchiCsv(
   if (waypoints.length === 0) {
     throw new Error("Cannot export Litchi CSV: waypoints array is empty");
   }
+  assertUnconvertedVerticalReferences(waypoints, "Litchi CSV");
 
   const altitudeMode = options.altitudeMode ?? 0;
   const defaultSpeed = options.defaultSpeedMs ?? 15;

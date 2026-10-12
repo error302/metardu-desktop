@@ -23,7 +23,7 @@
  * Reference: https://mavlink.io/en/messages/common.html#MAV_CMD_NAV_WAYPOINT
  */
 
-import type { Waypoint } from "../waypoints.js";
+import { assertUnconvertedVerticalReferences, type Waypoint } from "../waypoints.js";
 
 /**
  * Coordinate frame for MAVLink missions.
@@ -92,6 +92,7 @@ export function exportArduPilotWaypoints(
   if (waypoints.length === 0) {
     throw new Error("Cannot export .waypoints: waypoints array is empty");
   }
+  assertUnconvertedVerticalReferences(waypoints, "ArduPilot");
 
   const coordinateFrame = options.coordinateFrame ?? 3;
   const holdTime = options.holdTimeSec ?? 0;

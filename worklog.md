@@ -2397,3 +2397,95 @@ Stage Summary:
 - Verification: `npx vitest run src/surveying/tests/critical-modules.test.ts --reporter=dot` — **37 passed**; engine `npx tsc --noEmit` — passed; engine workspace build — passed; desktop main/preload build — passed; renderer Vite build — passed.
 - Renderer-wide TypeScript checking still reports existing errors in other views/components; no diagnostic referenced `DatumTransformationView.tsx`. This limits the typecheck claim to the edited file's lack of a reported error and successful Vite build.
 - The grid API requires a 64-character SHA-256 metadata field but does not itself hash or validate file bytes. A verified loader and authoritative model packages remain required before any real geoid output can be enabled.
+
+---
+Task ID: flight-planning-dji-wpml-export
+Agent: Codex (2026-10-12)
+Task: Replace the invalid DJI waypoint archive with explicit DJI WPML mission export and import behavior.
+
+Work Log:
+- Replaced the old `wml.waypoints` archive with DJI's two-file `wpmz/template.kml` + `wpmz/waylines.wpml` package. Template heights are converted from explicit WGS84 ellipsoid heights through a caller-supplied EGM96 grid; executable route heights state WGS84.
+- Added required aircraft, payload, global speed, takeoff security height, return-to-home height, and per-waypoint ellipsoid-height inputs. Removed the implicit takeoff-height default. Missing or invalid evidence fails closed.
+- Updated mission import to read `wpmz/waylines.wpml`, preserve the executable height mode, and support the legacy archive path as unknown-height provenance. Corrected ZIP compression/decompression to use raw DEFLATE, retaining a compatibility fallback for older locally generated files.
+- Updated public export descriptions and synthetic test-only fixtures. The synthetic grid is explicitly not an EGM96 model and must never be treated as production evidence.
+- Corrected a duplicate GNSS test that still expected the disabled 35 m WGS84/Arc 1960 operation to round-trip. Updated PyQGIS fixture syntax checks to invoke `python` on Windows and `python3` elsewhere using argument-safe process spawning.
+- The controlling master plan path referenced by `AGENT.md`, `upload/METARDU-DESKTOP-MASTER-PLAN.md`, is absent from this checkout. The task stayed within the existing engine and documented invariants/ADRs.
+
+Verification evidence (verbatim terminal summaries):
+
+~~~text
+$ npm run test --workspace @metardu/engine-flight-planning -- src/flight-planning/tests/export.test.ts src/flight-planning/tests/import.test.ts
+Test Files  2 passed (2)
+     Tests  48 passed (48)
+~~~
+
+~~~text
+$ npm test --workspace @metardu/engine-flight-planning
+Test Files  45 passed (45)
+     Tests  860 passed (860)
+   Duration  16.75s (transform 23.27s, setup 0ms, collect 101.00s, tests 20.20s, environment 27ms, prepare 36.74s)
+~~~
+
+~~~text
+$ npm test --workspace @metardu/e2e-tests
+Test Files  1 passed (1)
+     Tests  23 passed | 5 skipped (28)
+   Duration  16.33s (transform 8.73s, setup 0ms, collect 12.05s, tests 1.74s, environment 1ms, prepare 744ms)
+~~~
+
+~~~text
+$ npm run lint --workspace @metardu/engine-flight-planning
+(exit 0; no TypeScript diagnostics)
+$ npm run build --workspace @metardu/engine-flight-planning
+(exit 0)
+$ npx tsc --noEmit (apps/desktop)
+(exit 0; no TypeScript diagnostics)
+~~~
+
+~~~text
+$ cargo build --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+thread 'main' panicked at ... gdal-sys-0.10.0/build.rs:204:9:
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+~~~
+
+~~~text
+$ cargo test --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+thread 'main' panicked at ... gdal-sys-0.10.0/build.rs:204:9:
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+~~~
+
+Stage Summary:
+- Engine DJI export/import tests and the full engine suite pass. The E2E suite passes with 5 skipped tests. Engine lint/build and desktop TypeScript checks pass.
+- Rust build/test remain unverified because this Windows environment lacks the GDAL import library. These checks do not establish aircraft execution compatibility or survey-grade certification.
+- DJI mission export is still not available in the desktop UI. No authoritative EGM96 grid package or byte-verifying grid loader is installed, so the UI must remain blocked from producing operational DJI KMZ files until those release gates are complete.
+- Next: implement an offline, checksum-verifying vertical-grid package and an actual project-area-driven mission editor/export flow; validate DJI profile data and provide device-specific known-answer/aircraft tests before describing the feature as ready for field use.
+
+### Addendum — cross-format vertical-reference safety and final verification (2026-10-12)
+- Code review found that imported DJI WGS84 execution heights could be silently reused by the ArduPilot, Litchi, senseFly, or generic KML exporter, each of which has different height semantics. Added a shared fail-closed guard to those four exporters whenever `altitudeReference` is present. DJI export continues to require a separate ellipsoid-height array and supplied grid; it does not reinterpret `Waypoint.altitudeMeters`.
+- Clarified that the DJI exporter checks grid metadata, coverage, and values but does not authenticate grid provenance or hash source bytes. A trusted byte-verifying loader is still a required release gate.
+- Final verification after these changes:
+
+~~~text
+$ npm run test --workspace @metardu/engine-flight-planning -- src/flight-planning/tests/export.test.ts src/flight-planning/tests/import.test.ts
+Test Files  2 passed (2)
+     Tests  50 passed (50)
+~~~
+
+~~~text
+$ npm test --workspace @metardu/engine-flight-planning
+Test Files  45 passed (45)
+     Tests  862 passed (862)
+   Duration  15.16s (transform 19.28s, setup 0ms, collect 87.46s, tests 18.33s, environment 28ms, prepare 34.24s)
+~~~
+
+~~~text
+$ npm test --workspace @metardu/e2e-tests
+Test Files  1 passed (1)
+     Tests  23 passed | 5 skipped (28)
+   Duration  13.16s (transform 6.77s, setup 0ms, collect 8.85s, tests 1.80s, environment 1ms, prepare 1.03s)
+~~~
+
+- Engine lint/build and desktop `npx tsc --noEmit` all exited 0. Desktop typecheck printed no diagnostics. `git diff --check` on the scoped files exited 0.
+- Product limits remain: no user-driven mission-area editor/export flow in the desktop UI; no installed, byte-verified EGM96 package; no physical DJI device validation. The commit is an engine contract correction, not a field-ready desktop feature claim.

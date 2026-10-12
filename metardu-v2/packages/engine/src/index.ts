@@ -31,8 +31,12 @@
  *   area: { coordinates: [...] },
  * });
  *
- * const result = await exportMission(waypoints, { format: "dji-kmz" });
- * // → { format: "dji-kmz", bytes: Uint8Array, ... }
+ * const result = await exportMission(waypoints, {
+ *   format: "dji-kmz",
+ *   ellipsoidHeightsMeters, egm96Grid, aircraft, payload,
+ *   globalSpeedMs: 7, returnToHomeHeightM: 60,
+ * });
+ * // DJI export requires verified vertical data and explicit DJI profiles.
  * ```
  */
 
@@ -116,7 +120,12 @@ export {
 } from "./flight-planning/export/index.js";
 
 // Re-export individual format functions for advanced use
-export { exportDjiKmz, type DjiKmzOptions } from "./flight-planning/export/dji-kmz.js";
+export {
+  exportDjiKmz,
+  type DjiAircraftProfile,
+  type DjiKmzOptions,
+  type DjiPayloadProfile,
+} from "./flight-planning/export/dji-kmz.js";
 export { exportArduPilotWaypoints, type ArduPilotWaypointsOptions } from "./flight-planning/export/ardupilot-waypoints.js";
 export { exportLitchiCsv, type LitchiCsvOptions } from "./flight-planning/export/litchi-csv.js";
 export { exportSenseflyXml, type SenseflyXmlOptions } from "./flight-planning/export/sensefly-xml.js";
@@ -471,6 +480,32 @@ export {
 // LandXML 1.2 export (NLIMS/ArdhiSasa submission)
 export { landxmlExporter } from "./integration/landxml-export.js";
 export type { LandxmlOptions, LandxmlOutput } from "./integration/landxml-export.js";
+
+// Feature Coding & Field-to-Finish
+export {
+  fieldToFinish,
+  generateDxfLayerTable,
+  FEATURE_CODES,
+  FEATURE_CODE_MAP,
+  type FeatureCode,
+  type FeatureCategory,
+  type FeatureGeometry,
+  type CodedPoint,
+  type ProcessedFeature,
+} from "./surveying/feature-coding.js";
+
+// Geoid Undulation & Orthometric Height Reduction
+export {
+  interpolateUndulation,
+  ellipsoidalToOrthometric,
+  orthometricToEllipsoidal,
+  egm2008Approximate,
+  convertHeight,
+  GEOID_MODELS,
+  KENYA_GEOID_VALUES,
+  type GeoidModel,
+  type GeoidGrid,
+} from "./geodesy/geoid.js";
 
 // Version
 export const ENGINE_VERSION = "0.5.0";
