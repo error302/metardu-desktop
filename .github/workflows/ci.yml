@@ -144,7 +144,7 @@ jobs:
       - name: Test all packages
         working-directory: metardu-v2
         run: |
-          cd packages/engine && npx vitest run --maxWorkers=1 --minWorkers=1
+          cd packages/engine && npx vitest run --pool=threads --maxWorkers=1 --minWorkers=1
           cd ../country-config && npx vitest run
           cd ../electron-integration && npx vitest run
           cd ../ipc-schemas && npx vitest run
@@ -164,8 +164,8 @@ jobs:
           Xvfb :99 -screen 0 1280x800x24 &
           XVFB_PID=$!
           sleep 1
-          DISPLAY=:99 timeout 15 ../../node_modules/.bin/electron . \
-            --no-sandbox --disable-gpu --disable-dev-shm-usage > /tmp/smoke.log 2>&1 || true
+          DISPLAY=:99 timeout 15 ../../node_modules/.bin/electron \
+            --no-sandbox --disable-gpu --disable-dev-shm-usage . > /tmp/smoke.log 2>&1 || true
           kill $XVFB_PID 2>/dev/null || true
           # Verify the sidecar reached running state
           if grep -q "sidecar.*state.*running" /tmp/smoke.log; then

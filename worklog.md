@@ -2542,3 +2542,22 @@ $ git diff --check
 ~~~
 
 - The fixes are locally validated; GitHub Actions for the current revision is pending. Earlier failed runs remain useful diagnostics and are not treated as final verification.
+
+
+### CI feedback iteration — Electron sidecar discovery and Node 20 worker pool (2026-10-12)
+- GitHub Actions run #259 (`38197171668`) on `76155d50fb5337aeb0ddb5d71a4f478e18c07cc4`: Ubuntu, macOS, and Windows sidecar builds/tests passed; Windows used OSGeo4W. Node 22 and Node 24 package tests, type checks, and renderer builds passed. Their Electron smoke checks failed because the compiled main-process lookup stopped one directory above `metardu-v2`, and Chromium flags appeared after the app path. Node 20's engine suite failed with two unexpected Vitest fork-worker exits (43/45 files and 842/862 tests completed).
+- Corrected the desktop development-sidecar root to walk four directories up from `apps/desktop/dist/main`; moved Electron headless flags before the app path; and changed the Node 20 engine invocation to one worker in Vitest's threads pool.
+
+Verification evidence for this revision before push:
+
+~~~text
+$ python - (PyYAML; parses .github/workflows/ci.yml and asserts the sidecar path, Electron argument order, and Node 20 pool command)
+.github\workflows\ci.yml: YAML parsed; jobs=sidecar,typescript
+Sidecar root and CI command assertions: passed
+
+$ git diff --check
+(exit 0; no output)
+~~~
+
+- No local product tests were run. The fixes require GitHub Actions confirmation. Run #260 will validate this revision; results are pending at push time.
+- This remains a CI repair. It does not establish global survey-grade product readiness or close the documented field validation gaps.

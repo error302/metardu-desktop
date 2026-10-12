@@ -33,8 +33,8 @@ ci-native-survey-deps
 - [ ] GDAL 3.13 builds use the published GeoRust 0.19.0 crate with a documented local vendor patch matching the merged upstream compatibility changes, until a published release includes them.
 - [ ] Windows CI locates the installed gdal_i.lib, GDAL headers, and runtime version; sets GDAL_LIB_DIR and GDAL_INCLUDE_DIR; and executes Cargo inside the OSGeo4W environment.
 - [ ] Windows uses the published GeoRust 0.19.0 crate with its upstream GDAL 3.12 prebuilt bindings against the OSGeo4W runtime and sets GDAL_VERSION=3.12.0 for Cargo; Unix uses the documented GDAL 3.13 vendor patch with bindgen.
-- [ ] The Electron smoke command resolves Electron from the workspace root node_modules directory.
-- [ ] Node 20 engine tests use a single Vitest worker after CI reported unexpected worker exits under the default pool.
+- [ ] The Electron smoke command resolves Electron from the workspace root node_modules directory and passes Chromium headless flags before the app path.
+- [ ] Node 20 engine tests use one worker from Vitest's threads pool after CI reported unexpected worker process exits under the default forks pool.
 - [ ] GCP export resolves the display name for the configured `primarySRID`, so multi-zone countries cannot emit a different zone label; existing Node-matrix coverage passes.
 
 ### Tests
