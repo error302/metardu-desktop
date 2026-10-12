@@ -2798,3 +2798,39 @@ Post-edit verification for desktop-shared-subscription-policy-clarification:
 $ git diff --check
 exit 0; no whitespace diagnostics (Git emitted LF-to-CRLF conversion warnings only)
 ~~~
+
+---
+Task ID: subscription-api-fail-closed
+Agent: Codex (2026-10-12)
+Task: Prevent Web subscription errors from looking like valid account state
+
+Work Log:
+- Created `metardu-v2/docs/agent-briefs/web-subscription-route-fail-closed.md` to keep this server-side fix scoped and state the remaining Desktop entitlement work.
+- Audited Web subscription consumers: the subscription context and AI access client already check `response.ok` and fail closed; the account and billing views catch API errors instead of granting paid access.
+- In an isolated Web worktree based on `origin/main` (`a8b94a46`), changed GET `/api/subscription` so signed-out requests return 401 `UNAUTHORIZED` without plan/status, and subscription-service failures return 503 `SUBSCRIPTION_UNAVAILABLE` without plan/status. Both errors set `Cache-Control: no-store`.
+- Preserved the authenticated no-row response as the legitimate `free`/`active` account state.
+- Added three regression cases and appended Web `worklog.md` evidence. Web change is committed locally as `6b6dc6a` on `codex/desktop-shared-entitlement`.
+- The original Web checkout contains unpublished local changes and was not modified. The isolated branch is based on published `origin/main` and includes only this route fix, its test, and the Web worklog.
+
+Verification:
+~~~text
+$ npm test -- --runInBand src/app/api/subscription/route.test.ts
+Test Suites: 1 passed, 1 total
+Tests:       3 passed, 3 total
+Snapshots:   0 total
+~~~
+
+~~~text
+$ npm run typecheck
+src/lib/pdf/generatePdf.ts(41,7): error TS2322: Type '"networkidle0"' is not assignable to type '"load" | "domcontentloaded" | ("load" | "domcontentloaded")[] | undefined'.
+~~~
+
+~~~text
+$ git diff --check (Web worktree)
+exit 0; no whitespace diagnostics
+~~~
+
+Stage Summary:
+- The route regression tests pass. The full Web typecheck remains red on the unrelated Puppeteer `waitUntil` type at `src/lib/pdf/generatePdf.ts:41`.
+- Automatic review rejected pushing to the separate Web GitHub repository because its ownership/trust could not be verified. I did not retry or use another push path; the commit remains local pending owner approval.
+- No Web deployment was performed or verified. Desktop account authorization, entitlement API, protected credential storage, server revocation, and offline policy remain unimplemented; Desktop still does not verify or grant access.
