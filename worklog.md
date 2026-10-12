@@ -2489,3 +2489,52 @@ Test Files  1 passed (1)
 
 - Engine lint/build and desktop `npx tsc --noEmit` all exited 0. Desktop typecheck printed no diagnostics. `git diff --check` on the scoped files exited 0.
 - Product limits remain: no user-driven mission-area editor/export flow in the desktop UI; no installed, byte-verified EGM96 package; no physical DJI device validation. The commit is an engine contract correction, not a field-ready desktop feature claim.
+
+---
+Task ID: crs-candidate-lookup
+Agent: Codex (2026-10-12)
+Task: Replace automatic CRS guessing with explicit surveyor selection.
+
+Work Log:
+- Replaced the location-ranked CRS lookup with an API that requires an explicit jurisdiction and returns all catalog entries whose declared bounds contain the input coordinate.
+- Renamed the country listing to describe CRS catalog metadata rather than supported countries.
+- Added a complete EPSG-entry listing and changed single-entry lookup to fail closed when duplicate records conflict. EPSG:21037 currently has KEN and TZA records with different area metadata; lookup now returns null instead of whichever record is encountered first.
+- Updated the focused geodesy and critical-surveying tests. No renderer, IPC, sidecar math, or regulatory output changed.
+
+Changed files:
+- metardu-v2/packages/engine/src/geodesy/crs-database.ts
+- metardu-v2/packages/engine/src/geodesy/tests/crs-database.test.ts
+- metardu-v2/packages/engine/src/surveying/tests/critical-modules.test.ts
+- metardu-v2/docs/agent-briefs/crs-candidate-lookup.md
+
+Verification evidence:
+
+~~~text
+$ npm test --workspace @metardu/engine-flight-planning -- src/geodesy/tests/crs-database.test.ts src/surveying/tests/critical-modules.test.ts
+Test Files  2 passed (2)
+     Tests  40 passed (40)
+   Duration  1.20s (transform 446ms, setup 0ms, collect 562ms, tests 72ms, environment 1ms, prepare 593ms)
+~~~
+
+~~~text
+$ npm test --workspace @metardu/engine-flight-planning
+ Test Files  45 passed (45)
+      Tests  858 passed (858)
+   Start at  04:21:26
+   Duration  8.39s (transform 9.04s, setup 0ms, collect 47.67s, tests 15.83s, environment 25ms, prepare 16.21s)
+~~~
+
+~~~text
+$ npm run lint --workspace @metardu/engine-flight-planning
+> @metardu/engine-flight-planning@0.1.0 lint
+> tsc --noEmit
+
+exit code: 0
+~~~
+
+- git diff --check exited 0. The Git client reported LF-to-CRLF working-copy normalization warnings for the edited TypeScript files and worklog; it reported no whitespace errors.
+
+Stage Summary:
+- Location search now requires a surveyor-selected jurisdiction and never ranks multiple matching CRSs into one answer. The catalog remains discovery metadata, not proof of area-of-use, operation, workflow, or legal support.
+- Conflicting duplicate EPSG metadata is visible and blocks single-record lookup.
+- Next: reconcile the catalog entries against authoritative CRS registry records and build a separately validated, area/epoch/grid-aware operation catalogue.

@@ -538,67 +538,82 @@ export const CRS_DATABASE: Record<string, CrsDefinition[]> = {
 };
 
 /**
- * Find the best CRS for a given latitude/longitude.
- *
- * Selects the CRS whose bounding box contains the point, preferring
- * UTM zones for the correct longitude.
+ * A catalog entry that may be shown for explicit surveyor review.
+ * It is not a selected project CRS, coordinate operation, or proof of
+ * area-of-use compliance or statutory support.
  */
-export function findCrsForLocation(lat: number, lng?: number): CrsDefinition | null {
-  // EPSG fallback — supports task literal findCrsForLocation(2053) pattern
-  if (lng === undefined || lng === null || Number.isNaN(lng as unknown as number)) {
-    const epsgHit = getCrsByEpsg(lat);
-    if (epsgHit) return epsgHit;
-    return null;
-  }
-  let best: CrsDefinition | null = null;
-  let bestScore = -Infinity;
-
-  for (const [, crsList] of Object.entries(CRS_DATABASE)) {
-    for (const crs of crsList) {
-      // Check if point is within bounds
-      const [s, w, n, e] = crs.bounds;
-      if (lat >= s && lat <= n && lng >= w && lng <= e) {
-        // Prefer UTM with correct zone
-        let score = 1;
-        if (crs.utmZone) {
-          const expectedZone = Math.floor((lng + 180) / 6) + 1;
-          if (crs.utmZone === expectedZone) {
-            score = 10; // Perfect zone match
-          } else {
-            score = 1; // Wrong zone but in the area
-          }
-        }
-        // Prefer regional CRS over global
-        if (crs.datum !== "WGS 84") {
-          score += 2;
-        }
-        if (score > bestScore) {
-          bestScore = score;
-          best = crs;
-        }
-      }
-    }
-  }
-
-  return best;
+export interface CrsCatalogEntry {
+  jurisdiction: string;
+  crs: CrsDefinition;
 }
 
 /**
- * Get CRS by EPSG code.
+ * Return every CRS catalog entry whose declared bounds contain a coordinate
+ * within a surveyor-selected jurisdiction. Bounds are discovery metadata only;
+ * the caller must not treat a match as a project CRS or transformation.
+ */
+export function listCrsCandidatesForLocation(
+  jurisdiction: string,
+  lat: number,
+  lng: number,
+): CrsCatalogEntry[] {
+  if (!/^[A-Z]{3}$/.test(jurisdiction)) {
+    throw new RangeError("A three-letter uppercase jurisdiction code must be selected");
+  }
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+    throw new RangeError("Latitude and longitude must be finite geographic coordinates");
+  }
+
+  const crsList = CRS_DATABASE[jurisdiction];
+  if (!crsList) return [];
+
+  const candidates: CrsCatalogEntry[] = [];
+  for (const crs of crsList) {
+    const [south, west, north, east] = crs.bounds;
+    if (lat >= south && lat <= north && lng >= west && lng <= east) {
+      candidates.push({ jurisdiction, crs });
+    }
+  }
+
+  return candidates.sort((left, right) => left.crs.epsg - right.crs.epsg);
+}
+
+/**
+ * Return all catalog records using an EPSG identifier. The current country
+ * catalog duplicates some EPSG codes with differing area metadata, so callers
+ * that need one definition must use getCrsByEpsg, which fails closed on conflict.
+ */
+export function listCrsCatalogEntriesByEpsg(epsg: number): CrsCatalogEntry[] {
+  if (!Number.isInteger(epsg) || epsg <= 0) {
+    throw new RangeError("EPSG identifier must be a positive integer");
+  }
+
+  return Object.entries(CRS_DATABASE)
+    .flatMap(([jurisdiction, crsList]) =>
+      crsList.filter((crs) => crs.epsg === epsg).map((crs) => ({ jurisdiction, crs })),
+    )
+    .sort((left, right) => left.jurisdiction.localeCompare(right.jurisdiction));
+}
+
+/**
+ * Get a single consistent CRS definition by EPSG code.
+ * Returns null when no record exists or duplicate records conflict.
  */
 export function getCrsByEpsg(epsg: number): CrsDefinition | null {
-  for (const [, crsList] of Object.entries(CRS_DATABASE)) {
-    for (const crs of crsList) {
-      if (crs.epsg === epsg) return crs;
-    }
-  }
-  return null;
-}
+  const entries = listCrsCatalogEntriesByEpsg(epsg);
+  if (entries.length === 0) return null;
 
+  const first = JSON.stringify(entries[0]!.crs);
+  if (entries.some(({ crs }) => JSON.stringify(crs) !== first)) return null;
+  return entries[0]!.crs;
+}
 /**
- * List all supported countries.
+ * List jurisdictions that currently have CRS metadata in this catalog.
+ *
+ * Presence here does not mean that METARDU supports a complete survey workflow,
+ * validates local operations, or provides legally accepted outputs there.
  */
-export function listSupportedCountries(): Array<{ iso3: string; name: string; crsCount: number }> {
+export function listCrsCatalogJurisdictions(): Array<{ iso3: string; name: string; crsCount: number }> {
   const countryNames: Record<string, string> = {
     KEN: "Kenya", TZA: "Tanzania", UGA: "Uganda", RWA: "Rwanda",
     BDI: "Burundi", ETH: "Ethiopia", SSD: "South Sudan",
