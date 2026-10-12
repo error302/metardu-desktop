@@ -26,19 +26,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Plus, FolderOpen, Folder, Pencil, Trash2, Check, X, Loader2, Star, FolderArchive, Sparkles, ChevronRight, Eye, EyeOff } from "lucide-react";
 import { useSurveyState } from "../SurveyStateContext.js";
 import { PROJECT_TEMPLATES, getTemplateById, type ProjectTemplate } from "../project-templates.js";
-
-// The supported-country list drives the create form's country picker.
-// Source of truth remains @metardu/country-config; this is the subset
-// surfaced in the Projects panel UI.
-const COUNTRIES: Array<{ code: string; label: string }> = [
-  { code: "KE", label: "Kenya" },
-  { code: "AU", label: "Australia" },
-  { code: "AE", label: "United Arab Emirates" },
-  { code: "ZA", label: "South Africa" },
-  { code: "GB", label: "United Kingdom" },
-  { code: "DE", label: "Germany" },
-  { code: "US", label: "United States" },
-];
+import { COUNTRY_OPTIONS } from "../countries.js";
 
 const SURVEY_TYPES = [
   "cadastral",
@@ -66,7 +54,7 @@ export const ProjectsPanel: React.FC = () => {
 
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
-  const [country, setCountry] = useState("KE");
+  const [country, setCountry] = useState("");
   const [surveyType, setSurveyType] = useState("cadastral");
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
@@ -330,7 +318,7 @@ export const ProjectsPanel: React.FC = () => {
 
         {/* ─── Template Cards ──────────────────────────────────── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "8px", marginBottom: "12px" }}>
-          {PROJECT_TEMPLATES.filter((t) => t.countryCode === country).map((tmpl) => (
+          {country ? PROJECT_TEMPLATES.filter((t) => t.countryCode === country).map((tmpl) => (
             <div
               key={tmpl.id}
               onClick={() => {
@@ -381,7 +369,11 @@ export const ProjectsPanel: React.FC = () => {
                 )}
               </div>
             </div>
-          ))}
+          )) : (
+            <p style={{ gridColumn: "1 / -1", margin: 0, padding: "12px", border: "1px dashed var(--border-default)", borderRadius: "8px", color: "var(--text-tertiary)", fontSize: "12px" }}>
+              Choose a configured jurisdiction to browse local templates, or create a neutral project without assigning a country. CRS and statutory requirements will remain unset until you provide them.
+            </p>
+          )}
         </div>
 
         {/* ─── Template Info Panel ─────────────────────────────── */}
@@ -436,10 +428,15 @@ export const ProjectsPanel: React.FC = () => {
             />
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-            <label style={subLabelStyle}>Country</label>
-            <select style={inputStyle} value={country} onChange={(e) => setCountry(e.target.value)}>
-              {COUNTRIES.map((c) => (
-                <option key={c.code} value={c.code}>{c.label}</option>
+            <label style={subLabelStyle}>Jurisdiction (optional)</label>
+            <select style={inputStyle} value={country} onChange={(e) => {
+              setCountry(e.target.value);
+              setSelectedTemplate(null);
+              setShowTemplateInfo(null);
+            }}>
+              <option value="">Unspecified — neutral project</option>
+              {COUNTRY_OPTIONS.map((option) => (
+                <option key={option.code} value={option.code}>{option.name}</option>
               ))}
             </select>
           </div>
@@ -542,7 +539,7 @@ export const ProjectsPanel: React.FC = () => {
                         )}
                       </div>
                     </td>
-                    <td style={td}>{p.countryCode}</td>
+                    <td style={td}>{p.countryCode || "Not specified"}</td>
                     <td style={td}>{p.surveyType}</td>
                     <td style={td}>{p.sourceView}</td>
                     <td style={td}>v{p.version}</td>
