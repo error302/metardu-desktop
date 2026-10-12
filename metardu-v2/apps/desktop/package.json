@@ -33,7 +33,7 @@
     "@metardu/engine-flight-planning": "*",
     "@metardu/ipc-schemas": "*",
     "@metardu/report-pdf": "*",
-    "better-sqlite3": "^13.0.3",
+    "better-sqlite3": "12.11.1",
     "lucide-react": "*",
     "ol": "^10.9.0",
     "pdf-lib": "^1.17.1",

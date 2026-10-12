@@ -28,13 +28,9 @@ thiserror = "1.0"
 # Async runtime (for future MAVSDK, ODM, ONNX integration)
 tokio = { version = "1", features = ["full"] }
 
-# GDAL bindings for raster I/O (contour generation, DSM/DTM reading)
-# This requires libgdal-dev to be installed system-wide:
-#   Debian/Ubuntu: apt install libgdal-dev
-#   macOS:         brew install gdal
-#   Windows:       OSGeo4W installer
-# The `bindgen` feature generates bindings at build time for the installed GDAL version.
-gdal = { version = "0.17", optional = true, features = ["bindgen"] }
+# Native GDAL bindings use the vendored GDAL 0.19 source with the upstream 3.13 API patch.
+# Unix generates bindings from installed headers. Windows uses the upstream 3.12
+# prebuilt bindings with the OSGeo4W runtime to avoid the MSVC enum signedness mismatch.
 
 # GeoJSON serialization (for contour output)
 geojson = { version = "0.24", optional = true }
@@ -50,10 +46,12 @@ lazy_static = "1.4"
 uuid = { version = "1.8", features = ["v4"] }
 url = "2.5"
 
+gdal_platform = { package = "metardu-gdal-platform-shim", path = "vendor/gdal-platform-shim", optional = true }
+
 [features]
 default = ["gdal-bindings", "instrument"]
 # Enable native GDAL Rust bindings (requires system libgdal)
-gdal-bindings = ["dep:gdal", "dep:geojson"]
+gdal-bindings = ["dep:gdal_platform", "dep:geojson"]
 # Shell-out fallback (uses gdal_contour CLI, no native bindings)
 # Use this feature on platforms where native GDAL bindings are hard to build
 shell-out = []

@@ -63,6 +63,7 @@ jobs:
             libgdal-dev \
             libclang-dev \
             clang \
+            libdbus-1-dev \
             libsecret-1-dev \
             libusb-1.0-0-dev \
             libudev-dev \
@@ -80,6 +81,7 @@ jobs:
           npm run build --workspace @metardu/electron-integration
           npm run build --workspace @metardu/ipc-schemas
           npm run build --workspace @metardu/engine-flight-planning
+          npm run build --workspace @metardu/report-pdf
 
       - name: Build sidecar (Rust)
         working-directory: metardu-v2/packages/metardu-sidecar
@@ -156,6 +158,7 @@ jobs:
             libgdal-dev \
             libclang-dev \
             clang \
+            libdbus-1-dev \
             wine64 \
             mingw-w64
 
@@ -170,6 +173,7 @@ jobs:
           npm run build --workspace @metardu/electron-integration
           npm run build --workspace @metardu/ipc-schemas
           npm run build --workspace @metardu/engine-flight-planning
+          npm run build --workspace @metardu/report-pdf
 
       # Note: building the Rust sidecar for Windows from Linux requires
       # the gdal-sys crate to find Windows gdal libraries. This is
@@ -239,8 +243,8 @@ jobs:
 
       - name: Install macOS build deps
         run: |
-          brew install gdal
-          brew install libclang
+          brew install gdal dbus llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
 
       - name: Install npm dependencies
         working-directory: metardu-v2
@@ -253,11 +257,10 @@ jobs:
           npm run build --workspace @metardu/electron-integration
           npm run build --workspace @metardu/ipc-schemas
           npm run build --workspace @metardu/engine-flight-planning
+          npm run build --workspace @metardu/report-pdf
 
       - name: Build sidecar (Rust)
         working-directory: metardu-v2/packages/metardu-sidecar
-        env:
-          LIBCLANG_PATH: /opt/homebrew/opt/llvm/lib
         run: cargo build --release
 
       - name: Build renderer + desktop

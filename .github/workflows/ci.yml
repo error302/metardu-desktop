@@ -35,18 +35,67 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgdal-dev libclang-dev clang
+          sudo apt-get install -y libgdal-dev libclang-dev clang libdbus-1-dev
       - name: Install macOS deps
         if: matrix.os == 'macos-latest'
         run: |
-          brew install gdal
-          echo "LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib" >> $GITHUB_ENV
-      - name: Build
+          brew install gdal dbus llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+      - name: Install Windows GDAL development files
+        if: matrix.os == 'windows-latest'
+        id: osgeo4w
+        uses: echoix/setup-OSGeo4W@f4311523e39f2c8b10e34ebbc3f2ff437ecfb9ed # v0.2.0
+        with:
+          packages: gdal-devel
+          root: C:/OSGeo4W
+      - name: Locate Windows GDAL import library
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        env:
+          OSGEO4W_ROOT: ${{ steps.osgeo4w.outputs.root }}
+        run: |
+          $gdalLibrary = Get-ChildItem -Path $env:OSGEO4W_ROOT -Filter gdal_i.lib -File -Recurse -ErrorAction Stop | Select-Object -First 1
+          if ($null -eq $gdalLibrary) { throw "OSGeo4W gdal-devel did not install gdal_i.lib" }
+          $gdalHeader = Get-ChildItem -Path $env:OSGEO4W_ROOT -Filter cpl_atomic_ops.h -File -Recurse -ErrorAction Stop | Select-Object -First 1
+          if ($null -eq $gdalHeader) { throw "OSGeo4W gdal-devel did not install cpl_atomic_ops.h" }
+          $gdalVersionHeader = Get-ChildItem -Path $env:OSGEO4W_ROOT -Filter gdal_version.h -File -Recurse -ErrorAction Stop | Select-Object -First 1
+          if ($null -eq $gdalVersionHeader) { throw "OSGeo4W gdal-devel did not install gdal_version.h" }
+          $versionContents = Get-Content -LiteralPath $gdalVersionHeader.FullName -Raw
+          $major = [regex]::Match($versionContents, '(?m)^\s*#\s*define\s+GDAL_VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor = [regex]::Match($versionContents, '(?m)^\s*#\s*define\s+GDAL_VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $revision = [regex]::Match($versionContents, '(?m)^\s*#\s*define\s+GDAL_VERSION_REV\s+(\d+)').Groups[1].Value
+          if ([string]::IsNullOrWhiteSpace($major) -or [string]::IsNullOrWhiteSpace($minor) -or [string]::IsNullOrWhiteSpace($revision)) {
+            throw "Could not parse GDAL version from $($gdalVersionHeader.FullName)"
+          }
+          "GDAL_LIB_DIR=$($gdalLibrary.DirectoryName)" >> $env:GITHUB_ENV
+          "GDAL_INCLUDE_DIR=$($gdalHeader.DirectoryName)" >> $env:GITHUB_ENV
+          "GDAL_VERSION=$major.$minor.$revision" >> $env:GITHUB_ENV
+      - name: Build (Linux/macOS)
+        if: matrix.os != 'windows-latest'
         working-directory: metardu-v2/packages/metardu-sidecar
         run: cargo build --release
-      - name: Test
+      - name: Build (Windows with OSGeo4W)
+        if: matrix.os == 'windows-latest'
+        working-directory: metardu-v2/packages/metardu-sidecar
+        shell: cmd /D /E:ON /V:OFF /S /C "CALL C:/OSGeo4W/OSGeo4W.bat "{0}""
+        run: |
+          set "PATH=%PATH%;%USERPROFILE%\.cargo\bin"
+          rem Use gdal-sys upstream prebuilt Windows bindings for GDAL 3.12.
+          set "GDAL_VERSION=3.12.0"
+          cargo build --release
+      - name: Test (Linux/macOS)
+        if: matrix.os != 'windows-latest'
         working-directory: metardu-v2/packages/metardu-sidecar
         run: cargo test --release
+      - name: Test (Windows with OSGeo4W)
+        if: matrix.os == 'windows-latest'
+        working-directory: metardu-v2/packages/metardu-sidecar
+        shell: cmd /D /E:ON /V:OFF /S /C "CALL C:/OSGeo4W/OSGeo4W.bat "{0}""
+        run: |
+          set "PATH=%PATH%;%USERPROFILE%\.cargo\bin"
+          rem Use gdal-sys upstream prebuilt Windows bindings for GDAL 3.12.
+          set "GDAL_VERSION=3.12.0"
+          cargo test --release
 
   # ─── TypeScript engine + packages ───────────────────────────────
   typescript:
@@ -67,7 +116,7 @@ jobs:
       - name: Install Linux deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgdal-dev libclang-dev clang
+          sudo apt-get install -y libgdal-dev libclang-dev clang libdbus-1-dev
       - name: Install npm deps
         working-directory: metardu-v2
         run: npm install --no-audit --no-fund
@@ -83,6 +132,7 @@ jobs:
           npm run build --workspace @metardu/electron-integration
           npm run build --workspace @metardu/ipc-schemas
           npm run build --workspace @metardu/engine-flight-planning
+          npm run build --workspace @metardu/report-pdf
       - name: Type-check all packages
         working-directory: metardu-v2
         run: |
@@ -94,7 +144,7 @@ jobs:
       - name: Test all packages
         working-directory: metardu-v2
         run: |
-          cd packages/engine && npx vitest run
+          cd packages/engine && npx vitest run --maxWorkers=1 --minWorkers=1
           cd ../country-config && npx vitest run
           cd ../electron-integration && npx vitest run
           cd ../ipc-schemas && npx vitest run
@@ -114,8 +164,8 @@ jobs:
           Xvfb :99 -screen 0 1280x800x24 &
           XVFB_PID=$!
           sleep 1
-          DISPLAY=:99 timeout 15 ../node_modules/.bin/electron . \
-            --no-sandbox --disable-gpu --disable-dev-shm-usage > /tmp/smoke.log 2>&1 || true
+          DISPLAY=:99 timeout 15 ../../node_modules/.bin/electron \
+            --no-sandbox --disable-gpu --disable-dev-shm-usage . > /tmp/smoke.log 2>&1 || true
           kill $XVFB_PID 2>/dev/null || true
           # Verify the sidecar reached running state
           if grep -q "sidecar.*state.*running" /tmp/smoke.log; then

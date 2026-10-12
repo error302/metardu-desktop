@@ -61,7 +61,7 @@ function resolveSidecarBinary(): string | null {
   }
 
   // Development: walk up from apps/desktop/dist/main/ to find the repo root.
-  const devRoot = path.resolve(__dirname, "..", "..", "..");
+  const devRoot = path.resolve(__dirname, "..", "..", "..", "..");
   possiblePaths.push(
     path.join(devRoot, "packages", "metardu-sidecar", "target", "release", "metardu-sidecar" + platformExt),
   );

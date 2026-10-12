@@ -2489,3 +2489,122 @@ Test Files  1 passed (1)
 
 - Engine lint/build and desktop `npx tsc --noEmit` all exited 0. Desktop typecheck printed no diagnostics. `git diff --check` on the scoped files exited 0.
 - Product limits remain: no user-driven mission-area editor/export flow in the desktop UI; no installed, byte-verified EGM96 package; no physical DJI device validation. The commit is an engine contract correction, not a field-ready desktop feature claim.
+
+---
+Task ID: ci-native-survey-deps
+Agent: Codex (2026-10-12)
+Task: Repair native geospatial dependencies in CI and release workflows
+
+Work Log:
+- Reviewed the prior GitHub Actions failures: Linux lacked `dbus-1.pc`; Windows lacked the GDAL import library `gdal_i.lib`. TypeScript Node 20/24 cells were downstream failures because they build the Rust sidecar first.
+- Added `libdbus-1-dev` to both Linux CI dependency steps and both Linux release-sidecar dependency lists. Added Homebrew `dbus` to macOS CI and release installs.
+- Pinned `echoix/setup-OSGeo4W` to immutable revision `f4311523e39f2c8b10e34ebbc3f2ff437ecfb9ed`, installed `gdal-devel`, located `gdal_i.lib` for `GDAL_LIB_DIR`, and configured Windows Cargo steps to run through `OSGeo4W.bat`.
+- Added `metardu-v2/docs/agent-briefs/ci-native-survey-deps.md` with the scope, constraints, and independent acceptance criteria.
+
+Verification evidence (verbatim terminal output):
+
+~~~text
+$ python - (PyYAML 6.0.2; parses .github/workflows/ci.yml and .github/workflows/release.yml)
+.github/workflows/ci.yml: YAML parsed; jobs=sidecar, typescript
+.github/workflows/release.yml: YAML parsed; jobs=release-linux, release-windows, release-macos
+CI dependency assertions: passed
+
+$ git diff --check
+(exit 0; no output)
+
+$ git status --short --branch
+## codex/fix-ci-native-survey-deps
+ M .github/workflows/ci.yml
+ M .github/workflows/release.yml
+?? metardu-v2/docs/agent-briefs/ci-native-survey-deps.md
+~~~
+
+Stage Summary:
+- Local YAML parsing and whitespace validation pass. GitHub Actions has not yet run against this branch; no platform build or test is claimed as passing.
+- The release workflow still documents its existing Windows packaging limitation: it builds a Linux-native sidecar for the Windows installer. Fixing Windows release cross-compilation is a separate product gate.
+- Next: push this scoped branch, open its PR, and record the real Actions matrix result here.
+
+
+### CI feedback iteration — Windows headers and report-pdf build (2026-10-12)
+- Workflow run #253 rejected the dynamic `steps.*` reference in the custom `shell` field; commit `110472dda4203b39ef50e931cc25ef5fbe56023b` uses OSGeo4W's documented static `C:/OSGeo4W` path.
+- The next run reached the Windows Cargo step but OSGeo4W's environment did not expose Cargo on `PATH`; commit `03ca3ac4a2929eea9692dc5b574cf248b777244a` restores `%USERPROFILE%\\.cargo\\bin` inside both wrapped scripts.
+- Workflow run #255 then found the GDAL import library and Cargo, but bindgen could not find `cpl_atomic_ops.h`. It also exposed a clean-runner TypeScript error: `@metardu/report-pdf` was imported but its workspace build was absent from the CI/release build lists.
+- Added `GDAL_INCLUDE_DIR` discovery from the installed header and added the report-pdf workspace build to the Node matrix and all three release jobs.
+
+Verification evidence for the current pending revision:
+
+~~~text
+$ python - (PyYAML 6.0.2; parses both workflows and checks all required job entries)
+Workflow YAML parsed; report-pdf is built in CI and all release jobs; Windows GDAL headers/libs are configured
+
+$ git diff --check
+(exit 0; no output)
+~~~
+
+- The fixes are locally validated; GitHub Actions for the current revision is pending. Earlier failed runs remain useful diagnostics and are not treated as final verification.
+
+
+### CI feedback iteration — Electron sidecar discovery and Node 20 worker pool (2026-10-12)
+- GitHub Actions run #259 (`38197171668`) on `76155d50fb5337aeb0ddb5d71a4f478e18c07cc4`: Ubuntu, macOS, and Windows sidecar builds/tests passed; Windows used OSGeo4W. Node 22 and Node 24 package tests, type checks, and renderer builds passed. Their Electron smoke checks failed because the compiled main-process lookup stopped one directory above `metardu-v2`, and Chromium flags appeared after the app path. Node 20's engine suite failed with two unexpected Vitest fork-worker exits (43/45 files and 842/862 tests completed).
+- Corrected the desktop development-sidecar root to walk four directories up from `apps/desktop/dist/main`; moved Electron headless flags before the app path; and changed the Node 20 engine invocation to one worker in Vitest's threads pool.
+
+Verification evidence for this revision before push:
+
+~~~text
+$ python - (PyYAML; parses .github/workflows/ci.yml and asserts the sidecar path, Electron argument order, and Node 20 pool command)
+.github\workflows\ci.yml: YAML parsed; jobs=sidecar,typescript
+Sidecar root and CI command assertions: passed
+
+$ git diff --check
+(exit 0; no output)
+~~~
+
+- No local product tests were run. The fixes require GitHub Actions confirmation. Run #260 will validate this revision; results are pending at push time.
+- This remains a CI repair. It does not establish global survey-grade product readiness or close the documented field validation gaps.
+
+
+### CI feedback iteration — Electron smoke and three-platform sidecar pass (2026-10-12)
+- GitHub Actions run #260 (`38197793304`) on `72cc89148dd9a665243d934aaf9ebb43ae970144`: Ubuntu, macOS, and Windows sidecar build/tests passed; Node 22 and Node 24 full jobs passed, including the Electron sidecar smoke test. Node 20 failed in the engine tests with process exit 139 (segmentation fault) after two test files completed and while the GeoJSON exporter suite was executing. This was not an assertion failure, and the single-thread pool change did not resolve it.
+- Added verbose per-test output for the Node 20 engine command only, preserving the one-worker threads pool, to identify the last test before the process exits in the next run.
+- The exact failing test case is not yet established. No local product tests were run; next validation is the pushed GitHub Actions matrix.
+
+
+### CI feedback iteration — Node 20 SQLite compatibility identified (2026-10-12)
+- GitHub Actions run #261 (`38198442851`) on `a85692983fec7ac591657ba7c1e8d11a2f8ef0c1`: Ubuntu, macOS, and Windows sidecar build/tests passed; Node 22 and Node 24 full jobs passed including Electron smoke. Node 20 segfaulted in the GeoPackage SQLite test on first database use; verbose output showed metadata tests passing immediately before exit 139.
+- Root cause: the lock resolved `better-sqlite3` 13.0.3, whose upstream package metadata requires Node >=22, while this repository declares Node >=20 and Electron 33 bundles Node 20.18.0. Upstream `better-sqlite3` 12.11.1 explicitly supports Node 20.x, and the repository's root install-script allowlist already names 12.11.1.
+- Pinned the engine and desktop dependencies to 12.11.1 and regenerated the npm workspace lock. Removed the temporary verbose/thread-pool diagnostic; the Node 20 engine suite returns to Vitest's normal forks pool with one worker, retaining the GeoPackage tests.
+
+Local validation for this revision:
+
+~~~text
+$ npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+up to date in 17s
+
+$ python - (PyYAML and JSON assertions: workflow parses; both workspace manifests and lock entries resolve better-sqlite3 12.11.1; lock metadata includes Node 20.x; root allowlist matches)
+validation assertions: passed
+
+$ git diff --check
+(exit 0; no output)
+~~~
+
+- No local product tests were run. GitHub Actions must verify the native addon under Node 20 and all existing Node/sidecar matrix cells on the pushed revision.
+
+
+### Final GitHub verification — CI matrix passes (2026-10-12)
+- GitHub Actions run #262 (`38199050004`) for commit `7ffada3079ba6c9413032fd4632ca69b5671e273` completed successfully: TypeScript Node 20, Node 22, Node 24 and Rust sidecar Ubuntu, macOS, Windows all passed.
+- Node 20 passed package tests including GeoPackage SQLite use and the Electron smoke test. Node 22/24 also passed their full package checks, renderer build, and Electron smoke. The three native sidecar platform build/test jobs all passed; Windows ran with OSGeo4W.
+- This confirms the CI compatibility repair and native sidecar checks. It does not prove global survey-grade product readiness, regulatory acceptance, or physical instrument/device validation.
+
+~~~text
+$ gh run view 38199050004 --repo error302/metardu-desktop
+conclusion: success
+TypeScript — Node 20: success
+TypeScript — Node 22: success
+TypeScript — Node 24: success
+Sidecar (Rust) — ubuntu-22.04: success
+Sidecar (Rust) — macos-latest: success
+Sidecar (Rust) — windows-latest: success
+
+$ git diff --check
+(exit 0; no output)
+~~~
