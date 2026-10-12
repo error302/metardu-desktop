@@ -39,8 +39,8 @@ jobs:
       - name: Install macOS deps
         if: matrix.os == 'macos-latest'
         run: |
-          brew install gdal dbus
-          echo "LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib" >> $GITHUB_ENV
+          brew install gdal dbus llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
       - name: Install Windows GDAL development files
         if: matrix.os == 'windows-latest'
         id: osgeo4w
@@ -58,8 +58,18 @@ jobs:
           if ($null -eq $gdalLibrary) { throw "OSGeo4W gdal-devel did not install gdal_i.lib" }
           $gdalHeader = Get-ChildItem -Path $env:OSGEO4W_ROOT -Filter cpl_atomic_ops.h -File -Recurse -ErrorAction Stop | Select-Object -First 1
           if ($null -eq $gdalHeader) { throw "OSGeo4W gdal-devel did not install cpl_atomic_ops.h" }
+          $gdalVersionHeader = Get-ChildItem -Path $env:OSGEO4W_ROOT -Filter gdal_version.h -File -Recurse -ErrorAction Stop | Select-Object -First 1
+          if ($null -eq $gdalVersionHeader) { throw "OSGeo4W gdal-devel did not install gdal_version.h" }
+          $versionContents = Get-Content -LiteralPath $gdalVersionHeader.FullName -Raw
+          $major = [regex]::Match($versionContents, '(?m)^\s*#\s*define\s+GDAL_VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor = [regex]::Match($versionContents, '(?m)^\s*#\s*define\s+GDAL_VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $revision = [regex]::Match($versionContents, '(?m)^\s*#\s*define\s+GDAL_VERSION_REV\s+(\d+)').Groups[1].Value
+          if ([string]::IsNullOrWhiteSpace($major) -or [string]::IsNullOrWhiteSpace($minor) -or [string]::IsNullOrWhiteSpace($revision)) {
+            throw "Could not parse GDAL version from $($gdalVersionHeader.FullName)"
+          }
           "GDAL_LIB_DIR=$($gdalLibrary.DirectoryName)" >> $env:GITHUB_ENV
           "GDAL_INCLUDE_DIR=$($gdalHeader.DirectoryName)" >> $env:GITHUB_ENV
+          "GDAL_VERSION=$major.$minor.$revision" >> $env:GITHUB_ENV
       - name: Build (Linux/macOS)
         if: matrix.os != 'windows-latest'
         working-directory: metardu-v2/packages/metardu-sidecar

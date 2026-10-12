@@ -243,8 +243,8 @@ jobs:
 
       - name: Install macOS build deps
         run: |
-          brew install gdal dbus
-          brew install libclang
+          brew install gdal dbus llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
 
       - name: Install npm dependencies
         working-directory: metardu-v2
@@ -261,8 +261,6 @@ jobs:
 
       - name: Build sidecar (Rust)
         working-directory: metardu-v2/packages/metardu-sidecar
-        env:
-          LIBCLANG_PATH: /opt/homebrew/opt/llvm/lib
         run: cargo build --release
 
       - name: Build renderer + desktop

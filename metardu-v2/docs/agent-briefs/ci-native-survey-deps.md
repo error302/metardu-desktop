@@ -7,6 +7,7 @@ ci-native-survey-deps
 - [x] `AGENT.md`
 - [x] `metardu-v2/docs/invariants.md`
 - [x] ADR: `metardu-v2/docs/decisions/0001-rust-sidecar-ts-engine-electron-shell.md`
+- [x] ADR: `metardu-v2/docs/decisions/0005-integration-export-workflow-family.md`
 - [x] Regulatory sources: none required; this task changes country-agnostic CI dependencies only.
 - [x] Recent worklog entries, including the GDAL Windows build failure and CRS safety addendum.
 
@@ -28,11 +29,13 @@ ci-native-survey-deps
 - [ ] GitHub Actions Rust sidecar matrix builds and tests on Ubuntu, Windows, and macOS.
 - [ ] GitHub Actions TypeScript matrix builds all three Node versions.
 - [ ] Release Linux/macOS sidecar build dependency lists include DBus development libraries.
-- [ ] Windows CI locates the installed `gdal_i.lib`, sets `GDAL_LIB_DIR`, and executes Cargo inside the OSGeo4W environment.
+- [ ] macOS CI and release install LLVM and set `LIBCLANG_PATH` from `brew --prefix llvm`.
+- [ ] Windows CI locates the installed `gdal_i.lib`, GDAL headers, and version macros; sets `GDAL_LIB_DIR`, `GDAL_INCLUDE_DIR`, and `GDAL_VERSION`; and executes Cargo inside the OSGeo4W environment.
+- [ ] GCP export resolves the display name for the configured `primarySRID`, so multi-zone countries cannot emit a different zone label; existing Node-matrix coverage passes.
 
 ### Tests
-- [ ] Existing CI package and sidecar test jobs pass; no new product tests are introduced by this workflow-only task.
-- [ ] Workflow YAML parses and `git diff --check` passes.
+- [ ] Existing CI package and sidecar test jobs pass; no new product tests are introduced.
+- [ ] Workflow YAML parses and `git diff --check` passes; no new product tests are introduced.
 
 ## Anti-hallucination clause
 
@@ -44,5 +47,5 @@ Append a `worklog.md` entry with exact local validation output and the GitHub Ac
 
 ## Out of scope
 - Repairing release packaging architecture or Windows cross-compilation.
-- Changing the numerical engine, CRS database, or survey UI.
+- Changing CRS selection, numeric transforms, the CRS database, or the survey UI. GCP export only labels the primary SRID it already selects.
 - Merging this PR or the separate CRS PR.
