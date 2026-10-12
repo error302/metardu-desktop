@@ -20,7 +20,7 @@ export const LicensingView: React.FC = () => {
           METARDU Account & Subscription
         </h2>
         <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
-          A qualifying paid METARDU Web subscription will include Desktop access.
+          Every active paid METARDU Web plan includes Desktop for the same account and Web-assigned seats. No separate Desktop subscription is required.
         </div>
       </div>
 

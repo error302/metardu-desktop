@@ -4,7 +4,7 @@
 desktop-shared-subscription
 
 ## Owner decision
-METARDU Desktop shares the METARDU Web account and subscription. A qualifying paid Web subscription includes Desktop access. Desktop must verify that entitlement with the METARDU server; it must not sell a separate Desktop subscription or mint local access.
+METARDU Desktop shares the METARDU Web account and subscription. Every active paid Web plan (Pro, Team, Firm, or Enterprise) includes Desktop access for the same entitled account; existing Web account and seat assignments apply. Desktop must verify that entitlement with the METARDU server; it must not sell a separate Desktop subscription, add-on, or mint local access.
 
 ## Context the agent must read first
 - [ ] `AGENT.md`
@@ -25,7 +25,7 @@ METARDU Desktop shares the METARDU Web account and subscription. A qualifying pa
 
 ## Hard constraints
 - The Web server is authoritative for account identity and subscription eligibility. The same account and subscription must work on Web and Desktop.
-- A qualifying paid Web entitlement grants Desktop access according to a server-owned entitlement response. Do not duplicate plan pricing or choose plan-to-feature rules in the renderer.
+- Every active paid Web plan grants Desktop access according to a server-owned entitlement response, subject to the same account and seat assignments as Web. Do not duplicate plan pricing or choose plan-to-feature rules in the renderer.
 - Never treat unauthenticated, expired, suspended, malformed, or server-error responses as `free`/`active` or as a paid entitlement. Errors fail closed.
 - Do not collect passwords or API tokens in the renderer, accept an arbitrary auth server URL, trust a local tier selector, or fabricate a signed token, device id, seat, or lease.
 - Preserve renderer sandboxing and use a typed, allowlisted preload API for privileged work. Keep authentication separate from project synchronization.
@@ -34,7 +34,7 @@ METARDU Desktop shares the METARDU Web account and subscription. A qualifying pa
 
 ## Acceptance criteria
 - Web exposes an authenticated desktop-compatible account flow and a versioned subscription/entitlement contract backed by the existing server subscription record.
-- Only server-confirmed qualifying paid accounts receive Desktop access. Nonqualifying and failed verification states are distinct and user-visible.
+- Only server-confirmed active paid Web accounts and their Web-authorized seats receive Desktop access. Unpaid accounts and failed verification states are distinct and user-visible.
 - Authentication and entitlement failures never fall through to a successful free or paid state.
 - Desktop credentials use the approved system-browser/account flow and protected OS storage; the renderer never receives a reusable password or broad bearer credential.
 - Online renewal, sign-out, server revocation, account switching, and expired-session handling are covered by tests in both the Web and Desktop repositories.

@@ -2764,3 +2764,37 @@ Scope notes:
 - The shared METARDU Web/Desktop subscription remains the product decision; this change does not implement server account verification. Desktop must not unlock from unverified local or browser state.
 - The sidecar could not compile or run tests in this Windows environment because GDAL's MSVC import library is absent.
 - The pre-existing staged deletion of metardu-v2/frontend/main.tsx and unrelated untracked/generated files were left untouched.
+
+---
+Task ID: desktop-shared-subscription-policy-clarification
+Date: 2026-10-12
+Task: Apply the owner's confirmation that every paid METARDU Web plan includes Desktop
+
+Changed files:
+- metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md
+- metardu-v2/docs/agent-briefs/desktop-shared-subscription.md
+- metardu-v2/apps/desktop/src/renderer/views/LicensingView.tsx
+- worklog.md
+
+Policy now stated:
+- Every active paid Web plan (Pro, Team, Firm, Enterprise) includes Desktop for the same entitled account; existing Web seat assignments apply.
+- No separate Desktop subscription, add-on, or checkout is required.
+- This policy does not mean Desktop verification is connected: the account panel still says no account or subscription has been verified.
+
+Backend audit finding (read-only METARDU Web source):
+- `src/app/api/subscription/route.ts` returns HTTP 401 with `{ plan: 'free', status: 'active' }` when there is no browser session, and returns HTTP 500 with the same payload when its handler errors. Desktop must not consume this as entitlement state.
+- The shared Web subscription engine reads the existing server-side account subscription and seat count. A Desktop-compatible authenticated account flow and versioned entitlement contract remain unimplemented/unverified.
+- No Web repository files were changed in this pass.
+
+Verification:
+- `git diff --check` will be recorded after the final edit and before commit.
+- No automated tests were run; this pass changes account-policy copy and documentation only.
+
+Remaining gate:
+- Implement and test a fail-closed, Desktop-compatible server account flow and entitlement response before Desktop can grant paid access.
+
+Post-edit verification for desktop-shared-subscription-policy-clarification:
+~~~text
+$ git diff --check
+exit 0; no whitespace diagnostics (Git emitted LF-to-CRLF conversion warnings only)
+~~~
