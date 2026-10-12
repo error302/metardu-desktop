@@ -24,7 +24,7 @@ export const THEMES: ThemeDef[] = [
   {
     id: "dark",
     label: "Dark",
-    icon: "🌙",
+    icon: "DARK",
     vars: {
       "--bg-primary": "#08090a",
       "--bg-secondary": "#0f1011",
@@ -44,7 +44,7 @@ export const THEMES: ThemeDef[] = [
   {
     id: "light",
     label: "Light",
-    icon: "☀️",
+    icon: "LIGHT",
     vars: {
       "--bg-primary": "#f8f9fa",
       "--bg-secondary": "#ffffff",
@@ -64,7 +64,7 @@ export const THEMES: ThemeDef[] = [
   {
     id: "high-contrast",
     label: "High Contrast",
-    icon: "🔲",
+    icon: "CONTRAST",
     vars: {
       "--bg-primary": "#000000",
       "--bg-secondary": "#0a0a0a",

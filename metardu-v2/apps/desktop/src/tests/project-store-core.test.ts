@@ -62,6 +62,17 @@ describe("project-store-core", () => {
     expect(activeProjectOf(s1)?.id).toBe(p.id);
   });
 
+  it("creates a neutral project without assigning a jurisdiction", () => {
+    const s1 = createProject(emptyProjectStore(), makeInput({
+      name: "Global Control Network",
+      countryCode: "",
+    }));
+
+    expect(s1.projects[0]!.name).toBe("Global Control Network");
+    expect(s1.projects[0]!.countryCode).toBe("");
+    expect(activeProjectOf(s1)?.countryCode).toBe("");
+  });
+
   it("create is immutable — the input state is untouched", () => {
     const s0 = emptyProjectStore();
     createProject(s0, makeInput());

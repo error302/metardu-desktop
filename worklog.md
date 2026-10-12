@@ -2489,3 +2489,419 @@ Test Files  1 passed (1)
 
 - Engine lint/build and desktop `npx tsc --noEmit` all exited 0. Desktop typecheck printed no diagnostics. `git diff --check` on the scoped files exited 0.
 - Product limits remain: no user-driven mission-area editor/export flow in the desktop UI; no installed, byte-verified EGM96 package; no physical DJI device validation. The commit is an engine contract correction, not a field-ready desktop feature claim.
+
+---
+Task ID: international-desktop-product-plan
+Agent: Codex (2026-10-12)
+Task: Write an evidence-backed international product direction and staged release plan for METARDU Desktop.
+
+Work Log:
+- Read the repository operating manual, hard invariants, Rust-sidecar/Electron ADR, geoid safety brief, and recent geodesy and flight-planning worklog entries. Confirmed the referenced controlling `upload/METARDU-DESKTOP-MASTER-PLAN.md` is absent.
+- Inspected the existing engine geoid API and flight-planning state. The engine accepts a checksum-shaped metadata string without authenticating source bytes, has no installed official grid, and uses bilinear interpolation.
+- Retrieved the official NGA EGM96 interpolation archive for inspection. Archive SHA-256: `f051316cdf794a87e8291bcb7aee82d0e49a99c35301b6b82462fbe5078b7216`; extracted `WW15MGH.GRD` SHA-256: `4bcc2c8b2314528530de6d1dccbd0ff26cd15912c892d48a6ad38b3ed79bdbae`. These are locally computed hashes for the downloaded snapshot, not NGA-published or signed checksums.
+- Compared bilinear values with six official `OUTINTPT.DAT` sample outputs from the NGA archive. Those sample values are rounded to 0.001 m; the absolute differences ranged from about 3 mm to 56 mm. NGA's supplied `INTPT.F` uses a 4-by-4 spline window. This is an interpolation compatibility finding, not a model accuracy claim.
+- Added `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md` and its scoped task brief. The plan separates global computation from jurisdiction packs, specifies surveyor-facing context/evidence states and release gates, and flags unresolved model licensing, missing master plan, and desktop field-readiness work.
+
+Verification evidence:
+
+~~~text
+$ Test-Path upload/METARDU-DESKTOP-MASTER-PLAN.md
+False
+~~~
+
+~~~text
+$ official NGA archive inspection
+archive bytes: 2870765
+archive SHA-256: f051316cdf794a87e8291bcb7aee82d0e49a99c35301b6b82462fbe5078b7216
+WW15MGH.GRD bytes: 9756647
+WW15MGH.GRD SHA-256: 4bcc2c8b2314528530de6d1dccbd0ff26cd15912c892d48a6ad38b3ed79bdbae
+grid values: 1038961 (721 x 1441)
+absolute differences vs millimetre-rounded official samples: 0.003280 m, 0.019132 m, 0.041528 m, 0.055661 m, 0.029724 m, 0.007044 m
+~~~
+
+Stage Summary:
+- The plan is product direction, not a replacement for the absent owner-controlled master plan and not evidence that METARDU is already survey-grade or globally field-ready.
+- The next concrete engineering brief should implement a licence-aware, byte-verifying geoid package and sidecar interpolation that matches a declared reference method, after redistribution terms and authoritative model checkpoints are resolved.
+- `git diff --cached --check` exited 0 with no whitespace diagnostics on the scoped plan, brief, and worklog. Final review showed a pre-existing staged deletion at `metardu-v2/frontend/main.tsx`; it is excluded from this task commit along with the other unrelated workspace changes.
+
+---
+Task ID: desktop-license-honesty
+Agent: Codex (2026-10-12)
+Task: Remove fabricated desktop license and account authorization claims.
+
+Work Log:
+- Replaced the local default Professional subscription, random machine fingerprint, signature-shaped strings, and simulated 30-day lease with an explicit unconfigured state.
+- `loadLicenseInfo()` ignores renderer-local legacy lease data. Sign-in and lease renewal now reject with clear “not configured” errors; sign-out can only return an unconfigured state.
+- Replaced the credential form and fabricated entitlement matrix with an honest status panel. The shell now labels licensing as unconfigured and says this display does not gate survey tools.
+- Added focused tests for rejecting legacy localStorage entitlements, refusing sign-in/renewal, and returning an unconfigured state on sign-out.
+
+Verification evidence:
+
+~~~text
+$ npm run test --workspace @metardu/desktop
+Test Files  14 passed | 1 skipped (15)
+     Tests  215 passed | 7 skipped (222)
+~~~
+
+~~~text
+$ npx tsc --noEmit -p apps/desktop/tsconfig.json
+(exit 0; no output)
+$ npx tsc --noEmit (packages/engine)
+(exit 0; no output)
+~~~
+
+~~~text
+$ npm test (packages/engine)
+Test Files  45 passed (45)
+     Tests  862 passed (862)
+~~~
+
+~~~text
+$ npx tsc --noEmit -p tsconfig.renderer-check.json --pretty false
+exit_code=2 error_count=49
+first=apps/desktop/src/renderer/views/DwgCadView.tsx(77,26): error TS2339: Property 'surveyState' does not exist on type 'SurveyStateContextValue'.
+last=packages/ui-components/src/panels/AppShell.tsx(707,59): error TS2322: Type 'ViewId' is not assignable to type 'CommandPaletteViewId'.
+~~~
+
+~~~text
+$ cargo build --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+$ cargo test --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+~~~
+
+~~~text
+$ git diff --check (scoped files)
+(exit 0; no whitespace diagnostics)
+~~~
+
+Stage Summary:
+- The license panel no longer invents an account, entitlement, token, device binding, seat allocation, or offline lease. This does not select commercial licensing policy or connect a real issuer.
+- Desktop tests and the desktop main/preload type check pass. The renderer-wide type check still has 49 errors in the existing pending UI changes; the sidecar build/test cannot run because this Windows environment lacks `gdal_i.lib`.
+- The current GitHub CLI credential for `error302` is invalid. The user approved an exact 11-commit push to `main`, but GitHub authentication prevented it; no remote ref was changed.
+- Next gates: resolve the renderer type errors, provide the GDAL import library for Windows verification, and choose the desktop licensing policy before implementing a real issuer or removing account surfaces.
+
+---
+Task ID: desktop-renderer-contract-integrity
+Agent: Codex (2026-10-12)
+Task: Restore renderer data contracts, remove guessed map/demo defaults, and record the shared Web subscription integration contract.
+
+Work Log:
+- Reconciled renderer views and shared UI components with the current project, engine, and typed preload contracts. Instrument and level-book imports preserve blank or invalid readings instead of turning them into plausible measurements; local calculations no longer claim sidecar verification or silently hand off unsupported results.
+- Removed the MapView sample parcel that wrote fabricated beacons and uncertainty into survey state. New or unsupported jurisdictions open at a neutral global map view; only a configured country center uses a country-level zoom.
+- Replaced the fake Professional license state with an unconfigured, fail-closed account state. The placeholder accepts no email, password, server URL, or tier input. The UI now states the owner's chosen product rule: a qualifying paid METARDU Web subscription includes Desktop access.
+- Inspected the local Web source: `/api/subscription` uses the browser session and returns `free`/`active` on unauthenticated and server-error paths. Documented why Desktop must not consume that response as an entitlement and added a scoped follow-up brief for a shared, server-authoritative account flow. No Web service or payment code was changed.
+- Added map-center regression coverage and appended this entry without rewriting earlier worklog evidence.
+
+Changed paths:
+- `metardu-v2/apps/desktop/src/renderer/SurveyStateContext.tsx`
+- `metardu-v2/apps/desktop/src/renderer/cross-import-bus.ts`
+- `metardu-v2/apps/desktop/src/renderer/instrument-import.ts`
+- `metardu-v2/apps/desktop/src/renderer/views/COGOView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/DwgCadView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/ExportPanel.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/FieldBookView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/FlightPlanningView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/GnssPostProcessingView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/ImportPanel.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/InstrumentMonitorView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/LSAView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/LandPortalSubmissionView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/LicensingView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/MapView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/OfficeManagementView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/PointCloudView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/SigningPanel.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/SubdivisionView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/SyncPanel.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/TopographicView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/TraverseView.tsx`
+- `metardu-v2/apps/desktop/src/tests/instrument-import.test.ts`
+- `metardu-v2/apps/desktop/src/tests/license-service.test.ts`
+- `metardu-v2/apps/desktop/src/tests/map-default-center.test.ts`
+- `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`
+- `metardu-v2/docs/agent-briefs/desktop-license-honesty.md`
+- `metardu-v2/docs/agent-briefs/desktop-renderer-contract-integrity.md`
+- `metardu-v2/docs/agent-briefs/desktop-shared-subscription.md`
+- `metardu-v2/packages/ui-components/src/canvas/useSurveyViewport.ts`
+- `metardu-v2/packages/ui-components/src/hooks/useInstrumentConnection.ts`
+- `metardu-v2/packages/ui-components/src/index.ts`
+- `metardu-v2/packages/ui-components/src/panels/AppShell.tsx`
+- `metardu-v2/packages/ui-components/src/panels/CommandPalette.tsx`
+- `metardu-v2/packages/ui-components/src/services/license-service.ts`
+- `metardu-v2/packages/ui-components/src/styles/theme-toggles.ts`
+- `metardu-v2/tsconfig.renderer-check.json`
+- `worklog.md`
+
+Verification evidence:
+
+~~~text
+$ npx --no-install tsc --noEmit -p tsconfig.renderer-check.json --pretty false
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npx --no-install tsc --noEmit -p apps/desktop/tsconfig.json --pretty false
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npx --no-install tsc --noEmit (packages/engine)
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npm run test --workspace @metardu/desktop
+Test Files  15 passed | 1 skipped (16)
+     Tests  221 passed | 7 skipped (228)
+~~~
+
+~~~text
+$ npm test (packages/engine)
+Test Files  45 passed (45)
+     Tests  862 passed (862)
+~~~
+
+~~~text
+$ cargo build --release (packages/metardu-sidecar)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+~~~
+
+~~~text
+$ cargo test --release (packages/metardu-sidecar)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+~~~
+
+~~~text
+$ git diff --check
+exit 0; no whitespace diagnostics (Git emitted line-ending warnings for LF-to-CRLF conversion)
+~~~
+
+Stage Summary:
+- Renderer, Desktop, and engine TypeScript checks pass; Desktop tests pass (221 passed, 7 skipped); engine tests pass (862 passed). The sidecar build and tests remain unverified because this Windows environment lacks `gdal_i.lib`.
+- The shared subscription product decision is recorded, but real account verification is not implemented. The Web endpoint needs a desktop-compatible authenticated contract that fails closed before Desktop access can be enabled. Offline lease and revocation behavior still require a server policy.
+- No preload or IPC boundary changed, so Electron smoke testing was not applicable to this pass. No new jurisdiction, statutory renderer, or survey-grade release claim was added.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx`, generated test outputs, temporary files, and untracked geodesy fallback prototypes were excluded from this work.
+
+Post-stage verification:
+
+~~~text
+$ git diff --cached --check
+exit 0; no whitespace diagnostics
+~~~
+
+---
+Task ID: desktop-capability-claims-honesty
+Date: 2026-10-12
+Task: Remove unsupported claims from deliverables and registry workspace
+
+Changed files:
+- metardu-v2/packages/ui-components/src/panels/AppShell.tsx
+- metardu-v2/apps/desktop/src/renderer/views/DeedPlanView.tsx
+- metardu-v2/apps/desktop/src/renderer/views/MapView.tsx
+- metardu-v2/apps/desktop/src/renderer/views/RegistryArchiveView.tsx
+- metardu-v2/apps/desktop/src/tests/capability-claims-honesty.test.ts
+- metardu-v2/docs/agent-briefs/desktop-capability-claims-honesty.md
+- worklog.md
+
+Verification evidence:
+
+~~~text
+$ npx --no-install vitest run src/tests/capability-claims-honesty.test.ts
+Test Files 1 passed (1)
+     Tests 2 passed (2)
+~~~
+
+~~~text
+$ npm run test --workspace @metardu/desktop
+Test Files 16 passed | 1 skipped (17)
+     Tests 223 passed | 7 skipped (230)
+~~~
+
+~~~text
+$ npx --no-install tsc --noEmit -p tsconfig.renderer-check.json --pretty false
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npx --no-install tsc --noEmit -p apps/desktop/tsconfig.json --pretty false
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npx --no-install tsc --noEmit (packages/engine)
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npm test (packages/engine)
+Test Files 45 passed (45)
+     Tests 862 passed (862)
+~~~
+
+~~~text
+$ cargo build --release (packages/metardu-sidecar)
+error: failed to run custom build command for gdal-sys v0.10.0; windows-msvc requires gdal_i.lib in GDAL_LIB_DIR or GDAL_HOME\\lib.
+~~~
+
+~~~text
+$ cargo test --release (packages/metardu-sidecar)
+error: failed to run custom build command for gdal-sys v0.10.0; windows-msvc requires gdal_i.lib in GDAL_LIB_DIR or GDAL_HOME\\lib.
+~~~
+
+~~~text
+$ git diff --check
+exit 0; no whitespace diagnostics
+~~~
+
+Scope notes:
+- The registry view no longer displays synthetic title/parcel records or an inert national-search control. Navigation and workflow copy no longer claim unsupported module counts, certified statutory plans, signing, or portal submission.
+- No IPC or preload boundary changed. No statutory document geometry or computation behavior changed.
+- The shared METARDU Web/Desktop subscription remains the product decision; this change does not implement server account verification. Desktop must not unlock from unverified local or browser state.
+- The sidecar could not compile or run tests in this Windows environment because GDAL's MSVC import library is absent.
+- The pre-existing staged deletion of metardu-v2/frontend/main.tsx and unrelated untracked/generated files were left untouched.
+
+---
+Task ID: desktop-shared-subscription-policy-clarification
+Date: 2026-10-12
+Task: Apply the owner's confirmation that every paid METARDU Web plan includes Desktop
+
+Changed files:
+- metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md
+- metardu-v2/docs/agent-briefs/desktop-shared-subscription.md
+- metardu-v2/apps/desktop/src/renderer/views/LicensingView.tsx
+- worklog.md
+
+Policy now stated:
+- Every active paid Web plan (Pro, Team, Firm, Enterprise) includes Desktop for the same entitled account; existing Web seat assignments apply.
+- No separate Desktop subscription, add-on, or checkout is required.
+- This policy does not mean Desktop verification is connected: the account panel still says no account or subscription has been verified.
+
+Backend audit finding (read-only METARDU Web source):
+- `src/app/api/subscription/route.ts` returns HTTP 401 with `{ plan: 'free', status: 'active' }` when there is no browser session, and returns HTTP 500 with the same payload when its handler errors. Desktop must not consume this as entitlement state.
+- The shared Web subscription engine reads the existing server-side account subscription and seat count. A Desktop-compatible authenticated account flow and versioned entitlement contract remain unimplemented/unverified.
+- No Web repository files were changed in this pass.
+
+Verification:
+- `git diff --check` will be recorded after the final edit and before commit.
+- No automated tests were run; this pass changes account-policy copy and documentation only.
+
+Remaining gate:
+- Implement and test a fail-closed, Desktop-compatible server account flow and entitlement response before Desktop can grant paid access.
+
+Post-edit verification for desktop-shared-subscription-policy-clarification:
+~~~text
+$ git diff --check
+exit 0; no whitespace diagnostics (Git emitted LF-to-CRLF conversion warnings only)
+~~~
+
+---
+Task ID: subscription-api-fail-closed
+Agent: Codex (2026-10-12)
+Task: Prevent Web subscription errors from looking like valid account state
+
+Work Log:
+- Created `metardu-v2/docs/agent-briefs/web-subscription-route-fail-closed.md` to keep this server-side fix scoped and state the remaining Desktop entitlement work.
+- Audited Web subscription consumers: the subscription context and AI access client already check `response.ok` and fail closed; the account and billing views catch API errors instead of granting paid access.
+- In an isolated Web worktree based on `origin/main` (`a8b94a46`), changed GET `/api/subscription` so signed-out requests return 401 `UNAUTHORIZED` without plan/status, and subscription-service failures return 503 `SUBSCRIPTION_UNAVAILABLE` without plan/status. Both errors set `Cache-Control: no-store`.
+- Preserved the authenticated no-row response as the legitimate `free`/`active` account state.
+- Added three regression cases and appended Web `worklog.md` evidence. Web change is committed locally as `6b6dc6a` on `codex/desktop-shared-entitlement`.
+- The original Web checkout contains unpublished local changes and was not modified. The isolated branch is based on published `origin/main` and includes only this route fix, its test, and the Web worklog.
+
+Verification:
+~~~text
+$ npm test -- --runInBand src/app/api/subscription/route.test.ts
+Test Suites: 1 passed, 1 total
+Tests:       3 passed, 3 total
+Snapshots:   0 total
+~~~
+
+~~~text
+$ npm run typecheck
+src/lib/pdf/generatePdf.ts(41,7): error TS2322: Type '"networkidle0"' is not assignable to type '"load" | "domcontentloaded" | ("load" | "domcontentloaded")[] | undefined'.
+~~~
+
+~~~text
+$ git diff --check (Web worktree)
+exit 0; no whitespace diagnostics
+~~~
+
+Stage Summary:
+- The route regression tests pass. The full Web typecheck remains red on the unrelated Puppeteer `waitUntil` type at `src/lib/pdf/generatePdf.ts:41`.
+- Automatic review rejected pushing to the separate Web GitHub repository because its ownership/trust could not be verified. I did not retry or use another push path; the commit remains local pending owner approval.
+- No Web deployment was performed or verified. Desktop account authorization, entitlement API, protected credential storage, server revocation, and offline policy remain unimplemented; Desktop still does not verify or grant access.
+
+---
+Task ID: desktop-lulc-data-integrity
+Date: 2026-10-12
+Task: Replace misleading LULC defaults and calculations with explicit draft data handling
+
+Changed files:
+- `metardu-v2/apps/desktop/src/renderer/views/LULCView.tsx`
+- `metardu-v2/apps/desktop/src/tests/lulc-integrity.test.ts`
+- `metardu-v2/docs/agent-briefs/desktop-lulc-data-integrity.md`
+- `worklog.md`
+
+Work Log:
+- Removed the preloaded Kenya polygons and default Kenya jurisdiction. The jurisdiction now comes from the active project or a user selection when the project has no jurisdiction.
+- Replaced country-branded class lists with generic thematic tags, clearly marked as non-statutory and not image-derived. Imported polygons start unclassified and can be manually tagged.
+- Removed keyword/size classification, false confidence values, renderer-side shoelace area, fabricated imagery metadata, and the bounding-box geometry synthesized from topographic points.
+- Kept raw polygon coordinates and source attributes. GeoJSON import accepts simple 2D Polygon rings only and rejects unsupported rings or malformed coordinates as a whole. Draft CSV carries raw coordinates, project context, original identifiers, generic tags, and source attributes.
+- Project save and export now state `DRAFT` / `UNVERIFIED`; no area, CRS, units, statutory class, raster metadata, or plan export is inferred. North arrow and scale bar are hidden on the raw-coordinate preview.
+- Added regression coverage for empty/no-sample source state, raw GeoJSON import, strict unsupported geometry rejection, and draft CSV metadata round-trip.
+- Read `AGENT.md`, invariants, ADR-0001, product plan, relevant renderer context, map geometry extraction, sidecar sources, and recent worklog entries. The master plan required by `AGENT.md` is absent from this checkout; no new compute or jurisdiction capability was introduced.
+- No IPC, main-process, preload, subscription, or Web repository files changed. The shared paid Web account policy remains as documented in the product plan.
+
+Verification:
+~~~text
+$ npx vitest run --config vitest-desktop-final-dcf018c83e014f38a3ba562de4022853.mjs apps/desktop/src/tests
+Test Files  17 passed | 1 skipped (18)
+     Tests  227 passed | 7 skipped (234)
+Exit code: 0
+~~~
+
+~~~text
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No TypeScript diagnostics; exit code 0.
+
+$ npx tsc --noEmit -p apps/desktop/tsconfig.json
+No TypeScript diagnostics; exit code 0.
+
+$ npx tsc --noEmit (packages/engine)
+No TypeScript diagnostics; exit code 0.
+~~~
+
+~~~text
+$ npx vitest run --config ../../vitest-desktop-2e9e5448a16e4be9884460ec742bfd35.mjs src (packages/engine)
+Test Files  45 passed (45)
+     Tests  862 passed (862)
+Exit code: 0
+~~~
+
+The repository's default Vitest config failed to load because its `vite.config.ts` ESM imports were loaded through a CommonJS config path. The desktop and engine suites were run successfully with temporary `.mjs` configs, then those temporary files were removed.
+
+~~~text
+$ cargo build --release (packages/metardu-sidecar)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\\lib.
+Exit code: 1
+
+$ cargo test --release (packages/metardu-sidecar)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\\lib.
+Exit code: 1
+~~~
+
+~~~text
+$ git diff --check
+Exit code: 0; no whitespace diagnostics.
+~~~
+
+Stage Summary:
+- The LULC workspace now preserves geometry as explicitly unverified raw input. CRS-aware measurements, raster parsing/classification, and statutory land-use schemes remain unavailable and are not represented as working features.
+- Desktop and engine TypeScript checks and their test suites passed. Rust build/test remain blocked by the absent GDAL MSVC import library; this renderer-only task did not change Rust code or the IPC boundary.
+- This closes one concrete integrity defect, not the full international survey-grade release gates. Continue the wider module audit and implement CRS/units and sidecar-backed raster/area workflows before claiming those capabilities.

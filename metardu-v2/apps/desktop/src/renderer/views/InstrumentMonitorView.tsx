@@ -93,6 +93,18 @@ interface NmeaObservation {
   };
 }
 
+type SatelliteReading = NonNullable<NmeaObservation["data"]["satellites"]>[number];
+
+function isSatelliteReading(value: unknown): value is SatelliteReading {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return Number.isInteger(candidate.prn) &&
+    typeof candidate.elevation === "number" && Number.isFinite(candidate.elevation) &&
+    typeof candidate.azimuth === "number" && Number.isFinite(candidate.azimuth) &&
+    typeof candidate.snr === "number" && Number.isFinite(candidate.snr) &&
+    typeof candidate.constellation === "string";
+}
+
 // ─── Skyplot Component ────────────────────────────────────────────
 
 const Skyplot: React.FC<{ satellites: Array<{ prn: number; elevation: number; azimuth: number; snr: number; constellation: string }> }> = ({
@@ -265,7 +277,7 @@ export const InstrumentMonitorView: React.FC = () => {
 
   // Live data
   const [observations, setObservations] = useState<NmeaObservation[]>([]);
-  const [satellites, setSatellites] = useState<NmeaObservation["data"]["satellites"]>([]);
+  const [satellites, setSatellites] = useState<NonNullable<NmeaObservation["data"]["satellites"]>>([]);
   const [fixQuality, setFixQuality] = useState(0);
   const [hdop, setHdop] = useState(0);
   const [vdop, setVdop] = useState(0);
@@ -317,10 +329,12 @@ export const InstrumentMonitorView: React.FC = () => {
       }
 
       // GSV: satellite list for skyplot
-      if (obs.sentence_type === "GSV" && obs.data?.satellites) {
+      const rawSatellites = obs.data?.satellites;
+      if (obs.sentence_type === "GSV" && Array.isArray(rawSatellites)) {
+        const observedSatellites = rawSatellites.filter(isSatelliteReading);
         setSatellites((prev) => {
-          const merged = [...(prev ?? [])];
-          for (const sat of obs.data.satellites as NmeaObservation["data"]["satellites"]) {
+          const merged = [...prev];
+          for (const sat of observedSatellites) {
             const idx = merged.findIndex((s) => s.prn === sat.prn && s.constellation === sat.constellation);
             if (idx >= 0) merged[idx] = sat; else merged.push(sat);
           }

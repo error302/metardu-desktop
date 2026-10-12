@@ -60,8 +60,7 @@ export const TopographicView: React.FC = () => {
       setSurveyOutput(output, "topographic", "TopographicView", countryCode);
       // Publish surface data for downstream views (LULC, contour, etc.)
       bus.emit("topo:surface", {
-        points: output.points.map((p) => ({ easting: p.easting, northing: p.northing, elevation: p.elevation })),
-        breaklines: output.breaklines?.map((bl) => ({ from: bl.from, to: bl.to })),
+        points: output.tin.vertices.map((p) => ({ easting: p.easting, northing: p.northing, elevation: p.elevation })),
       });
     } catch (e) {
       setError((e as Error).message);

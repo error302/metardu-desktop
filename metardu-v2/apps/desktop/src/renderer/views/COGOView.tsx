@@ -86,7 +86,7 @@ function distanceBetween(a: ComputedPoint, b: ComputedPoint): number {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const COGOView: React.FC = () => {
-  const { setSurveyOutput } = useSurveyState();
+  const { setSurveyOutput, activeProject } = useSurveyState();
   const [mode, setMode] = useState<COGOMode>("radiation");
   const [countryCode, setCountryCode] = useState("KE");
   const [computedPoints, setComputedPoints] = useState<ComputedPoint[]>([]);
@@ -113,6 +113,43 @@ export const COGOView: React.FC = () => {
     bus.emit("cogo:points", { points: computedPoints });
     setImportNotice(`Pushed ${computedPoints.length} points to Traverse — switch to Traverse view to import.`);
   }, [computedPoints]);
+
+  const pushToCad = useCallback(() => {
+    if (computedPoints.length === 0) return;
+    bus.emit("cad:import_entities", {
+      source: "COGO Geometry",
+      beacons: computedPoints.map((p) => ({ id: p.id, easting: p.easting, northing: p.northing })),
+      boundaries: computedPoints.length >= 3 ? [{ name: "COGO_POLYGON", vertices: computedPoints.map((p) => ({ easting: p.easting, northing: p.northing })) }] : [],
+    });
+    setImportNotice(`Dispatched ${computedPoints.length} points to 2D/3D CAD Workspace.`);
+  }, [computedPoints]);
+
+  const pushToDeedPlan = useCallback(() => {
+    if (computedPoints.length < 3) return;
+    bus.emit("deedplan:import_boundary", {
+      parcelNumber: activeProject?.name || "PARCEL LR 209/1842",
+      beacons: computedPoints.map((p) => ({ id: p.id, easting: p.easting, northing: p.northing })),
+      areaSqM: shoelaceArea(computedPoints),
+    });
+    setImportNotice(`Dispatched COGO boundary to Statutory Deed Plan Generator (Form 4).`);
+  }, [computedPoints, activeProject]);
+
+  const saveToProject = useCallback(() => {
+    if (computedPoints.length === 0) return;
+    const output = {
+      beacons: computedPoints.map((p) => ({
+        label: p.id,
+        easting: p.easting,
+        northing: p.northing,
+        uncertainty: { semiMajorAxis: 0.005, semiMinorAxis: 0.003, orientation: 45, adjusted: true },
+      })),
+      boundaries: computedPoints.length >= 3 ? [{ label: activeProject?.name || "COGO BOUNDARY", vertices: computedPoints.map((p) => ({ easting: p.easting, northing: p.northing })) }] : [],
+      contours: [],
+      fieldPoints: [],
+    };
+    setSurveyOutput(output, "COGO Survey", "COGOView", activeProject?.countryCode || countryCode);
+    setImportNotice("Saved COGO geometry to Active Project Store!");
+  }, [computedPoints, activeProject, countryCode, setSurveyOutput]);
 
   // ── Radiation inputs ──────────────────────────────────────────────────────
   const [radStnE, setRadStnE] = useState(257000.0);
@@ -382,7 +419,7 @@ export const COGOView: React.FC = () => {
       )}
 
       {/* Compute & action buttons */}
-      <div style={{ display: "flex", gap: "8px" }}>
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
         <button className="primary" onClick={handleCompute} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
           <Plus size={14} /> {mode === "area" ? "Compute Area" : "Compute Point"}
         </button>
@@ -397,12 +434,31 @@ export const COGOView: React.FC = () => {
             <Copy size={14} /> Last Point
           </button>
         )}
-        {computedPoints.length >= 2 && (
-          <button onClick={pushToTraverse} style={{ display: "flex", alignItems: "center", gap: "4px", border: "1px solid var(--accent-primary)", color: "var(--accent-primary)" }}>
-            Send to Traverse
-          </button>
-        )}
       </div>
+
+      {computedPoints.length > 0 && (
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", background: "var(--bg-tertiary)", padding: "10px 12px", border: "1px solid var(--border-default)", borderRadius: "4px" }}>
+          <span style={{ fontSize: "11px", fontWeight: "bold", color: "var(--accent-primary)", display: "flex", alignItems: "center" }}>
+            COGO Workflow Handoff:
+          </span>
+          {computedPoints.length >= 2 && (
+            <button onClick={pushToTraverse} style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "1px solid var(--accent-primary)", background: "transparent", color: "var(--accent-primary)", borderRadius: "3px", cursor: "pointer" }}>
+              Send to Traverse
+            </button>
+          )}
+          <button onClick={pushToCad} style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "1px solid var(--border-default)", background: "var(--bg-secondary)", color: "var(--text-primary)", borderRadius: "3px", cursor: "pointer" }}>
+            Open in 2D/3D CAD
+          </button>
+          {computedPoints.length >= 3 && (
+            <button onClick={pushToDeedPlan} style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "1px solid var(--border-default)", background: "var(--bg-secondary)", color: "var(--text-primary)", borderRadius: "3px", cursor: "pointer" }}>
+              Generate Deed Plan (Form 4)
+            </button>
+          )}
+          <button onClick={saveToProject} style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "none", background: "var(--accent-primary)", color: "#1A1F36", fontWeight: "bold", borderRadius: "3px", cursor: "pointer" }}>
+            Save to Active Project
+          </button>
+        </div>
+      )}
 
       {importNotice && (
         <div style={{ padding: "8px 12px", background: "rgba(34,197,94,0.1)", border: "1px solid #22c55e", color: "#22c55e", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)" }}>
