@@ -2489,3 +2489,37 @@ Test Files  1 passed (1)
 
 - Engine lint/build and desktop `npx tsc --noEmit` all exited 0. Desktop typecheck printed no diagnostics. `git diff --check` on the scoped files exited 0.
 - Product limits remain: no user-driven mission-area editor/export flow in the desktop UI; no installed, byte-verified EGM96 package; no physical DJI device validation. The commit is an engine contract correction, not a field-ready desktop feature claim.
+
+---
+Task ID: international-desktop-product-plan
+Agent: Codex (2026-10-12)
+Task: Write an evidence-backed international product direction and staged release plan for METARDU Desktop.
+
+Work Log:
+- Read the repository operating manual, hard invariants, Rust-sidecar/Electron ADR, geoid safety brief, and recent geodesy and flight-planning worklog entries. Confirmed the referenced controlling `upload/METARDU-DESKTOP-MASTER-PLAN.md` is absent.
+- Inspected the existing engine geoid API and flight-planning state. The engine accepts a checksum-shaped metadata string without authenticating source bytes, has no installed official grid, and uses bilinear interpolation.
+- Retrieved the official NGA EGM96 interpolation archive for inspection. Archive SHA-256: `f051316cdf794a87e8291bcb7aee82d0e49a99c35301b6b82462fbe5078b7216`; extracted `WW15MGH.GRD` SHA-256: `4bcc2c8b2314528530de6d1dccbd0ff26cd15912c892d48a6ad38b3ed79bdbae`. These are locally computed hashes for the downloaded snapshot, not NGA-published or signed checksums.
+- Compared bilinear values with six official `OUTINTPT.DAT` sample outputs from the NGA archive. Those sample values are rounded to 0.001 m; the absolute differences ranged from about 3 mm to 56 mm. NGA's supplied `INTPT.F` uses a 4-by-4 spline window. This is an interpolation compatibility finding, not a model accuracy claim.
+- Added `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md` and its scoped task brief. The plan separates global computation from jurisdiction packs, specifies surveyor-facing context/evidence states and release gates, and flags unresolved model licensing, missing master plan, and desktop field-readiness work.
+
+Verification evidence:
+
+~~~text
+$ Test-Path upload/METARDU-DESKTOP-MASTER-PLAN.md
+False
+~~~
+
+~~~text
+$ official NGA archive inspection
+archive bytes: 2870765
+archive SHA-256: f051316cdf794a87e8291bcb7aee82d0e49a99c35301b6b82462fbe5078b7216
+WW15MGH.GRD bytes: 9756647
+WW15MGH.GRD SHA-256: 4bcc2c8b2314528530de6d1dccbd0ff26cd15912c892d48a6ad38b3ed79bdbae
+grid values: 1038961 (721 x 1441)
+absolute differences vs millimetre-rounded official samples: 0.003280 m, 0.019132 m, 0.041528 m, 0.055661 m, 0.029724 m, 0.007044 m
+~~~
+
+Stage Summary:
+- The plan is product direction, not a replacement for the absent owner-controlled master plan and not evidence that METARDU is already survey-grade or globally field-ready.
+- The next concrete engineering brief should implement a licence-aware, byte-verifying geoid package and sidecar interpolation that matches a declared reference method, after redistribution terms and authoritative model checkpoints are resolved.
+- `git diff --cached --check` exited 0 with no whitespace diagnostics on the scoped plan, brief, and worklog. Final review showed a pre-existing staged deletion at `metardu-v2/frontend/main.tsx`; it is excluded from this task commit along with the other unrelated workspace changes.
