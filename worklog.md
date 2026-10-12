@@ -2523,3 +2523,22 @@ Stage Summary:
 - Local YAML parsing and whitespace validation pass. GitHub Actions has not yet run against this branch; no platform build or test is claimed as passing.
 - The release workflow still documents its existing Windows packaging limitation: it builds a Linux-native sidecar for the Windows installer. Fixing Windows release cross-compilation is a separate product gate.
 - Next: push this scoped branch, open its PR, and record the real Actions matrix result here.
+
+
+### CI feedback iteration — Windows headers and report-pdf build (2026-10-12)
+- Workflow run #253 rejected the dynamic `steps.*` reference in the custom `shell` field; commit `110472dda4203b39ef50e931cc25ef5fbe56023b` uses OSGeo4W's documented static `C:/OSGeo4W` path.
+- The next run reached the Windows Cargo step but OSGeo4W's environment did not expose Cargo on `PATH`; commit `03ca3ac4a2929eea9692dc5b574cf248b777244a` restores `%USERPROFILE%\\.cargo\\bin` inside both wrapped scripts.
+- Workflow run #255 then found the GDAL import library and Cargo, but bindgen could not find `cpl_atomic_ops.h`. It also exposed a clean-runner TypeScript error: `@metardu/report-pdf` was imported but its workspace build was absent from the CI/release build lists.
+- Added `GDAL_INCLUDE_DIR` discovery from the installed header and added the report-pdf workspace build to the Node matrix and all three release jobs.
+
+Verification evidence for the current pending revision:
+
+~~~text
+$ python - (PyYAML 6.0.2; parses both workflows and checks all required job entries)
+Workflow YAML parsed; report-pdf is built in CI and all release jobs; Windows GDAL headers/libs are configured
+
+$ git diff --check
+(exit 0; no output)
+~~~
+
+- The fixes are locally validated; GitHub Actions for the current revision is pending. Earlier failed runs remain useful diagnostics and are not treated as final verification.

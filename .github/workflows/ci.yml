@@ -56,7 +56,10 @@ jobs:
         run: |
           $gdalLibrary = Get-ChildItem -Path $env:OSGEO4W_ROOT -Filter gdal_i.lib -File -Recurse -ErrorAction Stop | Select-Object -First 1
           if ($null -eq $gdalLibrary) { throw "OSGeo4W gdal-devel did not install gdal_i.lib" }
+          $gdalHeader = Get-ChildItem -Path $env:OSGEO4W_ROOT -Filter cpl_atomic_ops.h -File -Recurse -ErrorAction Stop | Select-Object -First 1
+          if ($null -eq $gdalHeader) { throw "OSGeo4W gdal-devel did not install cpl_atomic_ops.h" }
           "GDAL_LIB_DIR=$($gdalLibrary.DirectoryName)" >> $env:GITHUB_ENV
+          "GDAL_INCLUDE_DIR=$($gdalHeader.DirectoryName)" >> $env:GITHUB_ENV
       - name: Build (Linux/macOS)
         if: matrix.os != 'windows-latest'
         working-directory: metardu-v2/packages/metardu-sidecar
@@ -115,6 +118,7 @@ jobs:
           npm run build --workspace @metardu/electron-integration
           npm run build --workspace @metardu/ipc-schemas
           npm run build --workspace @metardu/engine-flight-planning
+          npm run build --workspace @metardu/report-pdf
       - name: Type-check all packages
         working-directory: metardu-v2
         run: |
