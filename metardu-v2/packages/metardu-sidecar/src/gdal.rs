@@ -14,6 +14,8 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "gdal-bindings")]
+use gdal_platform as gdal;
 use std::path::PathBuf;
 use tracing::{info, instrument, warn};
 
@@ -502,7 +504,10 @@ mod tests {
     #[test]
     fn test_generate_contours_rejects_nonpositive_interval() {
         let params = ContourParams {
-            dsm_path: "/etc/hostname".to_string(), // exists but not a GeoTIFF
+            dsm_path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("Cargo.toml")
+                .display()
+                .to_string(), // portable existing path
             interval: 0.0,
             min_length: None,
             format: "geojson".to_string(),
