@@ -2567,3 +2567,24 @@ $ git diff --check
 - GitHub Actions run #260 (`38197793304`) on `72cc89148dd9a665243d934aaf9ebb43ae970144`: Ubuntu, macOS, and Windows sidecar build/tests passed; Node 22 and Node 24 full jobs passed, including the Electron sidecar smoke test. Node 20 failed in the engine tests with process exit 139 (segmentation fault) after two test files completed and while the GeoJSON exporter suite was executing. This was not an assertion failure, and the single-thread pool change did not resolve it.
 - Added verbose per-test output for the Node 20 engine command only, preserving the one-worker threads pool, to identify the last test before the process exits in the next run.
 - The exact failing test case is not yet established. No local product tests were run; next validation is the pushed GitHub Actions matrix.
+
+
+### CI feedback iteration — Node 20 SQLite compatibility identified (2026-10-12)
+- GitHub Actions run #261 (`38198442851`) on `a85692983fec7ac591657ba7c1e8d11a2f8ef0c1`: Ubuntu, macOS, and Windows sidecar build/tests passed; Node 22 and Node 24 full jobs passed including Electron smoke. Node 20 segfaulted in the GeoPackage SQLite test on first database use; verbose output showed metadata tests passing immediately before exit 139.
+- Root cause: the lock resolved `better-sqlite3` 13.0.3, whose upstream package metadata requires Node >=22, while this repository declares Node >=20 and Electron 33 bundles Node 20.18.0. Upstream `better-sqlite3` 12.11.1 explicitly supports Node 20.x, and the repository's root install-script allowlist already names 12.11.1.
+- Pinned the engine and desktop dependencies to 12.11.1 and regenerated the npm workspace lock. Removed the temporary verbose/thread-pool diagnostic; the Node 20 engine suite returns to Vitest's normal forks pool with one worker, retaining the GeoPackage tests.
+
+Local validation for this revision:
+
+~~~text
+$ npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+up to date in 17s
+
+$ python - (PyYAML and JSON assertions: workflow parses; both workspace manifests and lock entries resolve better-sqlite3 12.11.1; lock metadata includes Node 20.x; root allowlist matches)
+validation assertions: passed
+
+$ git diff --check
+(exit 0; no output)
+~~~
+
+- No local product tests were run. GitHub Actions must verify the native addon under Node 20 and all existing Node/sidecar matrix cells on the pushed revision.

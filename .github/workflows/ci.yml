@@ -144,11 +144,7 @@ jobs:
       - name: Test all packages
         working-directory: metardu-v2
         run: |
-          if [ "${{ matrix.node }}" = "20" ]; then
-            cd packages/engine && npx vitest run --pool=threads --maxWorkers=1 --minWorkers=1 --reporter=verbose
-          else
-            cd packages/engine && npx vitest run --pool=threads --maxWorkers=1 --minWorkers=1
-          fi
+          cd packages/engine && npx vitest run --maxWorkers=1 --minWorkers=1
           cd ../country-config && npx vitest run
           cd ../electron-integration && npx vitest run
           cd ../ipc-schemas && npx vitest run
