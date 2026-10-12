@@ -44,7 +44,7 @@ export const PointCloudView: React.FC = () => {
         easting: e,
         northing: n,
         elevation: elev,
-        label: PT_,
+        label: `PT_${i + 1}`,
       });
     }
 

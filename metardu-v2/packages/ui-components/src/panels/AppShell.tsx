@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback, type ComponentType } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, type ComponentType } from "react";
 import { CommandPalette, type CommandPaletteViewId, type CommandPaletteNavItem } from "./CommandPalette.js";
+import { useLicense } from "../services/license-service.js";
 import {
   Map as MapIcon,
   Crosshair,
@@ -116,6 +117,59 @@ const NAV: NavItem[] = [
   { id: "export", label: "Export", icon: Download, category: "Export", shortcut: "g x" },
 ];
 const CATS = ["Projects", "Field Work", "Drone", "Surveying", "Engineering", "Office", "Export"];
+
+export interface WorkflowStage {
+  id: string;
+  name: string;
+  shortName: string;
+  description: string;
+  viewIds: ViewId[];
+}
+
+export const WORKFLOW_STAGES: WorkflowStage[] = [
+  {
+    id: "all",
+    name: "All Modules",
+    shortName: "All",
+    description: "Complete toolbox of all 40 geomatics modules",
+    viewIds: [],
+  },
+  {
+    id: "stage1_ingest",
+    name: "1. Ingest & QC",
+    shortName: "1. Ingest",
+    description: "Hardware connection, raw instrument parsing, GNSS monitoring & leveling field book",
+    viewIds: ["projects", "hardware", "import", "fieldbook", "stakeout", "gnss", "gnssppk", "ntripcaster", "sync"],
+  },
+  {
+    id: "stage2_geodesy",
+    name: "2. Geodesy & LSA",
+    shortName: "2. Geodesy",
+    description: "Datum shifts (7P), Bowditch traverse, 2D/3D Least Squares adjustment & COGO",
+    viewIds: ["traverse", "lsa", "datumtransform", "cogo", "subdivision", "map"],
+  },
+  {
+    id: "stage3_cad_surfaces",
+    name: "3. CAD & Topo",
+    shortName: "3. CAD",
+    description: "2D/3D DWG/DXF drafting, field-to-finish coding, DTM TIN & volume differencing",
+    viewIds: ["dwgcad", "topo", "volumechange", "roaddesign", "verticalalignment", "crosssection", "asbuilt"],
+  },
+  {
+    id: "stage4_drone_lidar",
+    name: "4. Drone & LiDAR",
+    shortName: "4. Drone",
+    description: "UAV flight planning, SfM photogrammetry, point cloud classification & raster orthomosaic",
+    viewIds: ["flight", "photogrammetry", "drone", "pointcloud", "raster", "deformation"],
+  },
+  {
+    id: "stage5_deliverables",
+    name: "5. Legal & Portal",
+    shortName: "5. Lodgement",
+    description: "Form 4 Certified Deed Plans, LandXML 1.2 schema, digital RSA-2048 signing & land registry portal upload",
+    viewIds: ["deedplan", "landportal", "signing", "sectional", "archive", "export", "officemgmt", "licensing", "history"],
+  },
+];
 
 const APP_VERSION = "0.5.0";
 
@@ -366,6 +420,8 @@ export const AppShell: React.FC<{
   const [sidebar, setSidebar] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [theme, setThemeState] = useState<ThemeId>(loadPersistedTheme);
+  const [selectedStage, setSelectedStage] = useState<string>("all");
+  const { license } = useLicense();
   const sidecarState = useSidecarState();
   const syncState = useSyncState();
   const projectName = useActiveProjectName();
@@ -373,6 +429,20 @@ export const AppShell: React.FC<{
   const lastKey = useRef<string | null>(null);
   const lastTime = useRef(0);
   const undoRedo = useUndoRedo();
+
+  const currentStage = WORKFLOW_STAGES.find((s) => s.id === selectedStage);
+
+  const filteredNav = useMemo(() => {
+    if (selectedStage === "all" || !currentStage || currentStage.viewIds.length === 0) {
+      return NAV;
+    }
+    return NAV.filter((item) => currentStage.viewIds.includes(item.id));
+  }, [selectedStage, currentStage]);
+
+  const activeCats = useMemo(() => {
+    if (selectedStage === "all") return CATS;
+    return CATS.filter((cat) => filteredNav.some((n) => n.category === cat));
+  }, [selectedStage, filteredNav]);
 
   // Apply persisted theme on mount
   useEffect(() => { applyTheme(theme); }, [theme]);
@@ -448,15 +518,62 @@ export const AppShell: React.FC<{
             <span className="sidebar-brand-version">Desktop v{APP_VERSION}</span>
           </div>
         </div>
+
+        {/* ── Workflow Pipeline Stage Switcher ── */}
+        <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--border-subtle)", background: "rgba(0,0,0,0.2)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+            <span style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--accent-primary)", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Survey Pipeline
+            </span>
+            {selectedStage !== "all" && (
+              <button
+                onClick={() => setSelectedStage("all")}
+                style={{ fontSize: "9px", fontFamily: "var(--font-mono)", color: "var(--text-tertiary)", background: "transparent", border: "none", cursor: "pointer", padding: "1px 4px" }}
+              >
+                Show All
+              </button>
+            )}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "4px" }}>
+            {WORKFLOW_STAGES.map((s) => {
+              const isSelected = selectedStage === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedStage(s.id)}
+                  style={{
+                    fontSize: "10px",
+                    padding: "4px 2px",
+                    textAlign: "center",
+                    borderRadius: "3px",
+                    border: isSelected ? "1px solid var(--accent-primary)" : "1px solid var(--border-subtle)",
+                    background: isSelected ? "var(--accent-primary)" : "var(--bg-tertiary)",
+                    color: isSelected ? "#1A1F36" : "var(--text-secondary)",
+                    fontWeight: isSelected ? "bold" : "normal",
+                    cursor: "pointer",
+                    fontFamily: "var(--font-mono)",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                  title={s.description}
+                >
+                  {s.shortName}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <nav className="app-sidebar-nav">
-          {CATS.map(cat => (
+          {activeCats.map(cat => (
             <div key={cat}>
               <div style={{
                 fontFamily: "var(--font-mono)", fontSize: "10px",
                 color: "var(--text-disabled)", textTransform: "uppercase",
                 letterSpacing: "0.08em", padding: "12px 12px 4px",
               }}>{cat}</div>
-              {NAV.filter(n => n.category === cat).map(item => {
+              {filteredNav.filter(n => n.category === cat).map(item => {
                 const Icon = item.icon;
                 return (
                   <button
@@ -485,10 +602,10 @@ export const AppShell: React.FC<{
       <div className="app-main">
         <div className="app-toolbar">
           <button onClick={cycleTheme} title={`Theme: ${theme} (click to cycle)`} style={{ padding: "3px 10px", fontSize: "11px", fontFamily: "var(--font-mono)", color: "var(--text-tertiary)", background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", borderRadius: "4px", cursor: "pointer" }}>
-            {THEMES.find(t => t.id === theme)?.icon ?? "🌙"}
+            {THEMES.find(t => t.id === theme)?.icon ?? "DARK"}
           </button>
           <button onClick={() => setCmdOpen(true)} title="Search views, projects, points (Ctrl+K)" style={{ padding: "3px 10px", fontSize: "11px", fontFamily: "var(--font-mono)", color: "var(--text-tertiary)", background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", borderRadius: "4px", cursor: "pointer" }}>
-            ⌘K
+            Ctrl+K
           </button>
           <button onClick={() => setSidebar(v => !v)} style={{ padding: "4px 8px", minWidth: 28 }}>
             {sidebar ? "\u25C0" : "\u25B6"}
@@ -532,6 +649,31 @@ export const AppShell: React.FC<{
           <span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
             project: <span style={{ color: "var(--text-secondary)" }}>{projectName}</span>
           </span>
+          <div style={{ width: 1, height: 16, background: "var(--border-default)", margin: "0 4px" }} />
+          <button
+            onClick={() => setView("licensing")}
+            title={
+              license.isAuthenticated
+                ? `Subscription: ${license.tier} (${license.daysRemainingOffline}d offline field lease remaining)`
+                : "METARDU Web subscription verification is not connected. Desktop access is not verified."
+            }
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "5px",
+              padding: "2px 8px",
+              fontSize: "10px",
+              fontFamily: "var(--font-mono)",
+              borderRadius: "4px",
+              cursor: "pointer",
+              border: license.isAuthenticated ? "1px solid var(--accent-primary)" : "1px solid var(--border-default)",
+              background: license.isAuthenticated ? "rgba(255, 149, 0, 0.12)" : "var(--bg-tertiary)",
+              color: license.isAuthenticated ? "var(--accent-primary)" : "var(--text-tertiary)",
+            }}
+          >
+            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: license.isAuthenticated ? "#22C55E" : "#EAB308" }} />
+            <span>{license.isAuthenticated ? `${license.tier.toUpperCase()} | ${license.daysRemainingOffline}D OFFLINE` : "ACCOUNT NOT VERIFIED"}</span>
+          </button>
         </div>
         <div className="app-breadcrumb">
           <span style={{ color: "var(--text-tertiary)" }}>Home</span>
@@ -595,6 +737,9 @@ export const AppShell: React.FC<{
                 {" "}· {syncState.deletes} del
               </span>
             )}
+          </span>
+          <span className="mono" style={{ color: license.isAuthenticated ? "var(--accent-primary)" : "var(--text-disabled)" }}>
+            subscription: {license.isAuthenticated ? `${license.tier.toLowerCase()} (${license.status.toLowerCase()})` : "not verified"}
           </span>
           <div style={{ flex: 1 }} />
           <span className="mono" style={{ color: "var(--text-tertiary)" }}>MetaRDU Desktop v{APP_VERSION}</span>

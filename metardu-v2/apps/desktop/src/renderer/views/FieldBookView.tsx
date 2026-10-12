@@ -13,14 +13,20 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useInstrumentConnection } from "@metardu/ui-components";
-import { importInstrumentData, detectFormat, FORMAT_DESCRIPTIONS } from "../instrument-import.js";
-import { bus } from "../cross-import-bus.js";
+import { importInstrumentData, detectFormat, FORMAT_DESCRIPTIONS, type LevelObservation } from "../instrument-import.js";
+
+function readMeasurement(value: unknown): number {
+  if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return Number.NaN;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
 
 export const FieldBookView: React.FC = () => {
   const [bookType, setBookType] = useState<"leveling" | "total_station">("leveling");
   const [dragOver, setDragOver] = useState(false);
   const [importPreview, setImportPreview] = useState<{ format: string; count: number; fileName: string } | null>(null);
   const [showFormatGuide, setShowFormatGuide] = useState(false);
+  const [fieldBookError, setFieldBookError] = useState<string | null>(null);
 
   // ── Instrument connection (live observations) ──
   const instrument = useInstrumentConnection();
@@ -34,14 +40,14 @@ export const FieldBookView: React.FC = () => {
     const unsub = instrument.onObservation((obs) => {
       const d = obs.data;
       // Total Station observations: Hz, V, SD fields
-      if (d.hz !== undefined && d.v !== undefined && d.sd !== undefined) {
+      if (d.hz != null || d.v != null || d.sd != null) {
         livePointCounter.current++;
-        const ptId = (d.point_id as string) || `LIVE${livePointCounter.current}`;
-        const th = (d.target_height as number) || 1.6;
-        const hz = Number(d.hz) || 0;
-        const v = Number(d.v) || 90;
-        const sd = Number(d.sd) || 0;
-        const face = (d.face as string || "F1").toUpperCase();
+        const ptId = typeof d.point_id === "string" && d.point_id.trim() ? d.point_id : `LIVE${livePointCounter.current}`;
+        const th = readMeasurement(d.target_height);
+        const hz = readMeasurement(d.hz);
+        const v = readMeasurement(d.v);
+        const sd = readMeasurement(d.sd);
+        const face = typeof d.face === "string" ? d.face.toUpperCase() : "";
         const remark = (d.remark as string) || "live";
 
         setTsObs(prev => {
@@ -71,10 +77,10 @@ export const FieldBookView: React.FC = () => {
         livePointCounter.current++;
         const ptId = (d.point_id as string) || `LV${livePointCounter.current}`;
         setLevelingRows(prev => {
-          const bs = d.bs != null ? Number(d.bs) : null;
-          const is_ = d.is != null ? Number(d.is) : null;
-          const fs = d.fs != null ? Number(d.fs) : null;
-          return [...prev, { id: ptId, bs, is: is_, fs, rl: 0, remark: (d.remark as string) || "live" }];
+          const bs = d.bs != null ? readMeasurement(d.bs) : null;
+          const is_ = d.is != null ? readMeasurement(d.is) : null;
+          const fs = d.fs != null ? readMeasurement(d.fs) : null;
+          return [...prev, { id: ptId, bs, is: is_, fs, rl: Number.NaN, remark: (d.remark as string) || "live" }];
         });
         setBookType("leveling");
         setLiveCount(c => c + 1);
@@ -85,23 +91,32 @@ export const FieldBookView: React.FC = () => {
 
   // ──── DIGITAL LEVELING BOOK ────
 
-  const [levelingRows, setLevelingRows] = useState([
-    { id: "BM1", bs: 1.452, is: null as number | null, fs: null as number | null, rl: 100.000, remark: "Bench Mark 1" },
-    { id: "CP1", bs: 1.230, is: null as number | null, fs: 0.985, rl: 0, remark: "Change Point 1" },
-    { id: "IS1", bs: null as number | null, is: 1.670, fs: null as number | null, rl: 0, remark: "Ground Level" },
-    { id: "BM2", bs: null as number | null, is: null as number | null, fs: 1.120, rl: 0, remark: "Closing Bench Mark" },
-  ]);
+  const [levelingRows, setLevelingRows] = useState<LevelObservation[]>([]);
 
-  const [levelingReduced, setLevelingReduced] = useState<Array<any>>([]);
+  const [levelingReduced, setLevelingReduced] = useState<Array<LevelObservation & { rise: number | null; fall: number | null; finalRL: number }>>([]);
   const [arithmeticCheck, setArithmeticCheck] = useState<{ sumBS: number; sumFS: number; deltaBSFS: number; deltaRL: number; valid: boolean } | null>(null);
 
   const reduceLeveling = () => {
-    let currentRL = levelingRows[0]?.rl ?? 100.0;
+    setLevelingReduced([]);
+    setArithmeticCheck(null);
+    const firstRow = levelingRows[0];
+    if (levelingRows.length < 2 || !firstRow || firstRow.bs === null || !Number.isFinite(firstRow.bs) || !Number.isFinite(firstRow.rl)) {
+      setFieldBookError("Import or record at least two level observations, beginning with a backsight on a benchmark with a known RL.");
+      return;
+    }
+    if (levelingRows.slice(1).some((row) => (row.is === null && row.fs === null) ||
+      (row.is !== null && !Number.isFinite(row.is)) || (row.fs !== null && !Number.isFinite(row.fs)) ||
+      (row.bs !== null && !Number.isFinite(row.bs)))) {
+      setFieldBookError("Every observation after the starting benchmark needs finite staff readings, including an intermediate sight or foresight.");
+      return;
+    }
+    setFieldBookError(null);
+    let currentRL = firstRow.rl;
     let sumBS = 0;
     let sumFS = 0;
-    let prevStaff = levelingRows[0]?.bs ?? 0;
+    let prevStaff = firstRow.bs;
 
-    const reduced = [];
+    const reduced: Array<LevelObservation & { rise: number | null; fall: number | null; finalRL: number }> = [];
 
     for (let i = 0; i < levelingRows.length; i++) {
       const row = levelingRows[i]!;
@@ -113,7 +128,7 @@ export const FieldBookView: React.FC = () => {
         continue;
       }
 
-      const staffVal = row.is !== null ? row.is : (row.fs ?? 0);
+      const staffVal = row.is !== null ? row.is : row.fs!;
       const diff = prevStaff - staffVal;
       const rise = diff > 0 ? diff : null;
       const fall = diff < 0 ? Math.abs(diff) : null;
@@ -128,7 +143,7 @@ export const FieldBookView: React.FC = () => {
       }
     }
 
-    const firstRL = levelingRows[0]?.rl ?? 100.0;
+    const firstRL = firstRow.rl;
     const lastRL = currentRL;
     const deltaBSFS = sumBS - sumFS;
     const deltaRL = lastRL - firstRL;
@@ -145,21 +160,21 @@ export const FieldBookView: React.FC = () => {
 // ──── TOTAL STATION 3D POLAR REDUCTION ENGINE ────
 
 // Atmospheric parameters
-const [temperature, setTemperature] = useState(20);
-const [pressure, setPressure] = useState(1013.25);
-const [edmPpm, setEdmPpm] = useState(0);
+const [temperature, setTemperature] = useState("");
+const [pressure, setPressure] = useState("");
+const [edmPpm, setEdmPpm] = useState("");
 
 // Instrumental errors
-const [collimationError, setCollimationError] = useState(0); // arcseconds
-const [trunnionAxisError, setTrunnionAxisError] = useState(0); // arcseconds
-const [indexError, setIndexError] = useState(0); // arcseconds
+const [collimationError, setCollimationError] = useState(""); // arcseconds
+const [trunnionAxisError, setTrunnionAxisError] = useState(""); // arcseconds
+const [indexError, setIndexError] = useState(""); // arcseconds
 
 // Station setup
-const [stationId, setStationId] = useState("STN1");
-const [stationE, setStationE] = useState(257100.000);
-const [stationN, setStationN] = useState(9857700.000);
-const [stationZ, setStationZ] = useState(100.000);
-const [instrumentHeight, setInstrumentHeight] = useState(1.500);
+const [stationId, setStationId] = useState("");
+const [stationE, setStationE] = useState("");
+const [stationN, setStationN] = useState("");
+const [stationZ, setStationZ] = useState("");
+const [instrumentHeight, setInstrumentHeight] = useState("");
 
 // Observations
 interface TsObs {
@@ -169,28 +184,30 @@ interface TsObs {
   faceRight: { hz: number; v: number; sd: number } | null;
   remark: string;
 }
-const defaultObs: TsObs[] = [
-  { id: "FS1", targetHeight: 1.600, faceLeft: { hz: 45.2317, v: 87.5431, sd: 45.234 }, faceRight: { hz: 225.2319, v: 272.4573, sd: 45.236 }, remark: "Far Side 1" },
-  { id: "FS2", targetHeight: 1.600, faceLeft: { hz: 112.0542, v: 92.1025, sd: 78.912 }, faceRight: null, remark: "Far Side 2" },
-  { id: "FS3", targetHeight: 1.600, faceLeft: { hz: 198.4410, v: 89.3320, sd: 32.456 }, faceRight: { hz: 18.4408, v: 270.6684, sd: 32.458 }, remark: "Far Side 3" },
-];
-const [tsObs, setTsObs] = useState<TsObs[]>(defaultObs);
+const [tsObs, setTsObs] = useState<TsObs[]>([]);
 const [tsReduced, setTsReduced] = useState<Array<any>>([]);
 const [tsChecks, setTsChecks] = useState<Record<string, string> | null>(null);
 
 // Atm PPM: formula from Leica/Trimble — Metschke formula
 // PPM = 286.35 - (107.68 * P / (273.15 + T))  (approximate)
 const atmosphericPPM = React.useMemo(() => {
-  const ppm = 286.35 - (107.68 * pressure / (273.15 + temperature));
-  return Math.round(ppm * 10) / 10;
+  const temperatureValue = temperature.trim() === "" ? Number.NaN : Number(temperature);
+  const pressureValue = pressure.trim() === "" ? Number.NaN : Number(pressure);
+  if (!Number.isFinite(temperatureValue) || !Number.isFinite(pressureValue) || 273.15 + temperatureValue <= 0 || pressureValue <= 0) return null;
+  const ppm = 286.35 - (107.68 * pressureValue / (273.15 + temperatureValue));
+  return Number.isFinite(ppm) ? Math.round(ppm * 10) / 10 : null;
 }, [temperature, pressure]);
 
-const totalPPM = atmosphericPPM + edmPpm;
+const edmPpmValue = edmPpm.trim() === "" ? Number.NaN : Number(edmPpm);
+const totalPPM = atmosphericPPM !== null && Number.isFinite(edmPpmValue) ? atmosphericPPM + edmPpmValue : null;
 
 // Collimation + index correction (in arcseconds → radians)
-const collRad = React.useMemo(() => (collimationError / 3600) * Math.PI / 180, [collimationError]);
-const indexRad = React.useMemo(() => (indexError / 3600) * Math.PI / 180, [indexError]);
-const trunnionRad = React.useMemo(() => (trunnionAxisError / 3600) * Math.PI / 180, [trunnionAxisError]);
+const collimationErrorValue = collimationError.trim() ? Number(collimationError) : Number.NaN;
+const indexErrorValue = indexError.trim() ? Number(indexError) : Number.NaN;
+const trunnionAxisErrorValue = trunnionAxisError.trim() ? Number(trunnionAxisError) : Number.NaN;
+const collRad = React.useMemo(() => (collimationErrorValue / 3600) * Math.PI / 180, [collimationErrorValue]);
+const indexRad = React.useMemo(() => (indexErrorValue / 3600) * Math.PI / 180, [indexErrorValue]);
+const trunnionRad = React.useMemo(() => (trunnionAxisErrorValue / 3600) * Math.PI / 180, [trunnionAxisErrorValue]);
 
 const DEG = Math.PI / 180;
 
@@ -215,10 +232,46 @@ const averageObs = (fl: { hz: number; v: number; sd: number } | null, fr: { hz: 
 };
 
 const reduceTS = () => {
+  setTsReduced([]);
+  setTsChecks(null);
+  const requiredNumber = (raw: string, name: string): number => {
+    if (!raw.trim()) throw new Error(`${name} is required.`);
+    const value = Number(raw);
+    if (!Number.isFinite(value)) throw new Error(`${name} must be finite.`);
+    return value;
+  };
+  let stationEValue: number;
+  let stationNValue: number;
+  let stationZValue: number;
+  let instrumentHeightValue: number;
+  let totalPpmValue: number;
+  try {
+    if (!stationId.trim()) throw new Error("Station ID is required.");
+    stationEValue = requiredNumber(stationE, "Station easting");
+    stationNValue = requiredNumber(stationN, "Station northing");
+    stationZValue = requiredNumber(stationZ, "Station elevation");
+    instrumentHeightValue = requiredNumber(instrumentHeight, "Instrument height");
+    totalPpmValue = requiredNumber(String(totalPPM ?? ""), "Atmospheric readings and instrument EDM PPM");
+    requiredNumber(collimationError, "Measured collimation correction");
+    requiredNumber(trunnionAxisError, "Measured trunnion-axis correction");
+    requiredNumber(indexError, "Measured vertical-index correction");
+    if (tsObs.length === 0) throw new Error("Import or record at least one total-station observation.");
+    if (tsObs.some((obs) => !obs.id.trim() || !Number.isFinite(obs.targetHeight) || obs.targetHeight < 0 ||
+      (!obs.faceLeft && !obs.faceRight) ||
+      [obs.faceLeft, obs.faceRight].some((face) => face !== null && (!Number.isFinite(face.hz) || face.hz < 0 || face.hz >= 360 ||
+        !Number.isFinite(face.v) || face.v <= 0 || face.v >= 360 || !Number.isFinite(face.sd) || face.sd <= 0)))) {
+      throw new Error("Every observation needs an ID, non-negative target height, horizontal angle from 0 to under 360°, valid vertical circle reading, and positive slope distance.");
+    }
+  } catch (e) {
+    setFieldBookError((e as Error).message);
+    return;
+  }
+  setFieldBookError(null);
+
   const results: Array<{
     pointId: string; remark: string; faceCombo: string;
     hzCorr: number; vCorr: number; sdCorr: number;
-    horizDist: number; zenAngle: number; deltaH: number;
+    horizDist: number; zenAngle: number; deltaH: number; crCorr: number;
     deltaE: number; deltaN: number; deltaZ: number;
     easting: number; northing: number; elevation: number;
     distPPM: number;
@@ -242,7 +295,7 @@ const reduceTS = () => {
     hzCorr += trunnionHzCorr / DEG;
 
     // Atmospheric + EDM PPM correction to slope distance
-    const distPPM = avg.sd * (totalPPM / 1_000_000);
+    const distPPM = avg.sd * (totalPpmValue / 1_000_000);
     const sdCorr = avg.sd + distPPM;
 
     // Zenith angle (convert vertical circle reading if needed — assuming zenith 0°)
@@ -253,7 +306,7 @@ const reduceTS = () => {
 
     // Height difference (Zenith 0° = straight up, 90° = horizontal)
     // Add curvature & refraction correction for long sights
-    const rawDeltaH = sdCorr * Math.cos(zenAngle * DEG) + instrumentHeight - obs.targetHeight;
+    const rawDeltaH = sdCorr * Math.cos(zenAngle * DEG) + instrumentHeightValue - obs.targetHeight;
     const crCorr = curvatureRefractionCorrection(horizDist);
     const deltaH = rawDeltaH - crCorr;
 
@@ -265,9 +318,9 @@ const reduceTS = () => {
     const deltaN = horizDist * Math.cos(bearing * DEG);
 
     // Absolute coordinates
-    const easting = stationE + deltaE;
-    const northing = stationN + deltaN;
-    const elevation = stationZ + deltaH;
+    const easting = stationEValue + deltaE;
+    const northing = stationNValue + deltaN;
+    const elevation = stationZValue + deltaH;
 
     results.push({
       pointId: obs.id, remark: obs.remark, faceCombo: avg.faceCombo,
@@ -279,15 +332,6 @@ const reduceTS = () => {
 
   setTsReduced(results);
 
-  // Publish reduced readings for downstream views (Traverse import, etc.)
-  for (const r of results) {
-    bus.emit("fieldbook:reading", {
-      station: stationId, target: r.pointId,
-      distance: r.horizDist, bearing: r.hzCorr,
-      zenithAngle: r.zenAngle, sigma: 0.005,
-    });
-  }
-
   // Arithmetic checks
   const checks: Record<string, string> = {};
   const totalDist = results.reduce((s, r) => s + r.horizDist, 0);
@@ -298,18 +342,19 @@ const reduceTS = () => {
   checks["Sum ΔE"] = `${totalDeltaE >= 0 ? "+" : ""}${totalDeltaE.toFixed(3)} m`;
   checks["Sum ΔN"] = `${totalDeltaN >= 0 ? "+" : ""}${totalDeltaN.toFixed(3)} m`;
   checks["Sum ΔH"] = `${totalDeltaH >= 0 ? "+" : ""}${totalDeltaH.toFixed(3)} m`;
-  checks["Atmospheric PPM"] = `${atmosphericPPM.toFixed(1)} ppm @ ${temperature}°C, ${pressure} hPa`;
-  checks["Total EDM PPM"] = `${totalPPM.toFixed(1)} ppm (atm + instrument)`;
+  checks["Atmospheric PPM"] = `${atmosphericPPM?.toFixed(1) ?? "—"} ppm @ ${temperature}°C, ${pressure} hPa`;
+  checks["Total EDM PPM"] = `${totalPpmValue.toFixed(1)} ppm (atm + instrument)`;
   const maxCR = results.reduce((m, r) => Math.max(m, Math.abs(r.crCorr)), 0);
   checks["Curvature & Refraction"] = `max ${(-maxCR * 1000).toFixed(1)} mm @ ${results.length} sights`;
-  checks["Instrument"] = `${stationId} — IH=${instrumentHeight.toFixed(3)} m`;
-  checks["Stn Coords"] = `E ${stationE.toFixed(3)}  N ${stationN.toFixed(3)}  Z ${stationZ.toFixed(3)}`;
+    checks["Instrument corrections"] = `Collimation ${collimationErrorValue}″ · Trunnion ${trunnionAxisErrorValue}″ · Index ${indexErrorValue}″`;
+    checks["Instrument"] = `${stationId} — IH=${instrumentHeightValue.toFixed(3)} m`;
+  checks["Stn Coords"] = `E ${stationEValue.toFixed(3)}  N ${stationNValue.toFixed(3)}  Z ${stationZValue.toFixed(3)}`;
   setTsChecks(checks);
 };
 
 const addTsObs = () => {
   const n = tsObs.length + 1;
-  setTsObs([...tsObs, { id: `FS${n}`, targetHeight: 1.600, faceLeft: { hz: 0, v: 90, sd: 0 }, faceRight: null, remark: "" }]);
+  setTsObs([...tsObs, { id: `FS${n}`, targetHeight: Number.NaN, faceLeft: { hz: Number.NaN, v: Number.NaN, sd: Number.NaN }, faceRight: null, remark: "" }]);
 };
 
 const removeTsObs = (idx: number) => setTsObs(tsObs.filter((_, i) => i !== idx));
@@ -318,11 +363,11 @@ const updateTsObs = (idx: number, field: string, sub: string | null, value: stri
   const copy = [...tsObs];
   const obs = { ...copy[idx]! };
   if (sub) {
-    const face = { ...((obs as any)[sub] || { hz: 0, v: 90, sd: 0 }) };
-    (face as any)[field] = parseFloat(value) || 0;
+    const face = { ...((obs as any)[sub] || { hz: Number.NaN, v: Number.NaN, sd: Number.NaN }) };
+    (face as any)[field] = value.trim() === "" ? Number.NaN : Number(value);
     (obs as any)[sub] = face;
   } else {
-    (obs as any)[field] = field === "remark" ? value : parseFloat(value) || 0;
+    (obs as any)[field] = field === "remark" ? value : value.trim() === "" ? Number.NaN : Number(value);
   }
   copy[idx] = obs;
   setTsObs(copy);
@@ -335,9 +380,9 @@ const pasteCsvObs = (csv: string) => {
       const parts = line.split(/[;,\\t]+/).map(s => s.trim());
       return {
         id: parts[0] || "PT",
-        targetHeight: parseFloat(parts[1]) || 1.6,
-        faceLeft: { hz: parseFloat(parts[2]) || 0, v: parseFloat(parts[3]) || 90, sd: parseFloat(parts[4]) || 0 },
-        faceRight: parts[5] ? { hz: parseFloat(parts[5]) || 0, v: parseFloat(parts[6]) || 270, sd: parseFloat(parts[7]) || 0 } : null,
+        targetHeight: parts[1] ? Number(parts[1]) : Number.NaN,
+        faceLeft: { hz: parts[2] ? Number(parts[2]) : Number.NaN, v: parts[3] ? Number(parts[3]) : Number.NaN, sd: parts[4] ? Number(parts[4]) : Number.NaN },
+        faceRight: parts[5] ? { hz: Number(parts[5]), v: parts[6] ? Number(parts[6]) : Number.NaN, sd: parts[7] ? Number(parts[7]) : Number.NaN } : null,
         remark: parts[8] || "",
       };
     });
@@ -547,9 +592,21 @@ const pasteCsvObs = (csv: string) => {
         <div style={{ padding: "8px 12px", background: "var(--bg-tertiary)", border: "1px solid var(--border-default)" }}>
           <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>Page Arithmetic Check</div>
           <div style={{ fontSize: "var(--text-md)", fontFamily: "var(--font-mono)", color: arithmeticCheck.valid ? "var(--status-success)" : "var(--status-error)" }}>
-            {arithmeticCheck.valid ? "✓ VERIFIED (0.000 error)" : "✗ CHECK FAILED"}
+            {arithmeticCheck.valid ? "✓ Arithmetic check passed" : "✗ Check failed"}
           </div>
         </div>
+      </div>
+    )}
+
+    {fieldBookError && (
+      <div role="alert" style={{ marginBottom: "12px", padding: "8px 12px", border: "1px solid var(--status-error)", color: "var(--status-error)", fontSize: "var(--text-sm)" }}>
+        {fieldBookError}
+      </div>
+    )}
+
+    {levelingRows.length === 0 && (
+      <div role="status" style={{ marginBottom: "12px", fontSize: "var(--text-sm)", color: "var(--text-tertiary)" }}>
+        Import level observations or connect a supported instrument to begin. No sample readings are loaded.
       </div>
     )}
 
@@ -567,7 +624,10 @@ const pasteCsvObs = (csv: string) => {
         </tr>
       </thead>
       <tbody>
-        {(levelingReduced.length > 0 ? levelingReduced : levelingRows).map((row, idx) => (
+        {(levelingReduced.length > 0
+          ? levelingReduced
+          : levelingRows.map((row) => ({ ...row, rise: null, fall: null, finalRL: row.rl }))
+        ).map((row, idx) => (
           <tr key={idx} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
             <td style={{ padding: "6px 8px", fontWeight: "bold" }}>{row.id}</td>
             <td style={{ padding: "6px 8px", textAlign: "right" }}>{row.bs !== null ? row.bs.toFixed(3) : "—"}</td>
@@ -585,6 +645,9 @@ const pasteCsvObs = (csv: string) => {
 )}
 {bookType === "total_station" && (
   <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+    <div role="note" style={{ padding: "8px 12px", border: "1px solid var(--border-warning, #D97706)", fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+      Local reduction preview only. Results are not transferred to other workflows and do not establish a project CRS, vertical reference, calibration certificate, observation uncertainty, or professional acceptance.
+    </div>
     {/* ── Instrument & Atmospheric Setup ── */}
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
       <div style={{ background: "var(--bg-tertiary)", padding: "12px", border: "1px solid var(--border-default)" }}>
@@ -596,19 +659,19 @@ const pasteCsvObs = (csv: string) => {
           </div>
           <div>
             <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Inst. Height (m)</label>
-            <input type="number" value={instrumentHeight} step={0.001} onChange={e => setInstrumentHeight(parseFloat(e.target.value) || 0)} style={{ width: "100%" }} />
+            <input type="number" value={instrumentHeight} step={0.001} onChange={e => setInstrumentHeight(e.target.value)} style={{ width: "100%" }} />
           </div>
           <div>
             <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Easting (m)</label>
-            <input type="number" value={stationE} step={0.001} onChange={e => setStationE(parseFloat(e.target.value) || 0)} style={{ width: "100%", fontFamily: "var(--font-mono)" }} />
+            <input type="number" value={stationE} step={0.001} onChange={e => setStationE(e.target.value)} style={{ width: "100%", fontFamily: "var(--font-mono)" }} />
           </div>
           <div>
             <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Northing (m)</label>
-            <input type="number" value={stationN} step={0.001} onChange={e => setStationN(parseFloat(e.target.value) || 0)} style={{ width: "100%", fontFamily: "var(--font-mono)" }} />
+            <input type="number" value={stationN} step={0.001} onChange={e => setStationN(e.target.value)} style={{ width: "100%", fontFamily: "var(--font-mono)" }} />
           </div>
           <div>
             <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Elevation (m)</label>
-            <input type="number" value={stationZ} step={0.001} onChange={e => setStationZ(parseFloat(e.target.value) || 0)} style={{ width: "100%", fontFamily: "var(--font-mono)" }} />
+            <input type="number" value={stationZ} step={0.001} onChange={e => setStationZ(e.target.value)} style={{ width: "100%", fontFamily: "var(--font-mono)" }} />
           </div>
         </div>
       </div>
@@ -618,37 +681,40 @@ const pasteCsvObs = (csv: string) => {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
           <div>
             <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Temperature (°C)</label>
-            <input type="number" value={temperature} step={0.5} onChange={e => setTemperature(parseFloat(e.target.value) || 20)} style={{ width: "100%" }} />
+            <input type="number" value={temperature} step={0.5} onChange={e => setTemperature(e.target.value)} style={{ width: "100%" }} />
           </div>
           <div>
             <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Pressure (hPa)</label>
-            <input type="number" value={pressure} step={0.1} onChange={e => setPressure(parseFloat(e.target.value) || 1013.25)} style={{ width: "100%" }} />
+            <input type="number" value={pressure} step={0.1} onChange={e => setPressure(e.target.value)} style={{ width: "100%" }} />
           </div>
           <div>
             <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Instrument EDM PPM</label>
-            <input type="number" value={edmPpm} step={1} onChange={e => setEdmPpm(parseFloat(e.target.value) || 0)} style={{ width: "100%" }} />
+            <input type="number" value={edmPpm} step={1} onChange={e => setEdmPpm(e.target.value)} style={{ width: "100%" }} />
           </div>
           <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
             <div style={{ padding: "6px 10px", background: "var(--bg-secondary)", border: "1px solid var(--border-default)", fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)" }}>
-              Total PPM: <strong style={{ color: "var(--accent-primary)" }}>{totalPPM.toFixed(1)}</strong>
-              <span style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", marginLeft: 6 }}>(atm {atmosphericPPM.toFixed(1)} + edm {edmPpm})</span>
+              Total PPM: <strong style={{ color: "var(--accent-primary)" }}>{totalPPM?.toFixed(1) ?? "—"}</strong>
+              <span style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", marginLeft: 6 }}>(atm {atmosphericPPM?.toFixed(1) ?? "—"} + edm {edmPpm || "—"})</span>
             </div>
           </div>
         </div>
 
-        <h4 style={{ margin: "12px 0 8px 0", color: "var(--accent-primary)", fontFamily: "var(--font-mono)" }}>Instrumental Errors</h4>
+        <h4 style={{ margin: "12px 0 8px 0", color: "var(--accent-primary)", fontFamily: "var(--font-mono)" }}>Instrument Calibration Corrections (arcseconds)</h4>
+        <div style={{ marginBottom: "8px", fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
+          Enter the applicable measured corrections. Blank values block reduction; zero must be entered explicitly.
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
           <div>
             <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Collimation (″)</label>
-            <input type="number" value={collimationError} step={1} onChange={e => setCollimationError(parseFloat(e.target.value) || 0)} style={{ width: "100%" }} />
+            <input type="number" value={collimationError} step={1} onChange={e => setCollimationError(e.target.value)} style={{ width: "100%" }} />
           </div>
           <div>
             <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Trunnion Axis (″)</label>
-            <input type="number" value={trunnionAxisError} step={1} onChange={e => setTrunnionAxisError(parseFloat(e.target.value) || 0)} style={{ width: "100%" }} />
+            <input type="number" value={trunnionAxisError} step={1} onChange={e => setTrunnionAxisError(e.target.value)} style={{ width: "100%" }} />
           </div>
           <div>
             <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Index Error (″)</label>
-            <input type="number" value={indexError} step={1} onChange={e => setIndexError(parseFloat(e.target.value) || 0)} style={{ width: "100%" }} />
+            <input type="number" value={indexError} step={1} onChange={e => setIndexError(e.target.value)} style={{ width: "100%" }} />
           </div>
         </div>
       </div>
@@ -667,6 +733,12 @@ const pasteCsvObs = (csv: string) => {
           {tsObs.length} observations · {tsObs.filter(o => o.faceLeft && o.faceRight).length} FL+FR pairs
         </span>
       </div>
+
+      {fieldBookError && (
+        <div role="alert" style={{ marginBottom: "12px", padding: "8px 12px", border: "1px solid var(--status-error)", color: "var(--status-error)", fontSize: "var(--text-sm)" }}>
+          {fieldBookError}
+        </div>
+      )}
 
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--text-xs)", fontFamily: "var(--font-mono)" }}>
@@ -688,24 +760,24 @@ const pasteCsvObs = (csv: string) => {
             {tsObs.map((obs, idx) => (
               <tr key={idx} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
                 <td style={{ padding: "3px 4px" }}><input value={obs.id} onChange={e => updateTsObs(idx, "id", null, e.target.value)} style={{ width: "60px", fontSize: "var(--text-xs)" }} /></td>
-                <td style={{ padding: "3px 4px" }}><input type="number" value={obs.targetHeight} step={0.001} onChange={e => updateTsObs(idx, "targetHeight", null, e.target.value)} style={{ width: "65px", fontSize: "var(--text-xs)" }} /></td>
+                <td style={{ padding: "3px 4px" }}><input type="number" value={Number.isFinite(obs.targetHeight) ? obs.targetHeight : ""} step={0.001} onChange={e => updateTsObs(idx, "targetHeight", null, e.target.value)} style={{ width: "65px", fontSize: "var(--text-xs)" }} /></td>
                 <td style={{ padding: "3px 4px", background: "rgba(34,197,94,0.04)" }}>
-                  <input type="number" value={obs.faceLeft?.hz ?? ""} step={0.0001} onChange={e => updateTsObs(idx, "hz", "faceLeft", e.target.value)} style={{ width: "80px", fontSize: "var(--text-xs)" }} />
-                </td>
-                <td style={{ padding: "3px 4px", background: "rgba(34,197,94,0.04)" }}>
-                  <input type="number" value={obs.faceLeft?.v ?? ""} step={0.0001} onChange={e => updateTsObs(idx, "v", "faceLeft", e.target.value)} style={{ width: "80px", fontSize: "var(--text-xs)" }} />
+                  <input type="number" value={Number.isFinite(obs.faceLeft?.hz) ? obs.faceLeft!.hz : ""} step={0.0001} onChange={e => updateTsObs(idx, "hz", "faceLeft", e.target.value)} style={{ width: "80px", fontSize: "var(--text-xs)" }} />
                 </td>
                 <td style={{ padding: "3px 4px", background: "rgba(34,197,94,0.04)" }}>
-                  <input type="number" value={obs.faceLeft?.sd ?? ""} step={0.001} onChange={e => updateTsObs(idx, "sd", "faceLeft", e.target.value)} style={{ width: "80px", fontSize: "var(--text-xs)" }} />
+                  <input type="number" value={Number.isFinite(obs.faceLeft?.v) ? obs.faceLeft!.v : ""} step={0.0001} onChange={e => updateTsObs(idx, "v", "faceLeft", e.target.value)} style={{ width: "80px", fontSize: "var(--text-xs)" }} />
+                </td>
+                <td style={{ padding: "3px 4px", background: "rgba(34,197,94,0.04)" }}>
+                  <input type="number" value={Number.isFinite(obs.faceLeft?.sd) ? obs.faceLeft!.sd : ""} step={0.001} onChange={e => updateTsObs(idx, "sd", "faceLeft", e.target.value)} style={{ width: "80px", fontSize: "var(--text-xs)" }} />
                 </td>
                 <td style={{ padding: "3px 4px", background: "rgba(59,130,246,0.04)" }}>
-                  <input type="number" value={obs.faceRight?.hz ?? ""} step={0.0001} onChange={e => updateTsObs(idx, "hz", "faceRight", e.target.value)} style={{ width: "80px", fontSize: "var(--text-xs)" }} />
+                  <input type="number" value={Number.isFinite(obs.faceRight?.hz) ? obs.faceRight!.hz : ""} step={0.0001} onChange={e => updateTsObs(idx, "hz", "faceRight", e.target.value)} style={{ width: "80px", fontSize: "var(--text-xs)" }} />
                 </td>
                 <td style={{ padding: "3px 4px", background: "rgba(59,130,246,0.04)" }}>
-                  <input type="number" value={obs.faceRight?.v ?? ""} step={0.0001} onChange={e => updateTsObs(idx, "v", "faceRight", e.target.value)} style={{ width: "80px", fontSize: "var(--text-xs)" }} />
+                  <input type="number" value={Number.isFinite(obs.faceRight?.v) ? obs.faceRight!.v : ""} step={0.0001} onChange={e => updateTsObs(idx, "v", "faceRight", e.target.value)} style={{ width: "80px", fontSize: "var(--text-xs)" }} />
                 </td>
                 <td style={{ padding: "3px 4px", background: "rgba(59,130,246,0.04)" }}>
-                  <input type="number" value={obs.faceRight?.sd ?? ""} step={0.001} onChange={e => updateTsObs(idx, "sd", "faceRight", e.target.value)} style={{ width: "80px", fontSize: "var(--text-xs)" }} />
+                  <input type="number" value={Number.isFinite(obs.faceRight?.sd) ? obs.faceRight!.sd : ""} step={0.001} onChange={e => updateTsObs(idx, "sd", "faceRight", e.target.value)} style={{ width: "80px", fontSize: "var(--text-xs)" }} />
                 </td>
                 <td style={{ padding: "3px 4px" }}><input value={obs.remark} onChange={e => updateTsObs(idx, "remark", null, e.target.value)} style={{ width: "100px", fontSize: "var(--text-xs)" }} /></td>
                 <td style={{ padding: "3px 4px" }}>

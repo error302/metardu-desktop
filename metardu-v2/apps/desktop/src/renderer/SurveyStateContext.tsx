@@ -186,6 +186,14 @@ export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ childre
     save: storeSave,
   } = useProjectStore();
 
+  // Mirror the active project into a ref so async callbacks (auto-export)
+  // can read the latest value without re-binding. Declared here because
+  // triggerAutoExport references it during render.
+  const activeProjectRef = React.useRef(activeProject);
+  React.useEffect(() => {
+    activeProjectRef.current = activeProject;
+  }, [activeProject]);
+
   // Persist a survey output into the project store. Delegates to the
   // standalone useProjectStore hook which handles auto-create and IPC.
 

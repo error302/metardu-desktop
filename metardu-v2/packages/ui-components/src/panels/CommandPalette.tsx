@@ -21,6 +21,8 @@ export type CommandPaletteViewId =
   | "projects" | "map" | "flight" | "stakeout" | "gnss" | "drone"
   | "lulc" | "crosssection" | "asbuilt"
   | "traverse" | "cogo" | "deedplan" | "subdivision" | "fieldbook" | "lsa" | "roaddesign" | "officemgmt"
+  | "pointcloud" | "raster" | "archive" | "licensing" | "hardware" | "dwgcad" | "photogrammetry" | "ntripcaster" | "landportal"
+  | "gnssppk" | "datumtransform" | "volumechange" | "verticalalignment" | "deformation"
   | "topo" | "engineering" | "sectional" | "export" | "import" | "signing" | "sync" | "history";
 
 export interface CommandPaletteNavItem {

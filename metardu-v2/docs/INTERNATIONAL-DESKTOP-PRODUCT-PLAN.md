@@ -24,6 +24,16 @@ The market promise is **one surveyor’s workspace, many verified jurisdictions*
 
 Global availability means the core understands declared coordinate systems and evidence. It does not mean that every country pack ships with the app or that a global geoid replaces a national vertical datum.
 
+## Shared METARDU account and subscription
+
+Desktop access is included with a qualifying paid METARDU Web subscription. Surveyors use the same METARDU account; Desktop does not create a second subscription, separate tier catalogue, or local entitlement. The Web server remains the source of truth for account identity, subscription status, eligibility, and any seat rules. Desktop must not infer payment from a plan name, user-entered tier, cached local preference, or a successful Web sign-in alone.
+
+The current desktop tree has no working account-verification integration. The companion Web checkout has server-side subscription records and a `GET /api/subscription` route, but that route authenticates through the Web app's browser session and currently returns a `free`/`active` payload for unauthenticated requests and server errors. It is not a safe Desktop entitlement contract. Before integration, the Web service must expose an authenticated desktop-capable account flow and an explicit, versioned entitlement response. Authentication failures, subscription-service failures, and unknown states must remain failures; they must never look like a verified free or paid entitlement.
+
+The Desktop client must use a first-party account flow that supports the same Web account providers without collecting a password in the renderer. Its server-issued session or lease must be scoped to the Desktop client, revocable, and stored through the operating system's protected credential storage. Entitlement checks must use the shared server-side subscription record, with Desktop access granted only when the server says the account's paid subscription qualifies. Do not hard-code the Web plan-to-feature matrix into the renderer.
+
+Because Desktop is offline-first, the Web and Desktop services must define one compatible offline entitlement policy before release: credential format, expiry, renewal, revocation behavior, and the user-visible state when the subscription server cannot be reached. No offline lease or grace period is configured in this build. Subscription status is separate from survey evidence: a paid account cannot make an unsupported coordinate operation, computation, field connection, or statutory document verified.
+
 ## Surveyor experience
 
 ### First project
