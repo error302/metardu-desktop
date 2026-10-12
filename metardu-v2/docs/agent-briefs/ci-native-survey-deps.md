@@ -26,22 +26,22 @@ ci-native-survey-deps
 ## Acceptance criteria (independently verifiable)
 
 ### Build
-- [ ] GitHub Actions Rust sidecar matrix builds and tests on Ubuntu, Windows, and macOS.
-- [ ] GitHub Actions TypeScript matrix builds all three Node versions.
-- [ ] Release Linux/macOS sidecar build dependency lists include DBus development libraries.
-- [ ] macOS CI and release install LLVM and set `LIBCLANG_PATH` from `brew --prefix llvm`.
-- [ ] GDAL 3.13 builds use the published GeoRust 0.19.0 crate with a documented local vendor patch matching the merged upstream compatibility changes, until a published release includes them.
-- [ ] Windows CI locates the installed gdal_i.lib, GDAL headers, and runtime version; sets GDAL_LIB_DIR and GDAL_INCLUDE_DIR; and executes Cargo inside the OSGeo4W environment.
-- [ ] Windows uses the published GeoRust 0.19.0 crate with its upstream GDAL 3.12 prebuilt bindings against the OSGeo4W runtime and sets GDAL_VERSION=3.12.0 for Cargo; Unix uses the documented GDAL 3.13 vendor patch with bindgen.
-- [ ] The Electron smoke command resolves Electron from the workspace root node_modules directory and passes Chromium headless flags before the app path.
-- [ ] `better-sqlite3` is pinned to 12.11.1 in both engine and desktop so the declared Node >=20 range and Electron 33's Node 20 runtime use a supported native SQLite release; the root install-script allowlist matches this version.
-- [ ] Node 20 engine tests run on the normal Vitest forks pool with one worker, including the GeoPackage SQLite tests.
-- [ ] GCP export resolves the display name for the configured `primarySRID`, so multi-zone countries cannot emit a different zone label; existing Node-matrix coverage passes.
+- [x] GitHub Actions Rust sidecar matrix builds and tests on Ubuntu, Windows, and macOS.
+- [x] GitHub Actions TypeScript matrix builds all three Node versions.
+- [x] Release Linux/macOS sidecar build dependency lists include DBus development libraries.
+- [x] macOS CI and release install LLVM and set `LIBCLANG_PATH` from `brew --prefix llvm`.
+- [x] GDAL 3.13 builds use the published GeoRust 0.19.0 crate with a documented local vendor patch matching the merged upstream compatibility changes, until a published release includes them.
+- [x] Windows CI locates the installed gdal_i.lib, GDAL headers, and runtime version; sets GDAL_LIB_DIR and GDAL_INCLUDE_DIR; and executes Cargo inside the OSGeo4W environment.
+- [x] Windows uses the published GeoRust 0.19.0 crate with its upstream GDAL 3.12 prebuilt bindings against the OSGeo4W runtime and sets GDAL_VERSION=3.12.0 for Cargo; Unix uses the documented GDAL 3.13 vendor patch with bindgen.
+- [x] The Electron smoke command resolves Electron from the workspace root node_modules directory and passes Chromium headless flags before the app path.
+- [x] `better-sqlite3` is pinned to 12.11.1 in both engine and desktop so the declared Node >=20 range and Electron 33's Node 20 runtime use a supported native SQLite release; the root install-script allowlist matches this version.
+- [x] Node 20 engine tests run on the normal Vitest forks pool with one worker, including the GeoPackage SQLite tests.
+- [x] GCP export resolves the display name for the configured `primarySRID`, so multi-zone countries cannot emit a different zone label; existing Node-matrix coverage passes.
 
 ### Tests
-- [ ] Existing CI package and sidecar test jobs pass; no new product tests are introduced.
-- [ ] Existing Electron sidecar ping integration test passes with the single-reader stdin loop.
-- [ ] Workflow YAML parses and `git diff --check` passes; no new product tests are introduced.
+- [x] Existing CI package and sidecar test jobs pass; no new product tests are introduced.
+- [x] Existing Electron sidecar ping integration test passes with the single-reader stdin loop.
+- [x] Workflow YAML parses and `git diff --check` passes; no new product tests are introduced.
 
 ## Anti-hallucination clause
 

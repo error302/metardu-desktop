@@ -2588,3 +2588,23 @@ $ git diff --check
 ~~~
 
 - No local product tests were run. GitHub Actions must verify the native addon under Node 20 and all existing Node/sidecar matrix cells on the pushed revision.
+
+
+### Final GitHub verification — CI matrix passes (2026-10-12)
+- GitHub Actions run #262 (`38199050004`) for commit `7ffada3079ba6c9413032fd4632ca69b5671e273` completed successfully: TypeScript Node 20, Node 22, Node 24 and Rust sidecar Ubuntu, macOS, Windows all passed.
+- Node 20 passed package tests including GeoPackage SQLite use and the Electron smoke test. Node 22/24 also passed their full package checks, renderer build, and Electron smoke. The three native sidecar platform build/test jobs all passed; Windows ran with OSGeo4W.
+- This confirms the CI compatibility repair and native sidecar checks. It does not prove global survey-grade product readiness, regulatory acceptance, or physical instrument/device validation.
+
+~~~text
+$ gh run view 38199050004 --repo error302/metardu-desktop
+conclusion: success
+TypeScript — Node 20: success
+TypeScript — Node 22: success
+TypeScript — Node 24: success
+Sidecar (Rust) — ubuntu-22.04: success
+Sidecar (Rust) — macos-latest: success
+Sidecar (Rust) — windows-latest: success
+
+$ git diff --check
+(exit 0; no output)
+~~~
