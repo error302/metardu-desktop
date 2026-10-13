@@ -87,7 +87,13 @@ jobs:
         working-directory: metardu-v2/packages/metardu-sidecar
         env:
           LIBCLANG_PATH: /usr/lib/llvm-14/lib
-        run: cargo build --release
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            cargo build --release --no-default-features --features "shell-out instrument"
+          else
+            cargo build --release
+          fi
       - name: Build workspace packages
         working-directory: metardu-v2
         run: |
@@ -95,6 +101,7 @@ jobs:
           npm run build --workspace @metardu/electron-integration
           npm run build --workspace @metardu/ipc-schemas
           npm run build --workspace @metardu/engine-flight-planning
+          npm run build --workspace @metardu/report-pdf
       - name: Type-check all packages
         working-directory: metardu-v2
         run: |

@@ -1,0 +1,27 @@
+--- .github/workflows/ci.yml
++++ .github/workflows/ci.yml
+@@ -99,6 +99,7 @@
+           npm run build --workspace @metardu/electron-integration
+           npm run build --workspace @metardu/ipc-schemas
+           npm run build --workspace @metardu/engine-flight-planning
++          npm run build --workspace @metardu/report-pdf
+       - name: Type-check all packages
+         working-directory: metardu-v2
+         run: |
+           cd packages/engine && npx tsc --noEmit
+           cd ../country-config && npx tsc --noEmit
+           cd ../electron-integration && npx tsc --noEmit
+           cd ../ipc-schemas && npx tsc --noEmit
++          cd ../report-pdf && npx tsc --noEmit
+           cd ../../apps/desktop && npx tsc --noEmit
+       - name: Test all packages
+         working-directory: metardu-v2
+         run: |
+           cd packages/engine && npx vitest run
+           cd ../country-config && npx vitest run
+           cd ../electron-integration && npx vitest run
+           cd ../ipc-schemas && npx vitest run
++          cd ../report-pdf && npx vitest run
+           cd ../../tests && npx vitest run
+           cd ../apps/desktop && npx vitest run
+       - name: Build renderer
