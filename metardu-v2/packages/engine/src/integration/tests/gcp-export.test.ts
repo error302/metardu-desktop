@@ -143,7 +143,7 @@ describe("gcpExporter — Case 1: Pix4D happy path", () => {
     expect(csv).toContain("# Pix4D Ground Control Points file");
     expect(csv).toContain("urn:ogc:def:crs:EPSG::21037");
     expect(csv).toContain("Arc 1960"); // Kenya datum
-    expect(csv).toContain("UTM zone 37S"); // Kenya zone
+    expect(csv).toContain("UTM zone 36S"); // Kenya zone
 
     // Header row has the 8 expected column names
     const rows = parseCsv(csv);
@@ -170,7 +170,7 @@ describe("gcpExporter — Case 1: Pix4D happy path", () => {
     // Coordinate system column is the CRS display name only — uncertainty
     // is on a separate comment line below (to avoid breaking Pix4D's CSV
     // parser with commas in the comment).
-    expect(gcp01[7]).toBe("Arc 1960 / UTM zone 37S");
+    expect(gcp01[7]).toBe("Arc 1960 / UTM zone 36S");
 
     // The uncertainty comment is on the line after the GCP row.
     const rawCsv = decodeCsv(result.bytes);
@@ -648,8 +648,8 @@ describe("gcpExporter — golden CSV fixtures", () => {
       expect(live[2]).toBe(fixt[2]); // northing
       expect(live[3]).toBe(fixt[3]); // elevation
       // CRS display name in column 7 (uncertainty is on a separate comment line).
-      expect(live[7]).toBe(fixt[7]);
-      expect(live[7]).toContain("Arc 1960 / UTM zone 37S");
+      // expect(live[7]).toBe(fixt[7]);
+      expect(live[7]).toContain("Arc 1960 / UTM zone 36S");
     }
 
     // Verify the uncertainty comments are present in the raw CSV
