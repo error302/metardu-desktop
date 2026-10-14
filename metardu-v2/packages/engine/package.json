@@ -62,7 +62,8 @@
     "@metardu/country-config": "*",
     "@tarikjabiri/dxf": "^2.8.9",
     "better-sqlite3": "^13.0.1",
-    "pdf-lib": "^1.17.1"
+    "pdf-lib": "^1.17.1",
+    "@metardu/report-pdf": "*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
