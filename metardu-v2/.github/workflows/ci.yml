@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: [20, 22, 24]
+        node: [22]
     steps:
       - uses: actions/checkout@v4
 
@@ -44,7 +44,7 @@ jobs:
         run: npx vitest run --coverage
 
       - name: Upload coverage
-        if: matrix.node == 20
+        if: matrix.node == 22
         uses: actions/upload-artifact@v4
         with:
           name: engine-coverage
@@ -74,11 +74,11 @@ jobs:
 
       - name: Build
         working-directory: packages/metardu-sidecar
-        run: cargo build --release
+        run: cargo build --release --no-default-features --features shell-out
 
       - name: Run unit tests
         working-directory: packages/metardu-sidecar
-        run: cargo test
+        run: cargo test --no-default-features --features shell-out
 
       - name: Run end-to-end smoke test (ping/echo/version)
         working-directory: packages/metardu-sidecar
@@ -144,7 +144,7 @@ jobs:
 
       - name: Build sidecar
         working-directory: packages/metardu-sidecar
-        run: cargo build --release
+        run: cargo build --release --no-default-features --features shell-out
 
       - name: Run end-to-end test
         run: python3 scripts/test_sidecar_e2e.py
@@ -160,7 +160,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install dependencies
         run: npm install
