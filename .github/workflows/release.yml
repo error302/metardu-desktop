@@ -60,6 +60,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            libdbus-1-dev \
+            pkg-config \
             libgdal-dev \
             libclang-dev \
             clang \
@@ -153,6 +155,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            libdbus-1-dev \
+            pkg-config \
             libgdal-dev \
             libclang-dev \
             clang \
@@ -240,7 +244,8 @@ jobs:
       - name: Install macOS build deps
         run: |
           brew install gdal
-          brew install libclang
+          brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
 
       - name: Install npm dependencies
         working-directory: metardu-v2
@@ -256,8 +261,6 @@ jobs:
 
       - name: Build sidecar (Rust)
         working-directory: metardu-v2/packages/metardu-sidecar
-        env:
-          LIBCLANG_PATH: /opt/homebrew/opt/llvm/lib
         run: cargo build --release
 
       - name: Build renderer + desktop
