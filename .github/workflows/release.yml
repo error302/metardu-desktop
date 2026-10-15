@@ -61,6 +61,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libgdal-dev \
+            libdbus-1-dev pkg-config \
             libclang-dev \
             clang \
             libsecret-1-dev \
@@ -85,7 +86,7 @@ jobs:
         working-directory: metardu-v2/packages/metardu-sidecar
         env:
           LIBCLANG_PATH: /usr/lib/llvm-14/lib
-        run: cargo build --release
+        run: cargo build --release --no-default-features --features "instrument,shell-out"
 
       - name: Build renderer (Vite)
         working-directory: metardu-v2
@@ -154,6 +155,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libgdal-dev \
+            libdbus-1-dev pkg-config \
             libclang-dev \
             clang \
             wine64 \
@@ -183,7 +185,7 @@ jobs:
         working-directory: metardu-v2/packages/metardu-sidecar
         env:
           LIBCLANG_PATH: /usr/lib/llvm-14/lib
-        run: cargo build --release
+        run: cargo build --release --no-default-features --features "instrument,shell-out"
 
       - name: Build renderer + desktop
         working-directory: metardu-v2
@@ -258,7 +260,7 @@ jobs:
         working-directory: metardu-v2/packages/metardu-sidecar
         env:
           LIBCLANG_PATH: /opt/homebrew/opt/llvm/lib
-        run: cargo build --release
+        run: cargo build --release --no-default-features --features "instrument,shell-out"
 
       - name: Build renderer + desktop
         working-directory: metardu-v2
