@@ -49,7 +49,7 @@ jobs:
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: metardu-v2/package-lock.json
 
@@ -63,6 +63,8 @@ jobs:
             libgdal-dev \
             libclang-dev \
             clang \
+            libdbus-1-dev \
+            pkg-config \
             libsecret-1-dev \
             libusb-1.0-0-dev \
             libudev-dev \
@@ -140,7 +142,7 @@ jobs:
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: metardu-v2/package-lock.json
 
@@ -156,6 +158,8 @@ jobs:
             libgdal-dev \
             libclang-dev \
             clang \
+            libdbus-1-dev \
+            pkg-config \
             wine64 \
             mingw-w64
 
@@ -230,7 +234,7 @@ jobs:
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: metardu-v2/package-lock.json
 
