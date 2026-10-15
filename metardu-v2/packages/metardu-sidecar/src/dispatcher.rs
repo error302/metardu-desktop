@@ -269,21 +269,22 @@ impl Dispatcher {
         // streaming happens via background tasks that push Notification
         // structs through the broadcast channel (notif_tx).
 
-        self.register("instrument.list_ports", |params: Value| async move {
-            crate::instrument::handle_list_ports(params).await
-        });
-
-        self.register("instrument.list_ble_devices", |params: Value| async move {
-            crate::instrument::handle_list_ble_devices(params).await
-        });
-
-        self.register("instrument.scan_ports", |params: Value| async move {
-            crate::instrument::handle_scan_ports(params).await
-        });
-
-        // instrument.connect needs the notification sender for streaming.
-        // We clone notif_tx into the handler closure.
+        #[cfg(feature = "instrument")]
         {
+            self.register("instrument.list_ports", |params: Value| async move {
+                crate::instrument::handle_list_ports(params).await
+            });
+
+            self.register("instrument.list_ble_devices", |params: Value| async move {
+                crate::instrument::handle_list_ble_devices(params).await
+            });
+
+            self.register("instrument.scan_ports", |params: Value| async move {
+                crate::instrument::handle_scan_ports(params).await
+            });
+
+            // instrument.connect needs the notification sender for streaming.
+            // We clone notif_tx into the handler closure.
             let notif_tx = self.notif_tx.clone();
             self.register("instrument.connect", move |params: Value| {
                 let notif_tx = notif_tx.clone();
@@ -291,27 +292,27 @@ impl Dispatcher {
                     crate::instrument::handle_connect(params, notif_tx).await
                 }
             });
+
+            self.register("instrument.disconnect", |params: Value| async move {
+                crate::instrument::handle_disconnect(params).await
+            });
+
+            self.register("instrument.status", |params: Value| async move {
+                crate::instrument::handle_status(params).await
+            });
+
+            // ---- GNSS baseline covariance estimation from satellite geometry ----
+            // PDOP-weighted baseline covariance estimator: takes satellite
+            // elevation/azimuth at two receivers and returns a correlated 3x3
+            // covariance matrix for use in least-squares adjustment.
+            self.register("gnss.estimate_baseline_covariance", |params: Value| async move {
+                crate::instrument::baseline_covariance::handle_estimate_baseline_covariance(params).await
+            });
+
+            self.register("gnss.batch_estimate_covariance", |params: Value| async move {
+                crate::instrument::baseline_covariance::handle_batch_estimate_covariance(params).await
+            });
         }
-
-        self.register("instrument.disconnect", |params: Value| async move {
-            crate::instrument::handle_disconnect(params).await
-        });
-
-        self.register("instrument.status", |params: Value| async move {
-            crate::instrument::handle_status(params).await
-        });
-
-        // ---- GNSS baseline covariance estimation from satellite geometry ----
-        // PDOP-weighted baseline covariance estimator: takes satellite
-        // elevation/azimuth at two receivers and returns a correlated 3x3
-        // covariance matrix for use in least-squares adjustment.
-        self.register("gnss.estimate_baseline_covariance", |params: Value| async move {
-            crate::instrument::baseline_covariance::handle_estimate_baseline_covariance(params).await
-        });
-
-        self.register("gnss.batch_estimate_covariance", |params: Value| async move {
-            crate::instrument::baseline_covariance::handle_batch_estimate_covariance(params).await
-        });
     }
 
     /// Returns the list of all registered method names.

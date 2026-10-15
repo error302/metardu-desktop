@@ -13,6 +13,7 @@ mod dispatcher;
 mod gdal;
 mod geodesy;
 mod import;
+#[cfg(feature = "instrument")]
 mod instrument;
 mod mavsdk;
 mod ml;
