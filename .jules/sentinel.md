@@ -1,0 +1,4 @@
+## 2025-02-26 - [XSS via SVG in CrossSectionView]
+**Vulnerability:** A Cross-Site Scripting (XSS) vulnerability was found in `CrossSectionView.tsx` where an interactive SVG graph was built using string concatenation and rendered using `dangerouslySetInnerHTML`. Malicious inputs (e.g., from feature labels in imported project data) could execute arbitrary scripts.
+**Learning:** Even internal toolings (like graphs built via string concat for performance/simplicity) that display user-controlled or external data are vectors for XSS if raw strings are directly assigned to innerHTML in React.
+**Prevention:** Always use a well-tested sanitizer like `DOMPurify` to clean any dynamically generated HTML/SVG strings containing user data before rendering them with `dangerouslySetInnerHTML`. When dealing with SVG elements, make sure to enable the appropriate profiles (e.g. `{ USE_PROFILES: { svg: true } }`).
