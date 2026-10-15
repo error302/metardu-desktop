@@ -25,7 +25,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Build country-config (engine dependency)
         working-directory: packages/country-config
@@ -74,11 +74,11 @@ jobs:
 
       - name: Build
         working-directory: packages/metardu-sidecar
-        run: cargo build --release
+        run: cargo build --release --features shell-out --no-default-features
 
       - name: Run unit tests
         working-directory: packages/metardu-sidecar
-        run: cargo test
+        run: cargo test --features shell-out --no-default-features
 
       - name: Run end-to-end smoke test (ping/echo/version)
         working-directory: packages/metardu-sidecar
@@ -144,7 +144,7 @@ jobs:
 
       - name: Build sidecar
         working-directory: packages/metardu-sidecar
-        run: cargo build --release
+        run: cargo build --release --features shell-out --no-default-features
 
       - name: Run end-to-end test
         run: python3 scripts/test_sidecar_e2e.py
@@ -163,7 +163,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Build country-config
         working-directory: packages/country-config
