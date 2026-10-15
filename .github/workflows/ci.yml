@@ -39,8 +39,8 @@ jobs:
       - name: Install macOS deps
         if: matrix.os == 'macos-latest'
         run: |
-          brew install gdal
-          echo "LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib" >> $GITHUB_ENV
+          brew install gdal llvm@18
+          echo "LIBCLANG_PATH=/opt/homebrew/opt/llvm@18/lib" >> $GITHUB_ENV
       - name: Build
         working-directory: metardu-v2/packages/metardu-sidecar
         run: |
