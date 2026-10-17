@@ -467,7 +467,7 @@ export const gcpExporter: IntegrationExporter<GcpInput, GcpOptions, GcpOutput> =
     const datum = config.geodeticFramework.datum;
     // Use the first projection zone's name (countries with multiple zones
     // would need the surveyor to specify which zone — future work).
-    const zoneName = config.geodeticFramework.projectionZones[0]?.name ?? "";
+    const zoneName = config.geodeticFramework.projectionZones.find(z => z.srid === srid)?.name ?? "";
     const crsDisplayName = buildCrsDisplayName(srid, datum, zoneName);
 
     const m = options.projectMetadata as ProjectMetadata;
