@@ -33,7 +33,9 @@
     "@metardu/engine-flight-planning": "*",
     "@metardu/ipc-schemas": "*",
     "@metardu/report-pdf": "*",
+    "@metardu/ui-components": "^0.1.0",
     "better-sqlite3": "^13.0.3",
+    "dompurify": "^3.4.17",
     "lucide-react": "*",
     "ol": "^10.9.0",
     "pdf-lib": "^1.17.1",
@@ -42,6 +44,7 @@
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@types/better-sqlite3": "^9.6.0",
+    "@types/dompurify": "^3.0.5",
     "@types/node": "^22.0.0",
     "@types/ol": "^6.5.3",
     "electron": "33.4.11",
