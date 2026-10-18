@@ -10,10 +10,10 @@ jobs:
   # ─── TypeScript Engine Tests ────────────────────────────────────────
   engine-test:
     name: Engine Tests (Node ${{ matrix.node }})
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: [20]
+        node: [20, 22, 24]
     steps:
       - uses: actions/checkout@v4
 
@@ -78,11 +78,11 @@ jobs:
 
       - name: Build
         working-directory: packages/metardu-sidecar
-        run: cargo build --release --features "shell-out instrument"
+        run: cargo build --release ${{ matrix.os == 'windows-latest' && '--no-default-features --features "shell-out instrument"' || '' }}
 
       - name: Run unit tests
         working-directory: packages/metardu-sidecar
-        run: cargo test --features "shell-out instrument"
+        run: cargo test ${{ matrix.os == 'windows-latest' && '--no-default-features --features "shell-out instrument"' || '' }}
 
       - name: Run end-to-end smoke test (ping/echo/version)
         working-directory: packages/metardu-sidecar
@@ -138,7 +138,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
 
       - name: Setup Rust
@@ -151,7 +152,7 @@ jobs:
 
       - name: Build sidecar
         working-directory: packages/metardu-sidecar
-        run: cargo build --release --features "shell-out instrument"
+        run: cargo build --release
 
       - name: Run end-to-end test
         run: python3 scripts/test_sidecar_e2e.py

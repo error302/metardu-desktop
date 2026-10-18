@@ -58,7 +58,7 @@ gdal-bindings = ["dep:gdal", "dep:geojson"]
 # Use this feature on platforms where native GDAL bindings are hard to build
 shell-out = []
 # Enable live instrument connection (serial + BLE + NTRIP)
-instrument = ["dep:tokio-serial", "dep:btleplug"]
+instrument = ["dep:tokio-serial"]
 
 [dev-dependencies]
 assert_matches = "1.5"
