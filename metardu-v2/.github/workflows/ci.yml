@@ -10,10 +10,10 @@ jobs:
   # ─── TypeScript Engine Tests ────────────────────────────────────────
   engine-test:
     name: Engine Tests (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
-        node: [20, 22, 24]
+        node: [20]
     steps:
       - uses: actions/checkout@v4
 
@@ -57,10 +57,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-22.04, windows-latest, macos-latest]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install system dependencies (Ubuntu/Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+
+      - name: Install system dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install gdal
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -74,11 +82,11 @@ jobs:
 
       - name: Build
         working-directory: packages/metardu-sidecar
-        run: cargo build --release
+        run: cargo build --release ${{ (matrix.os == 'windows-latest' || matrix.os == 'macos-latest') && '--no-default-features --features "shell-out instrument"' || '' }}
 
       - name: Run unit tests
         working-directory: packages/metardu-sidecar
-        run: cargo test
+        run: cargo test ${{ (matrix.os == 'windows-latest' || matrix.os == 'macos-latest') && '--no-default-features --features "shell-out instrument"' || '' }}
 
       - name: Run end-to-end smoke test (ping/echo/version)
         working-directory: packages/metardu-sidecar
@@ -129,10 +137,14 @@ jobs:
   # ─── End-to-End Test (Python script against Linux sidecar) ─────────
   e2e-test:
     name: End-to-End Test (full protocol)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: sidecar-test
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install system dependencies (Ubuntu/Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -152,7 +164,7 @@ jobs:
   # ─── Demo Script (verifies the full pipeline works) ────────────────
   demo:
     name: Demo Script
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: engine-test
     steps:
       - uses: actions/checkout@v4

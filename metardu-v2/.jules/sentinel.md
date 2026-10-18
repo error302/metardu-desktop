@@ -1,0 +1,4 @@
+## 2025-05-15 - [XSS vulnerability in SVG rendering]
+**Vulnerability:** A vulnerability was discovered in `CrossSectionView.tsx` where user inputs (e.g. `section.points[i].feature`) were used to dynamically build an SVG string and then assigned using React's `dangerouslySetInnerHTML`. This could allow Cross-Site Scripting (XSS) if the user input contains malicious HTML or script tags.
+**Learning:** Using `dangerouslySetInnerHTML` for any dynamic content—even SVG generated in the UI layer—is highly susceptible to XSS if inputs aren't sanitized. `DOMPurify` should be used with specific configurations (like `{ USE_PROFILES: { svg: true } }`) to retain important SVG features without retaining malicious attributes.
+**Prevention:** Always use a sanitation library (like `DOMPurify`) when rendering HTML or SVGs dynamically via `dangerouslySetInnerHTML`, ensuring appropriate configuration for valid rendering.
