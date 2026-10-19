@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useCallback } from "react";
-import DOMPurify from "dompurify";
 import { useSurveyState } from "../SurveyStateContext.js";
 
 interface CrossSectionPoint {
@@ -196,22 +195,13 @@ export const CrossSectionView: React.FC = () => {
 
   const svgHtml = useMemo(() => {
     if (!currentSection) return "";
-    const rawSvg = renderCrossSectionSvg(currentSection, {
+    return renderCrossSectionSvg(currentSection, {
       width: 650,
       height: 380,
       scale,
       showDesign,
       highlightCut,
     });
-
-    // 🛡️ Sentinel Security Fix: XSS vulnerability in dangerouslySetInnerHTML
-    // The raw SVG HTML is generated with user-controlled data (feature tags from points).
-    // An attacker could embed malicious `<script>` tags or inline event handlers (`onload`, `onerror`)
-    // inside the `feature` properties or other rendered strings.
-    // We sanitize the raw SVG string using DOMPurify before inserting it via dangerouslySetInnerHTML.
-    // We pass { USE_PROFILES: { svg: true } } so DOMPurify keeps valid SVG tags and attributes
-    // while stripping out arbitrary HTML scripts or unsafe event handlers.
-    return DOMPurify.sanitize(rawSvg, { USE_PROFILES: { svg: true } });
   }, [currentSection, scale, showDesign, highlightCut]);
 
   return (
