@@ -382,10 +382,6 @@ mod native {
         use geojson::{FeatureCollection, Feature, Geometry, Value, JsonObject, JsonValue};
 
         let features: Vec<Feature> = contours.iter().map(|c| {
-            let coords: Vec<JsonValue> = c.coordinates.iter()
-                .map(|pt| JsonValue::Array(vec![pt[0].into(), pt[1].into()]))
-                .collect();
-
             let geometry = Geometry::new(Value::LineString({
                 // geojson 0.24 expects Vec<Vec<f64>> for LineString, not Vec<[f64; 2]>.
                 c.coordinates.iter().map(|pt| vec![pt[0], pt[1]]).collect()
