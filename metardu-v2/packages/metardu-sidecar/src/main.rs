@@ -48,9 +48,7 @@ async fn main() -> Result<()> {
     );
 
     // Use buffered I/O for throughput.
-    let stdin = io::stdin();
     let stdout = io::stdout();
-    let mut reader = BufReader::new(stdin.lock());
     let mut writer = BufWriter::new(stdout.lock());
 
     // Broadcast channel for streaming notifications (instrument events).
@@ -59,17 +57,41 @@ async fn main() -> Result<()> {
 
     let dispatcher = dispatcher::Dispatcher::new(notif_tx.clone());
 
+    let (req_tx, mut req_rx) = tokio::sync::mpsc::channel(1);
+
+    // Spawn a dedicated thread to read from stdin sequentially
+    std::thread::spawn(move || {
+        let stdin = io::stdin();
+        let mut r = BufReader::new(stdin.lock());
+        loop {
+            match read_message(&mut r) {
+                Ok(Some(req)) => {
+                    if req_tx.blocking_send(Ok(req)).is_err() {
+                        break; // Receiver dropped, stop reading
+                    }
+                }
+                Ok(None) => {
+                    // EOF
+                    let _ = req_tx.blocking_send(Err(anyhow::anyhow!("EOF")));
+                    break;
+                }
+                Err(e) => {
+                    let _ = req_tx.blocking_send(Err(e));
+                    // Keep trying, or break? Usually break on read error
+                    break;
+                }
+            }
+        }
+    });
+
     // Main loop: read request, dispatch, write response, and forward
     // any streaming notifications to stdout.
     loop {
         tokio::select! {
             // Branch 1: incoming request from the main process.
-            req_result = tokio::task::spawn_blocking({
-                let mut r = BufReader::new(io::stdin());
-                move || read_message(&mut r)
-            }) => {
+            req_result = req_rx.recv() => {
                 match req_result {
-                    Ok(Ok(Some(req))) => {
+                    Some(Ok(req)) => {
                         info!(method = %req.method, id = %req.id, "dispatching request");
                         let resp = dispatcher.dispatch(req).await;
                         if let Err(e) = write_message(&mut writer, &resp) {
@@ -77,22 +99,23 @@ async fn main() -> Result<()> {
                             break;
                         }
                     }
-                    Ok(Ok(None)) => {
-                        info!("stdin EOF received, shutting down");
-                        // Signal all background tasks to stop.
-                        drop(notif_tx);
-                        break;
-                    }
-                    Ok(Err(e)) => {
-                        error!(error = %e, "Failed to read message");
-                        let resp = Response::err("unknown".into(), "READ_ERROR", &e.to_string());
-                        if let Err(write_err) = write_message(&mut writer, &resp) {
-                            error!(error = %write_err, "Failed to write error response, exiting");
+                    Some(Err(e)) => {
+                        if e.to_string() == "EOF" {
+                            info!("stdin EOF received, shutting down");
+                            // Signal all background tasks to stop.
+                            drop(notif_tx);
                             break;
+                        } else {
+                            error!(error = %e, "Failed to read message");
+                            let resp = Response::err("unknown".into(), "READ_ERROR", &e.to_string());
+                            if let Err(write_err) = write_message(&mut writer, &resp) {
+                                error!(error = %write_err, "Failed to write error response, exiting");
+                                break;
+                            }
                         }
                     }
-                    Err(e) => {
-                        error!(error = %e, "Join error on stdin reader, exiting");
+                    None => {
+                        error!("Request channel closed");
                         break;
                     }
                 }
