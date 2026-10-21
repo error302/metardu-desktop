@@ -19,8 +19,8 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tracing::{info, warn, debug, error};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tracing::{info, warn, error};
 
 use super::serial::InstrumentRecord;
 
@@ -114,7 +114,7 @@ pub async fn open_ntrip_stream(
         let addr = format!("{}:{}", host, port);
         match tokio::net::TcpStream::connect(&addr).await {
             Ok(stream) => {
-                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                use tokio::io::AsyncWriteExt;
                 info!(addr = %addr, "NTRIP TCP connected");
 
                 let mut stream = stream;

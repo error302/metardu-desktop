@@ -15,7 +15,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read, Write};
-use tracing::{debug, error, info, instrument};
+use tracing::{error, info};
 
 /// Unique request identifier (string, not UUID yet — keep deps minimal).
 pub type RequestId = String;
