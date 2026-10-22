@@ -1,0 +1,4 @@
+## 2024-10-22 - [XSS vulnerability in SVG rendering via dangerouslySetInnerHTML]
+**Vulnerability:** Unsanitized raw SVG string generated from survey state output being directly injected using `dangerouslySetInnerHTML`. Since the SVG strings are generated from `currentSection.points` where point `feature` tags may derive from user inputs, this presents a severe XSS vulnerability.
+**Learning:** Directly injecting dynamic SVG strings in React requires strict sanitation just like raw HTML, particularly when features or attributes within the SVG interpolate unsanitized structural user data.
+**Prevention:** Use `DOMPurify.sanitize(htmlString, { USE_PROFILES: { svg: true } })` when rendering raw SVG logic inside `dangerouslySetInnerHTML`, ensuring required SVG functionality is kept while malicious JS is stripped.
