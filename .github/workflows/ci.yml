@@ -80,6 +80,7 @@ jobs:
         working-directory: metardu-v2
         run: |
           npm run build --workspace @metardu/country-config
+          npm run build --workspace @metardu/report-pdf
           npm run build --workspace @metardu/electron-integration
           npm run build --workspace @metardu/ipc-schemas
           npm run build --workspace @metardu/engine-flight-planning
