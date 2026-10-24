@@ -272,7 +272,7 @@ pub fn parse_nmea_stream(data: &str) -> Vec<NmeaSentence> {
 
 // ─── Individual sentence parsers ──────────────────────────────────
 
-fn parse_gga(fields: &[&str], talker: &str) -> NmeaData {
+fn parse_gga(fields: &[&str], _talker: &str) -> NmeaData {
     let time = fields.get(1).map(|s| s.to_string()).unwrap_or_default();
     let (lat, lat_dir) = parse_coord(fields.get(2), fields.get(3));
     let (lon, lon_dir) = parse_coord(fields.get(4), fields.get(5));
@@ -291,7 +291,7 @@ fn parse_gga(fields: &[&str], talker: &str) -> NmeaData {
     })
 }
 
-fn parse_gsa(fields: &[&str], talker: &str) -> NmeaData {
+fn parse_gsa(fields: &[&str], _talker: &str) -> NmeaData {
     let mode = fields.get(1).map(|s| s.to_string()).unwrap_or_default();
     let fix_type = fields.get(2).and_then(|s| s.parse().ok()).unwrap_or(1);
     let mut satellites_used = Vec::new();
@@ -344,7 +344,7 @@ fn parse_gsv(fields: &[&str], talker: &str) -> NmeaData {
     })
 }
 
-fn parse_rmc(fields: &[&str], talker: &str) -> NmeaData {
+fn parse_rmc(fields: &[&str], _talker: &str) -> NmeaData {
     let time = fields.get(1).map(|s| s.to_string()).unwrap_or_default();
     let status = fields.get(2).map(|s| s.to_string()).unwrap_or_default();
     let (lat, lat_dir) = parse_coord(fields.get(3), fields.get(4));

@@ -26,8 +26,8 @@ pub mod baseline_covariance;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{broadcast, Mutex};
-use tracing::{info, warn, error};
+use tokio::sync::Mutex;
+use tracing::info;
 
 use crate::dispatcher::HandlerError;
 use crate::protocol::Notification;
@@ -194,7 +194,7 @@ pub async fn handle_connect(
             let conn_id = uuid::Uuid::new_v4().to_string();
             info!(port = %p.port, baud = p.baud_rate, conn_id = %conn_id, "opening serial connection");
 
-            let (abort_handle, mut rx) = serial::open_serial_stream(
+            let (_abort_handle, mut rx) = serial::open_serial_stream(
                 &p.port, p.baud_rate, &p.protocol, p.data_bits, p.stop_bits, &p.parity,
             ).await
                 .map_err(|e| HandlerError::Internal(format!("Failed to open {}: {}", p.port, e)))?;
@@ -254,7 +254,7 @@ pub async fn handle_connect(
             let conn_id = uuid::Uuid::new_v4().to_string();
             info!(device_name = %p.device_name, conn_id = %conn_id, "connecting BLE device");
 
-            let (abort_handle, mut rx) = ble::open_ble_stream(
+            let (_abort_handle, mut rx) = ble::open_ble_stream(
                 &p.device_name,
                 p.device_address.as_deref(),
                 p.service_uuid.as_deref(),
@@ -313,7 +313,7 @@ pub async fn handle_connect(
             let conn_id = uuid::Uuid::new_v4().to_string();
             info!(caster = %p.caster_url, mountpoint = %p.mountpoint, conn_id = %conn_id, "connecting NTRIP caster");
 
-            let (abort_handle, mut rx) = ntrip::open_ntrip_stream(
+            let (_abort_handle, mut rx) = ntrip::open_ntrip_stream(
                 &p.caster_url,
                 &p.mountpoint,
                 p.username.as_deref(),
@@ -324,7 +324,7 @@ pub async fn handle_connect(
 
             let conn_id_clone = conn_id.clone();
             let notif_tx_clone = notif_tx.clone();
-            let mountpoint = p.mountpoint.clone();
+            let _mountpoint = p.mountpoint.clone();
 
             let bg_task = tokio::spawn(async move {
                 let mut msg_count: u64 = 0;
@@ -414,7 +414,7 @@ pub async fn handle_scan_ports(_params: serde_json::Value) -> Result<serde_json:
 fn chrono_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-    let secs = t.as_secs();
+    let _secs = t.as_secs();
     // Simple UTC timestamp without pulling in chrono crate.
     // Format: 2026-01-01T12:00:00Z
     // We compute from Unix epoch. For simplicity, use the raw millis.

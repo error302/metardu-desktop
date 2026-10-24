@@ -18,12 +18,11 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tracing::{info, warn, debug, error};
+use tracing::{info, warn};
 
-use super::nmea::{parse_nmea, NmeaSentence, NmeaData};
+use super::nmea::parse_nmea;
 
 /// Instrument record parsed from serial data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
