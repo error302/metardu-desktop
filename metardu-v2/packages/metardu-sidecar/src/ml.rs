@@ -21,7 +21,7 @@
 //!   - SpaceNet 2: https://spacenet.ai/spacenet-buildings-dataset-v2/
 //!   - Douglas-Peucker: https://en.wikipedia.org/wiki/Ramer%E2%80%93Douglas%E2%80%93Peucker_algorithm
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tracing::{info, instrument, warn};
@@ -197,7 +197,7 @@ pub async fn extract_features(params: MlExtractParams) -> Result<MlExtractResult
 
 /// Real ONNX inference pipeline (called when a model file is available).
 async fn extract_features_real(
-    params: MlExtractParams,
+    _params: MlExtractParams,
     model_id: &str,
     duration_sec: u64,
 ) -> Result<MlExtractResult> {

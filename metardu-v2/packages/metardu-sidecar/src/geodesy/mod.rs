@@ -25,12 +25,6 @@ pub mod helmert;
 pub mod projection;
 
 // Re-export the main public API at the module root for convenience.
-pub use ecef::{geodetic_to_ecef, ecef_to_geodetic, Ellipsoid, ECEF};
-pub use helmert::{helmert_transform, HelmertParams, TransformConvention};
-pub use projection::{
-    lambert_conformal_conic_forward, lambert_conformal_conic_inverse, transverse_mercator_forward,
-    transverse_mercator_inverse, utm_forward, utm_inverse, LCCParams, TMParams,
-};
 
 /// Common datum definitions used by Kenya and other target countries.
 ///
@@ -117,6 +111,15 @@ pub mod datums {
 
 #[cfg(test)]
 mod tests {
+    use crate::geodesy::ecef::geodetic_to_ecef;
+    use crate::geodesy::ecef::ECEF;
+    use crate::geodesy::ecef::ecef_to_geodetic;
+    use crate::geodesy::helmert::helmert_transform;
+    use crate::geodesy::helmert::TransformConvention;
+    use crate::geodesy::helmert::HelmertParams;
+    use crate::geodesy::projection::TMParams;
+    use crate::geodesy::projection::transverse_mercator_forward;
+    use crate::geodesy::projection::transverse_mercator_inverse;
     use super::*;
 
     /// Arithmetic inverse sanity only: EPSG::1122 transforms Arc 1960 →

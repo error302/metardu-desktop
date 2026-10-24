@@ -16,10 +16,10 @@
 //!   - btleplug: https://github.com/danielrangelrojas/btleplug
 //!   - Nordic UART Service: https://developer.nordicsemi.com/ble_nrf_connect_sdk/doc/latest/nrf/libraries/bluetooth/services/nus.html
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tracing::warn;
 
 use super::serial::InstrumentRecord;
 
@@ -59,10 +59,10 @@ pub async fn open_ble_stream(
     _service_uuid: Option<&str>,
     _characteristic_uuid: Option<&str>,
 ) -> Result<(tokio::task::JoinHandle<()>, mpsc::Receiver<InstrumentRecord>)> {
-    let (_tx, rx) = mpsc::channel::<InstrumentRecord>(1);
+    let (_tx, _rx) = mpsc::channel::<InstrumentRecord>(1);
 
     // Return a task that immediately exits
-    let bg_task = tokio::spawn(async {
+    let _bg_task = tokio::spawn(async {
         warn!("BLE streaming not yet implemented — use serial or NTRIP connections");
     });
 

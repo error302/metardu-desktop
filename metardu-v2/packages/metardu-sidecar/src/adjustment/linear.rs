@@ -361,7 +361,7 @@ pub fn adjust_least_squares(
             }
             let avg_r = trace_r / b as f64;
 
-            for k in 0..b {
+            for _k in 0..b {
                 redundancy.push(avg_r);
             }
 
@@ -427,7 +427,7 @@ fn compute_obs_offsets(observations: &[Observation]) -> Vec<usize> {
 fn build_design_and_misclosure(
     x: &[Vec<f64>],
     z: &[f64],
-    parameters: &[ParameterPrior],
+    _parameters: &[ParameterPrior],
     observations: &[Observation],
     coord_layout: &[(usize, usize)],
     orient_layout: &[usize],
@@ -459,7 +459,7 @@ fn build_design_and_misclosure(
 
     for (obs_idx, obs) in observations.iter().enumerate() {
         let row_start = offsets[obs_idx];
-        let b = obs.observed.len(); // number of components
+        let _b = obs.observed.len(); // number of components
 
         match obs.kind {
             // ── Distance (non-linear, 1 component) ──────────────

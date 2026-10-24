@@ -16,11 +16,11 @@
 //!   - RTCM 10410.1 (RTCM v3.3): https://www.rtcm.org/standard-10410-1-1
 //!   - bkg-ntrip: https://github.com/BKG-cddis/bkg-ntrip
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tracing::{info, warn, debug, error};
+use tracing::{info, warn, error};
 
 use super::serial::InstrumentRecord;
 

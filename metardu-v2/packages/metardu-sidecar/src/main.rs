@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
     // Use buffered I/O for throughput.
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let mut reader = BufReader::new(stdin.lock());
+    let _reader = BufReader::new(stdin.lock());
     let mut writer = BufWriter::new(stdout.lock());
 
     // Broadcast channel for streaming notifications (instrument events).
