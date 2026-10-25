@@ -43,6 +43,8 @@ jobs:
           brew install gdal llvm pkg-config
           echo "LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib" >> $GITHUB_ENV
           echo "PKG_CONFIG_PATH=/opt/homebrew/opt/gdal/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          echo "CPATH=/opt/homebrew/opt/gdal/include:$CPATH" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=/opt/homebrew/opt/gdal/lib:$LIBRARY_PATH" >> $GITHUB_ENV
       - name: Build
         working-directory: metardu-v2/packages/metardu-sidecar
         shell: bash
@@ -91,8 +93,9 @@ jobs:
         shell: bash
         env:
           LIBCLANG_PATH: /usr/lib/llvm-14/lib
+          PKG_CONFIG_PATH: /opt/homebrew/opt/gdal/lib/pkgconfig
         run: |
-          if [ "$RUNNER_OS" == "Windows" ]; then
+          if [ "$RUNNER_OS" == "Windows" ] || [ "$RUNNER_OS" == "macOS" ]; then
             cargo build --release --no-default-features --features "shell-out instrument"
           else
             cargo build --release
@@ -103,6 +106,7 @@ jobs:
           npm run build --workspace @metardu/country-config
           npm run build --workspace @metardu/electron-integration
           npm run build --workspace @metardu/ipc-schemas
+          npm run build --workspace @metardu/report-pdf
           npm run build --workspace @metardu/engine-flight-planning
       - name: Type-check all packages
         working-directory: metardu-v2

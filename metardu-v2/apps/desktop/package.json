@@ -32,7 +32,7 @@
     "@metardu/electron-integration": "*",
     "@metardu/engine-flight-planning": "*",
     "@metardu/ipc-schemas": "*",
-    "@metardu/report-pdf": "*",
+    "@metardu/report-pdf": "^0.1.0",
     "@types/dompurify": "^3.0.5",
     "better-sqlite3": "^13.0.3",
     "dompurify": "^3.4.17",
