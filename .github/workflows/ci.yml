@@ -93,7 +93,6 @@ jobs:
         shell: bash
         env:
           LIBCLANG_PATH: /usr/lib/llvm-14/lib
-          PKG_CONFIG_PATH: /opt/homebrew/opt/gdal/lib/pkgconfig
         run: |
           if [ "$RUNNER_OS" == "Windows" ] || [ "$RUNNER_OS" == "macOS" ]; then
             cargo build --release --no-default-features --features "shell-out instrument"
