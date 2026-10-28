@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTopographicCsv } from "../renderer/topographic-csv.js";
+import { parseTopographicCsv, parseTopographicTriangles } from "../renderer/topographic-csv.js";
 
 describe("parseTopographicCsv", () => {
   it("parses explicit metric coordinate rows and optional feature codes", () => {
@@ -22,5 +22,23 @@ describe("parseTopographicCsv", () => {
 
   it("rejects an empty file", () => {
     expect(() => parseTopographicCsv("\n  \n")).toThrow(/at least three field point rows/i);
+  });
+});
+
+describe("parseTopographicTriangles", () => {
+  it("accepts triangle indices that refer to the original point order", () => {
+    expect(parseTopographicTriangles({ triangles: [[2, 0, 1]] }, 3)).toEqual([[2, 0, 1]]);
+  });
+
+  it.each([
+    null,
+    {},
+    { triangles: [] },
+    { triangles: [[0, 1, 3]] },
+    { triangles: [[0, 1, 1]] },
+    { triangles: [[0, 1]] },
+    { triangles: [[0, 1, 2], [2, 0, 1]] },
+  ])("rejects malformed sidecar response %j", (input) => {
+    expect(() => parseTopographicTriangles(input, 3)).toThrow(/Topographic sidecar/i);
   });
 });

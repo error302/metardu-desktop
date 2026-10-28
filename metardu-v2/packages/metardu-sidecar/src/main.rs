@@ -18,6 +18,7 @@ mod mavsdk;
 mod ml;
 mod odm;
 mod protocol;
+mod topographic;
 
 use anyhow::Result;
 use protocol::{read_message, write_message, write_notification, Notification, Response};

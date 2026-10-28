@@ -260,6 +260,12 @@ impl Dispatcher {
             crate::compute_handlers::handle_adjustment_run(params).await
         });
 
+        // Topographic planar Delaunay triangulation. The sidecar performs
+        // the geometry while TypeScript preserves original point metadata.
+        self.register("topographic.build_tin", |params: Value| async move {
+            crate::topographic::handle_build_tin(params).await
+        });
+
         // ---- Phase 1 #4: Statutory PDF signing (dispatched via
         // TS engine's existing `digital-signature.ts` module which uses
         // Web Crypto API RSASSA-PKCS1-v1_5 SHA-256. The heavy math
@@ -454,6 +460,29 @@ mod tests {
                 assert_eq!(error.code, "INVALID_PARAMS");
             }
             _ => panic!("expected Err"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_topographic_build_tin_dispatches_sidecar_geometry() {
+        let d = test_dispatcher();
+        let req = Request {
+            id: "test-topographic-tin".into(),
+            method: "topographic.build_tin".into(),
+            params: serde_json::json!({
+                "points": [
+                    { "easting": 0.0, "northing": 0.0, "elevation": 10.0 },
+                    { "easting": 10.0, "northing": 0.0, "elevation": 11.0 },
+                    { "easting": 5.0, "northing": 10.0, "elevation": 12.0 }
+                ]
+            }),
+        };
+        let resp = d.dispatch(req).await;
+        match resp.payload {
+            crate::protocol::ResponsePayload::Ok { result, .. } => {
+                assert_eq!(result["triangles"], serde_json::json!([[0, 1, 2]]));
+            }
+            _ => panic!("expected valid TIN result"),
         }
     }
 }

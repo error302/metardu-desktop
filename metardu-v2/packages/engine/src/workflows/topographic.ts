@@ -9,7 +9,7 @@
  * # Pipeline
  *
  *   1. Import field points (CSV, GSI, SDR, JOB, RINEX)
- *   2. Generate a bounded draft TIN (current brute-force implementation)
+ *   2. Generate a bounded draft TIN in the Rust sidecar
  *   3. Compute slope + aspect (optional, for the plan)
  *   4. Generate contours at the country-specified interval (sidecar
  *      gdal_contour, or the engine's own marching-squares fallback)
@@ -40,8 +40,10 @@ import type { CountrySurveyConfig } from "@metardu/country-config";
 import type { PointUncertainty } from "../survey-types.js";
 import { validateNonEmptyString, validateNonNaN, validatePoints, validatePositive } from "./validation.js";
 
-/** Current safe cap for the brute-force TypeScript triangulator. */
-export const MAX_TOPOGRAPHIC_TIN_POINTS = 100;
+/** Per-request sidecar ceiling; limits memory while supporting real survey sets. */
+export const MAX_TOPOGRAPHIC_TIN_POINTS = 100_000;
+/** Bound contour extraction work for interactive desktop use. */
+export const MAX_TOPOGRAPHIC_CONTOUR_WORK_ITEMS = 20_000_000;
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -94,6 +96,8 @@ export interface TopographicCoordinateContext {
 export interface TopoWorkflowInput {
   /** Field points to triangulate. */
   points: TopoPoint[];
+  /** Triangle indices returned by the Rust sidecar for this exact point order. */
+  tinTriangles: [number, number, number][];
   /** Contour interval in metres (e.g. 0.5 for 50cm contours). */
   contourInterval: number;
   /** Optional: minimum elevation for the contour range (defaults to min of points). */
@@ -158,98 +162,41 @@ export interface TopoWorkflowOutput {
   pointUncertainty: Record<string, PointUncertainty>;
 }
 
-// ─── TIN generation (Delaunay triangulation) ─────────────────────
+// ─── TIN validation (construction is performed by the Rust sidecar) ──
 
-/**
- * Build a TIN from a set of 3D points using a brute-force empty-circle
- * test (O(n^4)). It is capped at MAX_TOPOGRAPHIC_TIN_POINTS and is not
- * a robust-predicate triangulator. The result must remain a draft until
- * a robust scalable sidecar implementation replaces this routine.
- *
- * The algorithm: for each triple of points, check if their circumcircle
- * is empty (no other point inside). If yes, it's a Delaunay triangle.
- */
-function buildTIN(points: TopoPoint[]): TIN {
-  if (points.length < 3) {
-    return { vertices: points, triangles: [] };
+function validateTinTriangles(points: TopoPoint[], triangles: [number, number, number][]): TIN {
+  if (points.length > MAX_TOPOGRAPHIC_TIN_POINTS) {
+    throw new Error(`Topographic TIN supports at most ${MAX_TOPOGRAPHIC_TIN_POINTS} points; received ${points.length}.`);
+  }
+  const maximumFaceCount = Math.max(0, 2 * points.length - 5);
+  if (!Array.isArray(triangles) || triangles.length === 0 || triangles.length > maximumFaceCount) {
+    throw new Error("Topographic sidecar returned an invalid or empty triangle list.");
   }
 
-  // Deduplicate by (easting, northing).
   const seen = new Set<string>();
-  const unique: TopoPoint[] = [];
-  for (const p of points) {
-    const key = `${p.easting.toFixed(4)},${p.northing.toFixed(4)}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      unique.push(p);
+  const vertexUse = new Uint8Array(points.length);
+  for (const [index, triangle] of triangles.entries()) {
+    if (!Array.isArray(triangle) || triangle.length !== 3) {
+      throw new Error(`Topographic sidecar triangle ${index} must contain exactly 3 vertex indices.`);
     }
-  }
-
-  if (unique.length < 3) {
-    return { vertices: unique, triangles: [] };
-  }
-
-  // This O(n^4) routine is deliberately capped for small draft datasets;
-  // large surfaces require a robust, scalable implementation.
-  const triangles: [number, number, number][] = [];
-  const n = unique.length;
-  if (n > MAX_TOPOGRAPHIC_TIN_POINTS) {
-    throw new Error(`Topographic TIN currently supports at most ${MAX_TOPOGRAPHIC_TIN_POINTS} points; received ${n}. Large-surface triangulation is not available yet.`);
-  }
-
-  for (let i = 0; i < n - 2; i++) {
-    for (let j = i + 1; j < n - 1; j++) {
-      for (let k = j + 1; k < n; k++) {
-        if (isDelaunayTriangle(unique, i, j, k)) {
-          triangles.push([i, j, k]);
-        }
-      }
+    const [a, b, c] = triangle;
+    if (![a, b, c].every((value) => Number.isSafeInteger(value) && value >= 0 && value < points.length)) {
+      throw new Error(`Topographic sidecar triangle ${index} contains an out-of-range vertex index.`);
     }
-  }
-
-  return { vertices: unique, triangles };
-}
-
-/**
- * Check if the triangle (i, j, k) is a Delaunay triangle: no other
- * point lies inside its circumcircle.
- */
-function isDelaunayTriangle(points: TopoPoint[], i: number, j: number, k: number): boolean {
-  const a = points[i]!;
-  const b = points[j]!;
-  const c = points[k]!;
-
-  // Compute the circumcircle.
-  const cc = circumcircle(a, b, c);
-  if (!cc) return false; // collinear
-
-  // Check that no other point is inside the circumcircle.
-  for (let m = 0; m < points.length; m++) {
-    if (m === i || m === j || m === k) continue;
-    const p = points[m]!;
-    const dx = p.easting - cc.x;
-    const dy = p.northing - cc.y;
-    if (dx * dx + dy * dy < cc.r2 - 1e-9) {
-      return false;
+    if (a === b || b === c || c === a) {
+      throw new Error(`Topographic sidecar triangle ${index} repeats a vertex index.`);
     }
+    const key = [a, b, c].sort((left, right) => left - right).join(":");
+    if (seen.has(key)) throw new Error(`Topographic sidecar returned duplicate triangle ${key}.`);
+    seen.add(key);
+    vertexUse[a] = 1;
+    vertexUse[b] = 1;
+    vertexUse[c] = 1;
   }
-  return true;
-}
-
-/** Compute the circumcircle of three 2D points. Returns null if collinear. */
-function circumcircle(a: TopoPoint, b: TopoPoint, c: TopoPoint): { x: number; y: number; r2: number } | null {
-  const ax = a.easting, ay = a.northing;
-  const bx = b.easting, by = b.northing;
-  const cx = c.easting, cy = c.northing;
-
-  const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
-  if (Math.abs(d) < 1e-12) return null; // collinear
-
-  const ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d;
-  const uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d;
-
-  const r2 = (ux - ax) ** 2 + (uy - ay) ** 2;
-  return { x: ux, y: uy, r2 };
+  if (vertexUse.some((used) => used === 0)) {
+    throw new Error("Topographic sidecar triangulation did not include every input point.");
+  }
+  return { vertices: points, triangles };
 }
 
 // ─── Contour generation (marching squares) ───────────────────────
@@ -275,6 +222,10 @@ function generateContours(tin: TIN, interval: number, minE: number, maxE: number
   const levelCount = Math.max(0, Math.floor((endE - startE) / interval) + 1);
   if (!Number.isFinite(levelCount) || levelCount > 10_000) {
     throw new Error(`Contour interval would generate ${levelCount} levels; maximum supported is 10,000.`);
+  }
+  const workItems = levelCount * tin.triangles.length;
+  if (!Number.isSafeInteger(workItems) || workItems > MAX_TOPOGRAPHIC_CONTOUR_WORK_ITEMS) {
+    throw new Error(`Contour request would inspect ${workItems.toLocaleString()} triangle-level combinations; reduce the elevation range or increase the interval (maximum ${MAX_TOPOGRAPHIC_CONTOUR_WORK_ITEMS.toLocaleString()}).`);
   }
 
   const contours: Contour[] = [];
@@ -388,11 +339,14 @@ export function runTopographicWorkflow(input: TopoWorkflowInput): TopoWorkflowOu
   if (input.points.length < 3) {
     throw new Error(`Topographic workflow requires at least 3 points; got ${input.points.length}.`);
   }
-  validatePoints(input.points, "Topographic workflow", { checkCollinear: true });
-  validatePositive(input.contourInterval, "Topographic workflow.contourInterval");
   if (input.points.length > MAX_TOPOGRAPHIC_TIN_POINTS) {
-    throw new Error(`Topographic TIN currently supports at most ${MAX_TOPOGRAPHIC_TIN_POINTS} points; received ${input.points.length}. Large-surface triangulation is not available yet.`);
+    throw new Error(`Topographic TIN supports at most ${MAX_TOPOGRAPHIC_TIN_POINTS} points per request; received ${input.points.length}.`);
   }
+  // Rust applies exact-position duplicate and robust collinearity checks.
+  // The shared TypeScript validator rounds duplicates to 1e-4 and uses a
+  // fixed area tolerance, which must not pre-empt that project-neutral test.
+  validatePoints(input.points, "Topographic workflow", { checkDuplicates: false, checkCollinear: false });
+  validatePositive(input.contourInterval, "Topographic workflow.contourInterval");
   const pointIds = new Set<string>();
   for (const [index, point] of input.points.entries()) {
     validateNonEmptyString(point.id, `Topographic workflow.points[${index}].id`);
@@ -415,16 +369,18 @@ export function runTopographicWorkflow(input: TopoWorkflowInput): TopoWorkflowOu
     }
   }
 
-  // Build the TIN.
-  const tin = buildTIN(input.points);
-  if (tin.triangles.length === 0) {
-    throw new Error("Topographic TIN could not be constructed from the supplied points.");
-  }
+  // The sidecar is the only production source for Delaunay topology.
+  const tin = validateTinTriangles(input.points, input.tinTriangles);
 
   // Compute min/max elevation.
-  const elevations = input.points.map((p) => p.elevation);
-  const minE = input.minElevation ?? Math.min(...elevations);
-  const maxE = input.maxElevation ?? Math.max(...elevations);
+  let observedMinElevation = Number.POSITIVE_INFINITY;
+  let observedMaxElevation = Number.NEGATIVE_INFINITY;
+  for (const point of input.points) {
+    observedMinElevation = Math.min(observedMinElevation, point.elevation);
+    observedMaxElevation = Math.max(observedMaxElevation, point.elevation);
+  }
+  const minE = input.minElevation ?? observedMinElevation;
+  const maxE = input.maxElevation ?? observedMaxElevation;
   validateNonNaN(minE, "Topographic workflow.minElevation");
   validateNonNaN(maxE, "Topographic workflow.maxElevation");
   if (minE > maxE) throw new Error(`Topographic workflow.minElevation (${minE}) must not exceed maxElevation (${maxE}).`);

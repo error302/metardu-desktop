@@ -21,6 +21,7 @@ import {
   validateSRID,
 } from "../validation.js";
 import { runTopographicWorkflow, runSectionalWorkflow } from "../index.js";
+import { gridTinTriangles } from "./topographic-fixtures.js";
 import { KENYA } from "@metardu/country-config";
 
 // ─── Primitive validators ────────────────────────────────────────
@@ -247,6 +248,7 @@ describe("validateSRID", () => {
 describe("Topographic workflow edge cases", () => {
   it("handles points with elevation = 0 (sea level)", () => {
     const result = runTopographicWorkflow({
+      tinTriangles: [[0, 1, 2]],
       points: [
         { id: "1", easting: 0, northing: 0, elevation: 0 },
         { id: "2", easting: 10, northing: 0, elevation: 0 },
@@ -264,6 +266,7 @@ describe("Topographic workflow edge cases", () => {
 
   it("handles negative elevations (below sea level)", () => {
     const result = runTopographicWorkflow({
+      tinTriangles: [[0, 1, 2]],
       points: [
         { id: "1", easting: 0, northing: 0, elevation: -10 },
         { id: "2", easting: 10, northing: 0, elevation: -5 },
@@ -280,6 +283,7 @@ describe("Topographic workflow edge cases", () => {
 
   it("handles very large coordinate values (UTM)", () => {
     const result = runTopographicWorkflow({
+      tinTriangles: [[0, 1, 2]],
       points: [
         { id: "1", easting: 257100, northing: 9857700, elevation: 1700 },
         { id: "2", easting: 257110, northing: 9857700, elevation: 1705 },
@@ -295,6 +299,7 @@ describe("Topographic workflow edge cases", () => {
 
   it("handles very small contour intervals (0.1m)", () => {
     const result = runTopographicWorkflow({
+      tinTriangles: [[0, 1, 2]],
       points: [
         { id: "1", easting: 0, northing: 0, elevation: 100.0 },
         { id: "2", easting: 10, northing: 0, elevation: 100.3 },
@@ -311,6 +316,7 @@ describe("Topographic workflow edge cases", () => {
 
   it("handles exactly 3 points (minimum for a TIN)", () => {
     const result = runTopographicWorkflow({
+      tinTriangles: [[0, 1, 2]],
       points: [
         { id: "1", easting: 0, northing: 0, elevation: 100 },
         { id: "2", easting: 10, northing: 0, elevation: 110 },
@@ -339,6 +345,7 @@ describe("Topographic workflow edge cases", () => {
     // 100 points exceeds the 500-point Delaunay limit — should return
     // empty triangles, not crash.
     const result = runTopographicWorkflow({
+      tinTriangles: gridTinTriangles(10, 10),
       points,
       contourInterval: 5,
       country: KENYA,

@@ -3216,6 +3216,96 @@ Stage Summary:
 - The GCP file now reports a display zone consistent with the EPSG code carried in its CRS URN.
 - This fix does not perform a coordinate transformation or establish the CRS area of use.
 
+---
+Task ID: robust-topographic-tin-sidecar
+Agent: Codex 2026-10-29
+Task: Replace the capped TypeScript topographic triangulator with validated Rust-sidecar Delaunay construction
+
+Work Log:
+- Added ADR-0006 and the scoped brief. Chose Spade 2.15.1 after checking its primary API documentation, stable bulk loader, robust-predicate implementation, and MIT OR Apache-2.0 license.
+- Added `topographic.build_tin` in the Rust sidecar. It returns triangle indices into original input order, caps requests at 100,000 points, rejects non-finite values, exact duplicate horizontal positions, collinear inputs, and coordinate spans that overflow finite arithmetic. No survey point is rounded or silently dropped.
+- Added the method to the renderer allowlist and finite, strict IPC payload schema. TopographicView sends only easting/northing/elevation to the sidecar, then joins returned indices to the original project points.
+- Removed production TypeScript brute-force triangulation. The engine now validates sidecar indices, keeps the output draft-only, and caps contour triangle-level work at 20,000,000 combinations so extreme requests fail with an actionable error.
+- Updated the GeoJSON golden fixture to the 32-face planar triangulation for its 5x5 grid. Added Rust topology, IPC schema, renderer response, workflow, and live sidecar protocol coverage.
+- Changed files: `metardu-v2/docs/decisions/0006-topographic-delaunay-sidecar.md`, `metardu-v2/docs/agent-briefs/robust-topographic-tin-sidecar.md`, `metardu-v2/packages/metardu-sidecar/Cargo.toml`, `Cargo.lock`, `src/main.rs`, `src/dispatcher.rs`, new `src/topographic.rs`, `metardu-v2/packages/ipc-schemas/src/namespaces/cogo.ts`, `src/index.ts`, `src/tests/cogo.test.ts`, `metardu-v2/apps/desktop/src/preload/index.ts`, `src/renderer/topographic-csv.ts`, `src/renderer/views/TopographicView.tsx`, `src/tests/topographic-csv.test.ts`, `metardu-v2/packages/engine/src/workflows/topographic.ts`, new `src/workflows/tests/topographic-fixtures.ts`, workflow and integration tests, the topographic GeoJSON fixture, `metardu-v2/scripts/test_sidecar_e2e.py`, and this worklog.
+
+Verification:
+~~~text
+$ cargo test --offline --no-default-features --features instrument topographic::tests
+running 10 tests
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 159 filtered out; finished in 0.40s
+Exit code: 0
+
+$ cargo test --offline --no-default-features --features instrument dispatcher::tests::test_topographic_build_tin_dispatches_sidecar_geometry
+running 1 test
+test dispatcher::tests::test_topographic_build_tin_dispatches_sidecar_geometry ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 167 filtered out; finished in 0.00s
+Exit code: 0
+
+$ cargo build --offline --no-default-features --features instrument
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 27.48s
+Exit code: 0
+
+$ METARDU_SIDECAR_BIN=target/debug/metardu-sidecar.exe python scripts/test_sidecar_e2e.py
+All 13 end-to-end tests PASSED
+Exit code: 0
+~~~
+
+~~~text
+$ npm test --workspace @metardu/engine-flight-planning  (local-loopback access enabled)
+Test Files 45 passed (45)
+Tests 868 passed (868)
+Exit code: 0
+
+$ npm run build --workspace @metardu/engine-flight-planning
+Exit code: 0
+
+$ npm test --workspace @metardu/desktop
+Test Files 22 passed | 1 skipped (23)
+Tests 261 passed | 7 skipped (268)
+Exit code: 0
+
+$ npm run build --workspace @metardu/desktop
+Exit code: 0
+
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No diagnostics; exit code 0.
+
+$ npm test --workspace @metardu/ipc-schemas -- --run src/tests/cogo.test.ts
+Test Files 1 passed (1)
+Tests 7 passed (7)
+Exit code: 0
+
+$ npm run build --workspace @metardu/ipc-schemas
+Exit code: 0
+
+$ npm test --workspace @metardu/desktop -- --run src/tests/topographic-csv.test.ts
+Test Files 1 passed (1)
+Tests 16 passed (16)
+Exit code: 0
+~~~
+
+Build and suite blockers:
+~~~text
+$ cargo build --offline --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code: 101
+
+$ cargo test --offline --no-default-features --features instrument
+running 169 tests
+test result: FAILED. 166 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out
+Failures: gdal::tests::test_generate_contours_rejects_nonpositive_interval; odm::tests::test_process_photos_rejects_empty_photos_directory; odm::tests::test_process_photos_rejects_unknown_mode (/tmp/output permission denied).
+Exit code: 101
+~~~
+
+`cargo fmt -- --check` reports existing formatting differences throughout unrelated Rust files. The new `src/topographic.rs` was formatted directly with rustfmt; unrelated Rust files were left untouched. The repository's `scripts/electron-smoke.sh` remains absent.
+
+Stage Summary:
+- The topographic draft no longer uses the O(n^4), 100-point TypeScript triangulator. A local sidecar round-trip demonstrated the new method with a 4-point square and duplicate-position rejection; Rust tests exercised 10,000 points in 0.40s on this development machine.
+- The supported operation remains planar Delaunay construction only. It does not transform CRS, check area of use, validate units/vertical datum, adjust observations, estimate accuracy, or make the draft statutory. The interface still requires a CRS from the bundled project catalog, which is narrower than worldwide CRS support.
+- Default Windows release compilation and the three pre-existing no-GDAL test failures remain blockers for a complete release build; no-GDAL debug build plus the 13-call sidecar protocol smoke passed.
+
 Final verification addendum after preserving an unsupported project's jurisdiction code:
 ~~~text
 $ npx vitest run src/workflows/tests/all-workflows.test.ts src/integration/tests/gcp-export.test.ts src/integration/tests/geojson-export-topo-eng.test.ts src/integration/tests/detect-survey-type-extended.test.ts

@@ -6,7 +6,7 @@ import { SurveyCanvas, type SurveyPoint, type SurveyContour, type SurveyTriangle
 import { useSurveyState } from "../SurveyStateContext.js";
 import { bus } from "../cross-import-bus.js";
 import { COUNTRY_OPTIONS, isProjectCrsKnown, projectCrsLabel } from "../countries.js";
-import { parseTopographicCsv } from "../topographic-csv.js";
+import { parseTopographicCsv, parseTopographicTriangles } from "../topographic-csv.js";
 
 export const TopographicView: React.FC = () => {
   const { activeProject, setSurveyDraftOutput } = useSurveyState();
@@ -63,9 +63,15 @@ export const TopographicView: React.FC = () => {
     }
 
     try {
+      setSaving(true);
       const points: TopoPoint[] = parseTopographicCsv(csvInput);
+      const sidecarResult = await window.metardu.sidecar.call("topographic.build_tin", {
+        points: points.map(({ easting, northing, elevation }) => ({ easting, northing, elevation })),
+      });
+      const tinTriangles = parseTopographicTriangles(sidecarResult, points.length);
       const output = runTopographicWorkflow({
         points,
+        tinTriangles,
         contourInterval: interval,
         spotHeightEvery: spotEvery,
         ...(countryProfileMatchesCrs && countryOption ? { country: countryOption.config } : {}),
@@ -78,7 +84,6 @@ export const TopographicView: React.FC = () => {
         },
       });
 
-      setSaving(true);
       const countryCode = activeProject.countryCode ?? "";
       await setSurveyDraftOutput(output, "topographic", "TopographicView", countryCode);
       setResult(output);
@@ -153,13 +158,13 @@ export const TopographicView: React.FC = () => {
             <input type="number" value={spotHeightEvery} step="1" min="1" onChange={(event) => setSpotHeightEvery(event.target.value)} style={{ width: "100%" }} />
           </div>
           <button className="primary" onClick={() => void run()} disabled={saving} style={{ marginTop: "8px" }}>
-            {saving ? "Saving draft…" : "Generate surface draft"}
+            {saving ? "Computing and saving draft…" : "Generate surface draft"}
           </button>
         </div>
       </div>
 
       <div style={{ padding: "8px 12px", border: "1px solid var(--border-default)", color: "var(--text-secondary)", fontSize: "var(--text-xs)" }}>
-        The current brute-force TIN is limited to {MAX_TOPOGRAPHIC_TIN_POINTS} points and does not certify near-collinear or co-circular geometry. Larger surfaces are blocked. Validate this draft independently before using it for design, setting-out, or legal delivery; no statutory plan is auto-generated.
+        The Rust sidecar constructs a planar Delaunay TIN for up to {MAX_TOPOGRAPHIC_TIN_POINTS.toLocaleString()} points. The surface remains a draft: coordinates and vertical reference are user-declared, no observations are adjusted, and no accuracy or statutory acceptance is established.
       </div>
 
       {error && (

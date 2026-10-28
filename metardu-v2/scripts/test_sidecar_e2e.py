@@ -18,7 +18,10 @@ from pathlib import Path
 # The sidecar binary lives at: <repo-root>/packages/metardu-sidecar/target/release/metardu-sidecar[.exe]
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
-SIDECAR_BIN = REPO_ROOT / "packages" / "metardu-sidecar" / "target" / "release" / "metardu-sidecar"
+SIDECAR_BIN = Path(os.environ.get(
+    "METARDU_SIDECAR_BIN",
+    str(REPO_ROOT / "packages" / "metardu-sidecar" / "target" / "release" / "metardu-sidecar"),
+))
 
 # On Windows, the binary has a .exe extension.
 if sys.platform == "win32":
@@ -186,7 +189,39 @@ def main():
         assert resp["id"] == "11" and resp["ok"] is False
         print("  PASS")
 
-        print("\nAll 11 end-to-end tests PASSED")
+        # Test 12: the allowlisted topographic RPC returns input-indexed faces.
+        print("Test 12: topographic Delaunay TIN")
+        send(proc, {"id": "12", "method": "topographic.build_tin", "params": {
+            "points": [
+                {"easting": 0, "northing": 0, "elevation": 10},
+                {"easting": 10, "northing": 0, "elevation": 11},
+                {"easting": 10, "northing": 10, "elevation": 12},
+                {"easting": 0, "northing": 10, "elevation": 13},
+            ],
+        }})
+        resp = recv(proc)
+        assert resp["id"] == "12" and resp["ok"] is True
+        triangles = resp["result"]["triangles"]
+        assert len(triangles) == 2, f"expected 2 square faces, got {triangles}"
+        assert all(len(face) == 3 and all(0 <= vertex < 4 for vertex in face) for face in triangles)
+        print("  PASS")
+
+        # Test 13: duplicate horizontal observations fail closed.
+        print("Test 13: topographic duplicate position rejection")
+        send(proc, {"id": "13", "method": "topographic.build_tin", "params": {
+            "points": [
+                {"easting": 0, "northing": 0, "elevation": 10},
+                {"easting": 10, "northing": 0, "elevation": 11},
+                {"easting": 0, "northing": 10, "elevation": 12},
+                {"easting": 0, "northing": 0, "elevation": 99},
+            ],
+        }})
+        resp = recv(proc)
+        assert resp["id"] == "13" and resp["ok"] is False
+        assert resp["error"]["code"] == "INVALID_PARAMS"
+        print("  PASS")
+
+        print("\nAll 13 end-to-end tests PASSED")
 
     finally:
         proc.stdin.close()

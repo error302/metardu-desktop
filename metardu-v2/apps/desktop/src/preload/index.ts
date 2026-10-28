@@ -17,7 +17,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Form3Input, SyncConfig, SyncProject, SyncStatus, SyncConflict, Form4Input, Lra27Input, BeaconCertificateInput, AuPlanOfSurveyInput, ZaSgDiagramInput, GbMeasuredSurveyReportInput, DeGrenzfeststellungInput } from "@metardu/engine-flight-planning";
 import type { StoredProject, ProjectStoreState, CreateProjectInput, UpdateProjectInput } from "../main/project-store-core.js";
-import { validateCogoSidecarParams } from "@metardu/ipc-schemas";
+import { validateSidecarParams } from "@metardu/ipc-schemas";
 
 /** Result of any statutory DRAFT renderer — PDF plus verification status. */
 interface StatutoryResult {
@@ -73,6 +73,8 @@ const ALLOWED_METHODS = new Set<string>([
   "cogo.distance_distance",
   "cogo.midpoint_offset",
   "cogo.area",
+  // Robust planar Delaunay construction for topographic draft surfaces.
+  "topographic.build_tin",
 ]);
 
 function validateMethod(method: unknown): asserts method is string {
@@ -88,7 +90,7 @@ const metarduApi = {
   sidecar: {
     call: async (method: string, params: unknown): Promise<unknown> => {
       validateMethod(method);
-      const validation = validateCogoSidecarParams(method, params);
+      const validation = validateSidecarParams(method, params);
       if (validation && !validation.success) {
         throw new Error(`Invalid parameters for ${method}: ${validation.error}`);
       }

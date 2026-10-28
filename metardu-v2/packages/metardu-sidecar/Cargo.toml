@@ -49,6 +49,8 @@ btleplug = { version = "0.11", optional = true }
 lazy_static = "1.4"
 uuid = { version = "1.8", features = ["v4"] }
 url = "2.5"
+# Robust-predicate planar Delaunay triangulation for topographic surfaces.
+spade = "2.15.1"
 
 [features]
 default = ["gdal-bindings", "instrument"]
