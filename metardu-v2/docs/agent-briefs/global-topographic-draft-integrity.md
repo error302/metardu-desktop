@@ -34,7 +34,7 @@ global-topographic-draft-integrity
 - [x] Output persists as a computed draft without triggering statutory auto-export.
 - [x] A project CRS and user-declared vertical reference are retained with the output as unverified metadata.
 - [x] Focused engine/desktop tests and TypeScript builds pass; exact output is appended to `worklog.md`.
-- [ ] Changes are committed and pushed only to `https://github.com/error302/metardu-desktop.git`.
+- [x] Changes are committed and pushed only to `https://github.com/error302/metardu-desktop.git`.
 
 ## Anti-hallucination clause
 
