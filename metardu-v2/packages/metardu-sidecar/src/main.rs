@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
     // Use buffered I/O for throughput.
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let mut reader = BufReader::new(stdin.lock());
+
     let mut writer = BufWriter::new(stdout.lock());
 
     // Broadcast channel for streaming notifications (instrument events).
@@ -59,17 +59,44 @@ async fn main() -> Result<()> {
 
     let dispatcher = dispatcher::Dispatcher::new(notif_tx.clone());
 
+    // We use an mpsc channel to push requests from the synchronous reader thread
+    // into the async select! loop.
+    let (req_tx, mut req_rx) = tokio::sync::mpsc::channel(100);
+
+    // Spawn the synchronous reader on a dedicated blocking thread.
+    // It creates ONE BufReader for the entire lifetime of the app, as required by the invariant,
+    // to avoid dropping unread buffered bytes and corrupting the IPC stream.
+    tokio::task::spawn_blocking(move || {
+        let stdin = io::stdin();
+        let mut reader = BufReader::new(stdin.lock());
+        loop {
+            match read_message(&mut reader) {
+                Ok(Some(req)) => {
+                    if req_tx.blocking_send(Ok(Some(req))).is_err() {
+                        break; // receiver dropped
+                    }
+                }
+                Ok(None) => {
+                    let _ = req_tx.blocking_send(Ok(None));
+                    break; // EOF
+                }
+                Err(e) => {
+                    let _ = req_tx.blocking_send(Err(e));
+                    break;
+                }
+            }
+        }
+    });
+
     // Main loop: read request, dispatch, write response, and forward
     // any streaming notifications to stdout.
     loop {
         tokio::select! {
             // Branch 1: incoming request from the main process.
-            req_result = tokio::task::spawn_blocking({
-                let mut r = BufReader::new(io::stdin());
-                move || read_message(&mut r)
-            }) => {
+            req_result = req_rx.recv() => {
+                let req_result = req_result.unwrap_or(Ok(None)); // If channel closed, treat as EOF
                 match req_result {
-                    Ok(Ok(Some(req))) => {
+                    Ok(Some(req)) => {
                         info!(method = %req.method, id = %req.id, "dispatching request");
                         let resp = dispatcher.dispatch(req).await;
                         if let Err(e) = write_message(&mut writer, &resp) {
@@ -77,23 +104,19 @@ async fn main() -> Result<()> {
                             break;
                         }
                     }
-                    Ok(Ok(None)) => {
+                    Ok(None) => {
                         info!("stdin EOF received, shutting down");
                         // Signal all background tasks to stop.
                         drop(notif_tx);
                         break;
                     }
-                    Ok(Err(e)) => {
+                    Err(e) => {
                         error!(error = %e, "Failed to read message");
                         let resp = Response::err("unknown".into(), "READ_ERROR", &e.to_string());
                         if let Err(write_err) = write_message(&mut writer, &resp) {
                             error!(error = %write_err, "Failed to write error response, exiting");
                             break;
                         }
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Join error on stdin reader, exiting");
-                        break;
                     }
                 }
             }
