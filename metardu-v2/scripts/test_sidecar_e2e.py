@@ -111,7 +111,82 @@ def main():
         assert resp["error"]["code"] == "METHOD_NOT_FOUND"
         print("  PASS")
 
-        print("\nAll 5 end-to-end tests PASSED")
+        # Test 6: radiation is available through the live sidecar protocol.
+        print("Test 6: COGO radiation")
+        send(proc, {"id": "6", "method": "cogo.radiation", "params": {
+            "origin": {"easting": 100, "northing": 200},
+            "bearing_deg": 90,
+            "distance_m": 10,
+        }})
+        resp = recv(proc)
+        assert resp["id"] == "6" and resp["ok"] is True
+        assert abs(resp["result"]["easting"] - 110) < 1e-9
+        assert abs(resp["result"]["northing"] - 200) < 1e-9
+        print("  PASS")
+
+        # Test 7: bearing rays intersect ahead of both occupied stations.
+        print("Test 7: COGO bearing intersection")
+        send(proc, {"id": "7", "method": "cogo.bearing_bearing", "params": {
+            "p1": {"easting": 0, "northing": 0}, "bearing1_deg": 0,
+            "p2": {"easting": -10, "northing": 10}, "bearing2_deg": 90,
+        }})
+        resp = recv(proc)
+        assert resp["id"] == "7" and resp["ok"] is True
+        assert abs(resp["result"]["easting"]) < 1e-9
+        assert abs(resp["result"]["northing"] - 10) < 1e-9
+        print("  PASS")
+
+        # Test 8: circle intersection uses the documented left-hand solution.
+        print("Test 8: COGO distance intersection")
+        send(proc, {"id": "8", "method": "cogo.distance_distance", "params": {
+            "p1": {"easting": 0, "northing": 0}, "r1_m": 5,
+            "p2": {"easting": 6, "northing": 0}, "r2_m": 5,
+        }})
+        resp = recv(proc)
+        assert resp["id"] == "8" and resp["ok"] is True
+        assert abs(resp["result"]["easting"] - 3) < 1e-9
+        assert abs(resp["result"]["northing"] - 4) < 1e-9
+        print("  PASS")
+
+        # Test 9: midpoint offset preserves the start-to-end left convention.
+        print("Test 9: COGO midpoint offset")
+        send(proc, {"id": "9", "method": "cogo.midpoint_offset", "params": {
+            "start": {"easting": 0, "northing": 0},
+            "end": {"easting": 10, "northing": 0},
+            "offset_m": 2,
+            "side": "left",
+        }})
+        resp = recv(proc)
+        assert resp["id"] == "9" and resp["ok"] is True
+        assert abs(resp["result"]["easting"] - 5) < 1e-9
+        assert abs(resp["result"]["northing"] - 2) < 1e-9
+        print("  PASS")
+
+        # Test 10: area RPC returns planar metrics only, with no ground claim.
+        print("Test 10: COGO planar polygon metrics")
+        send(proc, {"id": "10", "method": "cogo.area", "params": {
+            "points": [[0, 0], [10, 0], [10, 10], [0, 10]],
+        }})
+        resp = recv(proc)
+        assert resp["id"] == "10" and resp["ok"] is True
+        assert abs(resp["result"]["planar_area_sq_m"] - 100) < 1e-9
+        assert abs(resp["result"]["perimeter_m"] - 40) < 1e-9
+        assert len(resp["result"]["edges"]) == 4
+        assert "ground_area_sq_m" not in resp["result"]
+        print("  PASS")
+
+        # Test 11: invalid geometry parameters fail closed.
+        print("Test 11: COGO invalid distance rejection")
+        send(proc, {"id": "11", "method": "cogo.radiation", "params": {
+            "origin": {"easting": 0, "northing": 0},
+            "bearing_deg": 90,
+            "distance_m": -1,
+        }})
+        resp = recv(proc)
+        assert resp["id"] == "11" and resp["ok"] is False
+        print("  PASS")
+
+        print("\nAll 11 end-to-end tests PASSED")
 
     finally:
         proc.stdin.close()

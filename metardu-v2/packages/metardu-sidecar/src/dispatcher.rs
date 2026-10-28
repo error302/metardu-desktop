@@ -234,6 +234,9 @@ impl Dispatcher {
         });
 
         // COGO: Intersection
+        self.register("cogo.radiation", |params: Value| async move {
+            crate::compute_handlers::handle_radiation(params).await
+        });
         self.register("cogo.bearing_bearing", |params: Value| async move {
             crate::compute_handlers::handle_bearing_bearing(params).await
         });
@@ -242,6 +245,9 @@ impl Dispatcher {
         });
         self.register("cogo.distance_distance", |params: Value| async move {
             crate::compute_handlers::handle_distance_distance(params).await
+        });
+        self.register("cogo.midpoint_offset", |params: Value| async move {
+            crate::compute_handlers::handle_midpoint_offset(params).await
         });
 
         // COGO: Area

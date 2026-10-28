@@ -2944,3 +2944,116 @@ Stage Summary:
 - Project setup no longer chooses Kenya implicitly; local statutory templates remain limited to configured jurisdictions and are never implied for neutral projects.
 - Shared Web/Desktop subscription semantics remain as documented; real server verification, desktop sign-in, and OS-protected credential storage remain release gates.
 
+---
+Task ID: desktop-cogo-sidecar-draft-integrity
+Date: 2026-10-29
+Task: Route COGO calculations through Rust and preserve unverified draft evidence
+
+Changed files:
+- `metardu-v2/apps/desktop/src/preload/index.ts`
+- `metardu-v2/apps/desktop/src/renderer/SurveyStateContext.tsx`
+- `metardu-v2/apps/desktop/src/renderer/cross-import-bus.ts`
+- `metardu-v2/apps/desktop/src/renderer/project-templates.ts`
+- `metardu-v2/apps/desktop/src/renderer/views/COGOView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/TraverseView.tsx`
+- `metardu-v2/apps/desktop/src/tests/cogo-integrity.test.ts`
+- `metardu-v2/apps/desktop/src/tests/project-templates.test.ts`
+- `metardu-v2/docs/agent-briefs/desktop-cogo-sidecar-draft-integrity.md`
+- `metardu-v2/packages/ipc-schemas/src/index.ts`
+- `metardu-v2/packages/ipc-schemas/src/namespaces/cogo.ts`
+- `metardu-v2/packages/ipc-schemas/src/tests/cogo.test.ts`
+- `metardu-v2/packages/metardu-sidecar/src/cogo/area.rs`
+- `metardu-v2/packages/metardu-sidecar/src/cogo/intersection.rs`
+- `metardu-v2/packages/metardu-sidecar/src/cogo/mod.rs`
+- `metardu-v2/packages/metardu-sidecar/src/compute_handlers.rs`
+- `metardu-v2/packages/metardu-sidecar/src/dispatcher.rs`
+- `metardu-v2/packages/metardu-sidecar/src/main.rs`
+- `metardu-v2/scripts/test_sidecar_e2e.py`
+- `worklog.md`
+
+Work Log:
+- Rebuilt COGO with empty text-backed numeric fields and strict finite/range checks. Radiation, forward bearing intersection, distance intersection, midpoint offset, polygon area, perimeter, and edge bearings now call the Rust sidecar; the renderer contains no geometric computation formulas.
+- Added strict preload Zod schemas and Rust-side validation. Polygon calculations reject invalid rings and non-finite results, use translated compensated shoelace area, and cap input at 5,000 vertices to bound quadratic self-intersection checks.
+- Removed fabricated adjustment/uncertainty fields, the Form 4 handoff, and the auto-export path from COGO saves. COGO saves only `draft_unverified` evidence through `saveDraftToProject`, which writes to the local project store without updating export state or triggering statutory export.
+- Marked CAD and Traverse imports as candidate/draft coordinates. Corrected COGO workflow-template descriptions that claimed registry verification or legal boundary determination.
+- Fixed the sidecar stdin reader. A long-lived reader now handles sequential RPC messages without the unused stdin lock deadlock or losing buffered request data.
+- Expanded the sidecar end-to-end smoke to cover radiation, bearing intersection, distance intersection, midpoint offset, planar area metrics, and invalid-distance rejection in one live process.
+
+Verification:
+~~~text
+$ cargo test --no-default-features --features instrument cogo (packages/metardu-sidecar)
+running 31 tests
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out
+Exit code: 0
+~~~
+
+~~~text
+$ cargo build --release --no-default-features --features instrument (packages/metardu-sidecar)
+Finished `release` profile [optimized] target(s) in 1m 27s
+Exit code: 0
+~~~
+
+~~~text
+$ python scripts/test_sidecar_e2e.py
+All 11 end-to-end tests PASSED
+Exit code: 0
+~~~
+
+~~~text
+$ npm run build --workspace @metardu/ipc-schemas
+Exit code: 0
+
+$ npx vitest run (packages/ipc-schemas)
+Test Files  2 passed (2)
+Tests  30 passed (30)
+Exit code: 0
+~~~
+
+~~~text
+$ npx vitest run --config .codex-cogo-final-vitest.mjs (Desktop suite)
+Test Files  19 passed | 1 skipped (20)
+Tests  234 passed | 7 skipped (241)
+Exit code: 0
+~~~
+
+~~~text
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No TypeScript diagnostics; exit code 0.
+
+$ npx tsc --noEmit -p apps/desktop/tsconfig.json
+No TypeScript diagnostics; exit code 0.
+
+$ npx tsc --noEmit (packages/engine)
+No TypeScript diagnostics; exit code 0.
+
+$ npx vitest run (packages/engine)
+Test Files  45 passed (45)
+Tests  862 passed (862)
+Exit code: 0
+~~~
+
+~~~text
+$ cargo build --release (default features)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code: 1
+
+$ cargo test --release (default features)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code: 1
+~~~
+
+The full `cargo test --no-default-features --features instrument` run reached tests but had 3 unrelated existing failures: two error-message assertions did not match the Windows error strings, and an ODM test attempted to create `/tmp/output` and received access denied. The focused COGO set passed all 31 tests.
+
+The COGO Playwright smoke was attempted but could not launch because the Playwright Chromium executable is absent. The sidecar RPC smoke above passed; it does not verify the rendered Electron UI. The repository-referenced `scripts/electron-smoke.sh` is absent in this checkout.
+
+~~~text
+$ git diff --check
+Exit code: 0; no whitespace diagnostics.
+~~~
+
+Stage Summary:
+- COGO is now a sidecar-backed local-planar drafting tool with explicit unverified evidence, and its standalone IPC smoke passes through a live sidecar process.
+- Production GDAL-enabled sidecar build/test and rendered Electron UI smoke remain unverified in this environment. This closes a concrete COGO integrity defect and does not establish international release readiness or full survey-grade capability.
+

@@ -132,6 +132,8 @@ interface SurveyStateContextValue {
   state: SurveyState | null;
   /** Set the current survey output. Called by workflow views. */
   setSurveyOutput: (output: unknown, surveyType: string, sourceView: string, countryCode: string) => void;
+  /** Persist an explicitly unverified draft without setting export state or triggering statutory auto-export. */
+  saveDraftToProject: (output: unknown, surveyType: string, sourceView: string, countryCode: string) => Promise<void>;
   /** Clear the current survey state. */
   clear: () => void;
   /** Cross-import payload from another view (one-shot — consumed on read). @deprecated Use bus.on() / bus.emit() */
@@ -270,6 +272,13 @@ export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ childre
     [storeSave],
   );
 
+  const saveDraftToProject = useCallback(
+    async (output: unknown, surveyType: string, sourceView: string, countryCode: string) => {
+      await storeSave(output, surveyType, sourceView, countryCode);
+    },
+    [storeSave],
+  );
+
   const triggerAutoExportRef = React.useRef<(o: unknown, t: string, s: string, c: string) => void>(() => {});
   triggerAutoExportRef.current = triggerAutoExport;
 
@@ -301,6 +310,7 @@ export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ childre
       value={{
         state,
         setSurveyOutput,
+        saveDraftToProject,
         clear,
         crossImport,
         setCrossImport,

@@ -85,7 +85,9 @@ export const TraverseView: React.FC = () => {
         const additions = uniqueNew.map((p) => `${p.id},${p.easting.toFixed(3)},${p.northing.toFixed(3)},false`).join("\n");
         return prev ? prev + "\n" + additions : additions;
       });
-      setCrossImportNotice(`Imported ${pts.length} points from COGO as stations.`);
+      setCrossImportNotice(payload.evidenceStatus === "draft_unverified"
+        ? `Imported ${pts.length} COGO draft coordinates as candidate stations. They have no verified CRS or observation uncertainty.`
+        : `Imported ${pts.length} points from COGO as stations.`);
     });
     return unsub;
   }, []);

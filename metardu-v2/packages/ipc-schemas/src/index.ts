@@ -40,6 +40,7 @@ import { GCP_SCHEMAS, type GcpSchemaName } from "./namespaces/gcp.js";
 import { PIPELINE_SCHEMAS, type PipelineSchemaName } from "./namespaces/pipeline.js";
 import { PARCEL_SCHEMAS, type ParcelSchemaName } from "./namespaces/parcel.js";
 import { TRAVERSE_SCHEMAS, type TraverseSchemaName } from "./namespaces/traverse.js";
+import { COGO_SIDECAR_PARAMS, type CogoSidecarMethod, validateCogoSidecarParams } from "./namespaces/cogo.js";
 
 // ─── Aggregate registry ────────────────────────────────────────────
 
@@ -168,3 +169,6 @@ export type {
   ParcelSchemaName,
   TraverseSchemaName,
 };
+
+export { COGO_SIDECAR_PARAMS, validateCogoSidecarParams };
+export type { CogoSidecarMethod };

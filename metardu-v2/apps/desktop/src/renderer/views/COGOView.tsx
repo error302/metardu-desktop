@@ -1,520 +1,440 @@
 /**
- * Coordinate Geometry (COGO) Interactive View.
+ * Coordinate geometry for local, planar survey calculations.
  *
- * Five core COGO operations:
- *   1. Radiation (polar to rectangular)
- *   2. Bearing-Bearing intersection
- *   3. Distance-Distance intersection
- *   4. Line offset / point projection
- *   5. Area computation (Shoelace) from accumulated computed points
- *
- * Uses SurveyCanvas for live geometry display.
- * Country-aware: reads tolerance settings for distance/bearing precision display.
+ * Numerically sensitive geometry is computed by the Rust sidecar. Every
+ * result remains a draft until a project CRS, observations, and jurisdiction
+ * requirements are independently established.
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from "react";
-import { SurveyCanvas, type SurveyPoint, type SurveyLine } from "@metardu/ui-components";
+import React, { useEffect, useMemo, useState } from "react";
+import { SurveyCanvas, type SurveyLine, type SurveyPoint } from "@metardu/ui-components";
 import { useSurveyState } from "../SurveyStateContext.js";
 import { bus } from "../cross-import-bus.js";
-import { COUNTRY_OPTIONS } from "../countries.js";
-import { AutoExportBanner } from "./AutoExportBanner.js";
-import { Compass, Target, Circle, ArrowUpDown, Triangle, Trash2, Copy, Plus } from "lucide-react";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+type Mode = "radiation" | "bearing-bearing" | "distance-distance" | "offset" | "area";
+type Side = "left" | "right";
 
-type COGOMode = "radiation" | "bearing-bearing" | "distance-distance" | "offset" | "area";
-
-interface ComputedPoint {
+interface DraftPoint {
   id: string;
   easting: number;
   northing: number;
   source: string;
 }
 
-// ─── Math helpers ─────────────────────────────────────────────────────────────
-
-function bbIntersection(
-  a: { e: number; n: number; bearing: number },
-  b: { e: number; n: number; bearing: number },
-): { e: number; n: number } | null {
-  const a1 = (90 - a.bearing) * (Math.PI / 180);
-  const a2 = (90 - b.bearing) * (Math.PI / 180);
-  const det = Math.sin(a2 - a1);
-  if (Math.abs(det) < 1e-10) return null;
-  const dx = b.e - a.e, dy = b.n - a.n;
-  const t = (dx * Math.sin(a2) - dy * Math.cos(a2)) / det;
-  return { e: a.e + t * Math.cos(a1), n: a.n + t * Math.sin(a1) };
+interface EdgeMetric {
+  bearing_deg: number;
+  distance_m: number;
 }
 
-function ddIntersection(
-  a: { e: number; n: number; dist: number },
-  b: { e: number; n: number; dist: number },
-): { e: number; n: number } | null {
-  const dx = b.e - a.e, dy = b.n - a.n;
-  const d = Math.sqrt(dx * dx + dy * dy);
-  if (d > a.dist + b.dist || d < Math.abs(a.dist - b.dist) || d < 1e-10) return null;
-  const aa = (a.dist * a.dist - b.dist * b.dist + d * d) / (2 * d);
-  const h = Math.sqrt(Math.max(0, a.dist * a.dist - aa * aa));
-  const mx = a.e + aa * dx / d;
-  const my = a.n + aa * dy / d;
-  return { e: mx + h * dy / d, n: my - h * dx / d };
+interface AreaMetrics {
+  planar_area_sq_m: number;
+  planar_area_ha: number;
+  planar_area_acres: number;
+  perimeter_m: number;
+  edges: EdgeMetric[];
 }
 
-function shoelaceArea(points: ComputedPoint[]): number {
-  if (points.length < 3) return 0;
-  let area = 0;
-  for (let i = 0; i < points.length; i++) {
-    const j = (i + 1) % points.length;
-    area += points[i].easting * points[j].northing;
-    area -= points[j].easting * points[i].northing;
+interface FieldSpec {
+  key: string;
+  label: string;
+  placeholder?: string;
+}
+
+const MODE_FIELDS: Record<Exclude<Mode, "area">, FieldSpec[]> = {
+  radiation: [
+    { key: "origin_e", label: "Station easting (m)" },
+    { key: "origin_n", label: "Station northing (m)" },
+    { key: "bearing", label: "Grid bearing (°)" },
+    { key: "distance", label: "Horizontal distance (m)" },
+  ],
+  "bearing-bearing": [
+    { key: "p1_e", label: "Station A easting (m)" },
+    { key: "p1_n", label: "Station A northing (m)" },
+    { key: "bearing1", label: "Station A bearing (°)" },
+    { key: "p2_e", label: "Station B easting (m)" },
+    { key: "p2_n", label: "Station B northing (m)" },
+    { key: "bearing2", label: "Station B bearing (°)" },
+  ],
+  "distance-distance": [
+    { key: "p1_e", label: "Centre A easting (m)" },
+    { key: "p1_n", label: "Centre A northing (m)" },
+    { key: "radius1", label: "Centre A distance (m)" },
+    { key: "p2_e", label: "Centre B easting (m)" },
+    { key: "p2_n", label: "Centre B northing (m)" },
+    { key: "radius2", label: "Centre B distance (m)" },
+  ],
+  offset: [
+    { key: "start_e", label: "Line start easting (m)" },
+    { key: "start_n", label: "Line start northing (m)" },
+    { key: "end_e", label: "Line end easting (m)" },
+    { key: "end_n", label: "Line end northing (m)" },
+    { key: "offset", label: "Perpendicular offset (m)" },
+  ],
+};
+
+const MODE_LABELS: Array<{ id: Mode; label: string }> = [
+  { id: "radiation", label: "Radiation" },
+  { id: "bearing-bearing", label: "Bearing intersection" },
+  { id: "distance-distance", label: "Distance intersection" },
+  { id: "offset", label: "Midpoint offset" },
+  { id: "area", label: "Polygon metrics" },
+];
+
+const EMPTY_INPUTS: Record<string, string> = {};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function finiteResultPoint(value: unknown): value is { easting: number; northing: number } {
+  return isRecord(value) && Number.isFinite(value.easting) && Number.isFinite(value.northing);
+}
+
+function parseRequired(inputs: Record<string, string>, key: string, label: string): number {
+  const raw = inputs[key]?.trim() ?? "";
+  if (!raw) throw new Error(`${label} is required.`);
+  const value = Number(raw);
+  if (!Number.isFinite(value)) throw new Error(`${label} must be a finite number.`);
+  return value;
+}
+
+function parseBearing(inputs: Record<string, string>, key: string, label: string): number {
+  const value = parseRequired(inputs, key, label);
+  if (value < 0 || value > 360) throw new Error(`${label} must be between 0° and 360°.`);
+  return value;
+}
+
+function parseNonNegative(inputs: Record<string, string>, key: string, label: string): number {
+  const value = parseRequired(inputs, key, label);
+  if (value < 0) throw new Error(`${label} cannot be negative.`);
+  return value;
+}
+
+function parseAreaMetrics(value: unknown): AreaMetrics {
+  if (!isRecord(value) || !Array.isArray(value.edges)) {
+    throw new Error("The Rust sidecar returned an invalid polygon metrics response.");
   }
-  return Math.abs(area) / 2;
+  const numericKeys = ["planar_area_sq_m", "planar_area_ha", "planar_area_acres", "perimeter_m"] as const;
+  for (const key of numericKeys) {
+    if (!Number.isFinite(value[key])) throw new Error("The Rust sidecar returned incomplete polygon metrics.");
+  }
+  const edges = value.edges.map((edge) => {
+    if (!isRecord(edge) || !Number.isFinite(edge.bearing_deg) || !Number.isFinite(edge.distance_m)) {
+      throw new Error("The Rust sidecar returned invalid edge metrics.");
+    }
+    return { bearing_deg: edge.bearing_deg as number, distance_m: edge.distance_m as number };
+  });
+  return {
+    planar_area_sq_m: value.planar_area_sq_m as number,
+    planar_area_ha: value.planar_area_ha as number,
+    planar_area_acres: value.planar_area_acres as number,
+    perimeter_m: value.perimeter_m as number,
+    edges,
+  };
 }
 
-function bearingDeg(from: ComputedPoint, to: ComputedPoint): number {
-  const dx = to.easting - from.easting;
-  const dy = to.northing - from.northing;
-  let brg = Math.atan2(dx, dy) * (180 / Math.PI);
-  if (brg < 0) brg += 360;
-  return brg;
+async function callSidecar(method: string, params: unknown): Promise<unknown> {
+  const call = (window as unknown as {
+    metardu?: { sidecar?: { call?: (name: string, input: unknown) => Promise<unknown> } };
+  }).metardu?.sidecar?.call;
+  if (!call) throw new Error("COGO calculations are available in the METARDU Desktop app with its Rust sidecar running.");
+  return call(method, params);
 }
-
-function distanceBetween(a: ComputedPoint, b: ComputedPoint): number {
-  return Math.sqrt((b.easting - a.easting) ** 2 + (b.northing - a.northing) ** 2);
-}
-
-// ─── Component ────────────────────────────────────────────────────────────────
 
 export const COGOView: React.FC = () => {
-  const { setSurveyOutput, activeProject } = useSurveyState();
-  const [mode, setMode] = useState<COGOMode>("radiation");
-  const [countryCode, setCountryCode] = useState("KE");
-  const [computedPoints, setComputedPoints] = useState<ComputedPoint[]>([]);
+  const { activeProject, saveDraftToProject } = useSurveyState();
+  const [mode, setMode] = useState<Mode>("radiation");
+  const [inputs, setInputs] = useState<Record<string, string>>(EMPTY_INPUTS);
+  const [side, setSide] = useState<Side>("left");
+  const [points, setPoints] = useState<DraftPoint[]>([]);
+  const [areaMetrics, setAreaMetrics] = useState<AreaMetrics | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [messageKind, setMessageKind] = useState<"info" | "error">("info");
+  const [busy, setBusy] = useState(false);
 
-  // ── Cross-import: subscribe to Traverse LS results ───────────────
-  const [importNotice, setImportNotice] = useState<string | null>(null);
-  useEffect(() => {
-    const unsub = bus.on("traverse:results", (payload) => {
-      if (payload.adjusted.length < 3) return;
-      const pts = payload.adjusted.map((p) => ({
-        id: p.id, easting: p.easting, northing: p.northing,
-        source: `Traverse LS (σ₀²=${payload.sigma0Squared.toFixed(4)})`,
+  useEffect(() => bus.on("traverse:results", (payload) => {
+    const imported = payload.adjusted
+      .filter((point) => Number.isFinite(point.easting) && Number.isFinite(point.northing))
+      .map((point) => ({
+        id: point.id,
+        easting: point.easting,
+        northing: point.northing,
+        source: "Imported adjusted traverse coordinate; CRS not checked by COGO",
       }));
-      setComputedPoints(pts);
-      setMode("area");
-      setImportNotice(`Imported ${pts.length} adjusted coordinates from Traverse LS — area computation ready.`);
-    });
-    return unsub;
-  }, []);
-
-  // ── Push computed points to Traverse view via bus ─────────────────
-  const pushToTraverse = useCallback(() => {
-    if (computedPoints.length < 2) return;
-    bus.emit("cogo:points", { points: computedPoints });
-    setImportNotice(`Pushed ${computedPoints.length} points to Traverse — switch to Traverse view to import.`);
-  }, [computedPoints]);
-
-  const pushToCad = useCallback(() => {
-    if (computedPoints.length === 0) return;
-    bus.emit("cad:import_entities", {
-      source: "COGO Geometry",
-      beacons: computedPoints.map((p) => ({ id: p.id, easting: p.easting, northing: p.northing })),
-      boundaries: computedPoints.length >= 3 ? [{ name: "COGO_POLYGON", vertices: computedPoints.map((p) => ({ easting: p.easting, northing: p.northing })) }] : [],
-    });
-    setImportNotice(`Dispatched ${computedPoints.length} points to 2D/3D CAD Workspace.`);
-  }, [computedPoints]);
-
-  const pushToDeedPlan = useCallback(() => {
-    if (computedPoints.length < 3) return;
-    bus.emit("deedplan:import_boundary", {
-      parcelNumber: activeProject?.name || "PARCEL LR 209/1842",
-      beacons: computedPoints.map((p) => ({ id: p.id, easting: p.easting, northing: p.northing })),
-      areaSqM: shoelaceArea(computedPoints),
-    });
-    setImportNotice(`Dispatched COGO boundary to Statutory Deed Plan Generator (Form 4).`);
-  }, [computedPoints, activeProject]);
-
-  const saveToProject = useCallback(() => {
-    if (computedPoints.length === 0) return;
-    const output = {
-      beacons: computedPoints.map((p) => ({
-        label: p.id,
-        easting: p.easting,
-        northing: p.northing,
-        uncertainty: { semiMajorAxis: 0.005, semiMinorAxis: 0.003, orientation: 45, adjusted: true },
-      })),
-      boundaries: computedPoints.length >= 3 ? [{ label: activeProject?.name || "COGO BOUNDARY", vertices: computedPoints.map((p) => ({ easting: p.easting, northing: p.northing })) }] : [],
-      contours: [],
-      fieldPoints: [],
-    };
-    setSurveyOutput(output, "COGO Survey", "COGOView", activeProject?.countryCode || countryCode);
-    setImportNotice("Saved COGO geometry to Active Project Store!");
-  }, [computedPoints, activeProject, countryCode, setSurveyOutput]);
-
-  // ── Radiation inputs ──────────────────────────────────────────────────────
-  const [radStnE, setRadStnE] = useState(257000.0);
-  const [radStnN, setRadStnN] = useState(9857000.0);
-  const [radBrg, setRadBrg] = useState(45.0);
-  const [radDist, setRadDist] = useState(150.0);
-  const [radSigma, setRadSigma] = useState(0.005);
-
-  // ── BB inputs ─────────────────────────────────────────────────────────────
-  const [bbA, setBbA] = useState({ e: 257000, n: 9857000, bearing: 60 });
-  const [bbB, setBbB] = useState({ e: 257200, n: 9857000, bearing: 300 });
-
-  // ── DD inputs ─────────────────────────────────────────────────────────────
-  const [ddA, setDdA] = useState({ e: 257000, n: 9857000, dist: 200 });
-  const [ddB, setDdB] = useState({ e: 257200, n: 9857000, dist: 200 });
-
-  // ── Offset inputs ─────────────────────────────────────────────────────────
-  const [offFrom, setOffFrom] = useState({ e: 257000, n: 9857000 });
-  const [offTo, setOffTo] = useState({ e: 257200, n: 9857100 });
-  const [offDist, setOffDist] = useState(50.0);
-  const [offSide, setOffSide] = useState<"left" | "right">("left");
-
-  // ── Result feedback ───────────────────────────────────────────────────────
-  const [feedback, setFeedback] = useState<string | null>(null);
-
-  // ── Computed computations ─────────────────────────────────────────────────
-
-  const doRadiation = useCallback(() => {
-    const rad = (radBrg * Math.PI) / 180;
-    const pt: ComputedPoint = {
-      id: `P${computedPoints.length + 1}`,
-      easting: radStnE + radDist * Math.sin(rad),
-      northing: radStnN + radDist * Math.cos(rad),
-      source: `RADIATION from (${radStnE}, ${radStnN}) brg=${radBrg} dist=${radDist}`,
-    };
-    setComputedPoints((prev) => [...prev, pt]);
-    setFeedback(`Computed ${pt.id}: E=${pt.easting.toFixed(4)}, N=${pt.northing.toFixed(4)}`);
-  }, [radStnE, radStnN, radBrg, radDist, computedPoints.length]);
-
-  const doBB = useCallback(() => {
-    const inter = bbIntersection(bbA, bbB);
-    if (!inter) { setFeedback("Error: Lines are parallel or coincident."); return; }
-    const pt: ComputedPoint = {
-      id: `P${computedPoints.length + 1}`,
-      easting: inter.e,
-      northing: inter.n,
-      source: `BB INTERSECT from A(${bbA.e},${bbA.n}) B(${bbB.e},${bbB.n})`,
-    };
-    setComputedPoints((prev) => [...prev, pt]);
-    setFeedback(`Intersection ${pt.id}: E=${pt.easting.toFixed(4)}, N=${pt.northing.toFixed(4)}`);
-  }, [bbA, bbB, computedPoints.length]);
-
-  const doDD = useCallback(() => {
-    const inter = ddIntersection(ddA, ddB);
-    if (!inter) { setFeedback("Error: No intersection (circles don't meet or are tangent)."); return; }
-    const pt: ComputedPoint = {
-      id: `P${computedPoints.length + 1}`,
-      easting: inter.e,
-      northing: inter.n,
-      source: `DD INTERSECT from A(${ddA.e},${ddA.n}) d=${ddA.dist} B(${ddB.e},${ddB.n}) d=${ddB.dist}`,
-    };
-    setComputedPoints((prev) => [...prev, pt]);
-    setFeedback(`Intersection ${pt.id}: E=${pt.easting.toFixed(4)}, N=${pt.northing.toFixed(4)}`);
-  }, [ddA, ddB, computedPoints.length]);
-
-  const doOffset = useCallback(() => {
-    const dx = offTo.e - offFrom.e;
-    const dy = offTo.n - offFrom.n;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len < 1e-10) { setFeedback("Error: Zero-length line."); return; }
-    const sign = offSide === "left" ? 1 : -1;
-    const pt: ComputedPoint = {
-      id: `P${computedPoints.length + 1}`,
-      easting: (offFrom.e + offTo.e) / 2 + sign * offDist * dy / len,
-      northing: (offFrom.n + offTo.n) / 2 - sign * offDist * dx / len,
-      source: `OFFSET ${offSide}=${offDist}m from line (${offFrom.e},${offFrom.n})-(${offTo.e},${offTo.n})`,
-    };
-    setComputedPoints((prev) => [...prev, pt]);
-    setFeedback(`Offset point ${pt.id}: E=${pt.easting.toFixed(4)}, N=${pt.northing.toFixed(4)}`);
-  }, [offFrom, offTo, offDist, offSide, computedPoints.length]);
-
-  const handleCompute = useCallback(() => {
-    switch (mode) {
-      case "radiation": doRadiation(); break;
-      case "bearing-bearing": doBB(); break;
-      case "distance-distance": doDD(); break;
-      case "offset": doOffset(); break;
-      case "area": {
-        const area = shoelaceArea(computedPoints);
-        setFeedback(`Polygon area (Shoelace): ${area.toFixed(4)} m\u00B2`);
-        break;
-      }
+    if (imported.length === 0) {
+      setMessage("Traverse handoff contained no finite coordinates.");
+      setMessageKind("error");
+      return;
     }
-  }, [mode, doRadiation, doBB, doDD, doOffset, computedPoints]);
+    setPoints(imported);
+    setAreaMetrics(null);
+    setMessage(`Loaded ${imported.length} traverse coordinates as unverified planar draft points.`);
+    setMessageKind("info");
+  }), []);
 
-  const area = useMemo(() => shoelaceArea(computedPoints), [computedPoints]);
+  const fields = mode === "area" ? [] : MODE_FIELDS[mode];
+  const canvasPoints: SurveyPoint[] = useMemo(() => points.map((point) => ({
+    easting: point.easting,
+    northing: point.northing,
+    label: point.id,
+  })), [points]);
+  // This is only a visual ordering aid. It is not used for any computation.
+  const canvasLines: SurveyLine[] = useMemo(() => points.slice(1).map((point, index) => ({
+    from: canvasPoints[index],
+    to: canvasPoints[index + 1],
+    color: "#ff9b54",
+    dashed: true,
+  })), [canvasPoints, points]);
 
-  // ── Canvas data ───────────────────────────────────────────────────────────
+  const updateInput = (key: string, value: string) => {
+    setInputs((current) => ({ ...current, [key]: value }));
+  };
 
-  const canvasPoints: SurveyPoint[] = computedPoints.map((p) => ({
-    easting: p.easting,
-    northing: p.northing,
-    label: p.id,
-    color: "#3B82F6",
-  }));
+  const compute = async () => {
+    setMessage(null);
+    setBusy(true);
+    try {
+      if (mode === "area") {
+        if (points.length < 3) throw new Error("Add or import at least three ordered points before computing polygon metrics.");
+        const raw = await callSidecar("cogo.area", { points: points.map((point) => [point.easting, point.northing]) });
+        setAreaMetrics(parseAreaMetrics(raw));
+        setMessage("Planar polygon metrics computed by the Rust sidecar. CRS and ground-area corrections remain unverified.");
+        setMessageKind("info");
+        return;
+      }
 
-  const canvasLines: SurveyLine[] = [];
-  for (let i = 0; i < canvasPoints.length - 1; i++) {
-    canvasLines.push({ from: canvasPoints[i], to: canvasPoints[i + 1], color: "#FF9500", width: 2 });
-  }
-  if (canvasPoints.length >= 3) {
-    canvasLines.push({ from: canvasPoints[canvasPoints.length - 1], to: canvasPoints[0], color: "#FF9500", width: 2 });
-  }
+      let method: string;
+      let params: Record<string, unknown>;
+      let source: string;
+      if (mode === "radiation") {
+        method = "cogo.radiation";
+        params = {
+          origin: {
+            easting: parseRequired(inputs, "origin_e", "Station easting"),
+            northing: parseRequired(inputs, "origin_n", "Station northing"),
+          },
+          bearing_deg: parseBearing(inputs, "bearing", "Grid bearing"),
+          distance_m: parseNonNegative(inputs, "distance", "Horizontal distance"),
+        };
+        source = "Rust COGO radiation; local planar draft";
+      } else if (mode === "bearing-bearing") {
+        method = "cogo.bearing_bearing";
+        params = {
+          p1: { easting: parseRequired(inputs, "p1_e", "Station A easting"), northing: parseRequired(inputs, "p1_n", "Station A northing") },
+          bearing1_deg: parseBearing(inputs, "bearing1", "Station A bearing"),
+          p2: { easting: parseRequired(inputs, "p2_e", "Station B easting"), northing: parseRequired(inputs, "p2_n", "Station B northing") },
+          bearing2_deg: parseBearing(inputs, "bearing2", "Station B bearing"),
+        };
+        source = "Rust bearing-ray intersection; local planar draft";
+      } else if (mode === "distance-distance") {
+        method = "cogo.distance_distance";
+        params = {
+          p1: { easting: parseRequired(inputs, "p1_e", "Centre A easting"), northing: parseRequired(inputs, "p1_n", "Centre A northing") },
+          r1_m: parseNonNegative(inputs, "radius1", "Centre A distance"),
+          p2: { easting: parseRequired(inputs, "p2_e", "Centre B easting"), northing: parseRequired(inputs, "p2_n", "Centre B northing") },
+          r2_m: parseNonNegative(inputs, "radius2", "Centre B distance"),
+        };
+        source = "Rust distance intersection; local planar draft";
+      } else {
+        method = "cogo.midpoint_offset";
+        params = {
+          start: { easting: parseRequired(inputs, "start_e", "Line start easting"), northing: parseRequired(inputs, "start_n", "Line start northing") },
+          end: { easting: parseRequired(inputs, "end_e", "Line end easting"), northing: parseRequired(inputs, "end_n", "Line end northing") },
+          offset_m: parseNonNegative(inputs, "offset", "Perpendicular offset"),
+          side,
+        };
+        source = `Rust midpoint ${side} offset; local planar draft`;
+      }
 
-  const tabs: { key: COGOMode; label: string; icon: React.ReactNode }[] = [
-    { key: "radiation", label: "Radiation", icon: <Compass size={14} /> },
-    { key: "bearing-bearing", label: "BB Intersect", icon: <Target size={14} /> },
-    { key: "distance-distance", label: "DD Intersect", icon: <Circle size={14} /> },
-    { key: "offset", label: "Line Offset", icon: <ArrowUpDown size={14} /> },
-    { key: "area", label: "Area", icon: <Triangle size={14} /> },
-  ];
+      const result = await callSidecar(method, params);
+      if (!finiteResultPoint(result)) throw new Error("The Rust sidecar returned invalid coordinates.");
+      const point: DraftPoint = {
+        id: `P${points.length + 1}`,
+        easting: result.easting,
+        northing: result.northing,
+        source,
+      };
+      setPoints((current) => [...current, point]);
+      setAreaMetrics(null);
+      setMessage(`${point.id} computed. Coordinates are unverified local planar geometry in metres.`);
+      setMessageKind("info");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "COGO calculation failed.");
+      setMessageKind("error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveDraft = async () => {
+    if (points.length === 0) return;
+    const projects = (window as unknown as {
+      metardu?: { projects?: { create?: unknown; update?: unknown } };
+    }).metardu?.projects;
+    if (!projects?.create || !projects.update) {
+      setMessage("Project storage is available only in the METARDU Desktop app.");
+      setMessageKind("error");
+      return;
+    }
+    try {
+      await saveDraftToProject({
+        evidenceStatus: "draft_unverified",
+        coordinateReference: null,
+        verticalReference: null,
+        jurisdictionAcceptance: "not_evaluated",
+        cogoDraft: {
+          coordinateUnit: "metre",
+          bearingConvention: "decimal degrees clockwise from local positive northing",
+          points: points.map(({ id, easting, northing, source }) => ({ id, easting, northing, source })),
+          planarMetrics: areaMetrics,
+        },
+      }, "COGO geometry draft", "COGOView", activeProject?.countryCode ?? "");
+      setMessage("Saved to the active project as an unverified COGO draft. It was not sent to statutory export.");
+      setMessageKind("info");
+    } catch (error) {
+      setMessage(error instanceof Error ? `Draft save failed: ${error.message}` : "Draft save failed.");
+      setMessageKind("error");
+    }
+  };
+
+  const pushToTraverse = () => {
+    if (points.length < 2) return;
+    bus.emit("cogo:points", { points: points.map(({ id, easting, northing, source }) => ({ id, easting, northing, source })), evidenceStatus: "draft_unverified" });
+    setMessage("Sent candidate stations to Traverse. No CRS, observations, uncertainty, or adjustment evidence was attached.");
+    setMessageKind("info");
+  };
+
+  const pushToCad = () => {
+    if (points.length === 0) return;
+    bus.emit("cad:import_entities", {
+      source: "COGO local planar draft — unverified coordinates",
+      beacons: points.map(({ id, easting, northing }) => ({ id, easting, northing })),
+    });
+    setMessage("Sent draft points to CAD for visual work. CAD import does not verify their coordinate reference.");
+    setMessageKind("info");
+  };
 
   return (
-    <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "12px", height: "100%", overflow: "auto" }}>
-      <h2 style={{ fontSize: "var(--text-xl)", color: "var(--accent-primary)", fontFamily: "var(--font-mono)" }}>
-        Coordinate Geometry (COGO)
-      </h2>
-      <p style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>
-        Radiations, bearing/distance intersections, line offsets, and area computation. Points accumulate across calculations.
-      </p>
+    <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14, height: "100%", overflow: "auto" }}>
+      <header>
+        <h2 style={{ margin: 0, color: "var(--accent-primary)", fontFamily: "var(--font-mono)" }}>Coordinate Geometry (COGO)</h2>
+        <p style={{ margin: "6px 0 0", color: "var(--text-secondary)", fontSize: "var(--text-sm)" }}>
+          Radiation, intersections, midpoint offsets, and polygon metrics calculated by the Rust sidecar.
+        </p>
+      </header>
 
-      {/* Country & mode tabs */}
-      <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
-        <select value={countryCode} onChange={(e) => setCountryCode(e.target.value)} style={{ minWidth: "120px" }}>
-          {COUNTRY_OPTIONS.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
-        </select>
-        <div style={{ display: "flex", gap: "4px" }}>
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              className={mode === t.key ? "primary" : ""}
-              onClick={() => setMode(t.key)}
-              style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "var(--text-sm)" }}
-            >
-              {t.icon} {t.label}
-            </button>
+      <section aria-label="COGO reference status" style={{ padding: 12, background: "rgba(245, 158, 11, 0.10)", border: "1px solid rgba(245, 158, 11, 0.55)", color: "var(--text-primary)" }}>
+        <strong>Unverified local planar draft</strong>
+        <div style={{ marginTop: 4, fontSize: "var(--text-sm)" }}>
+          Coordinates are treated as metres on a local plane. Project CRS is not set or verified. Bearings are decimal degrees clockwise from local northing. No grid-to-ground correction, coordinate epoch, uncertainty, ground area, or jurisdiction acceptance is established.
+        </div>
+      </section>
+
+      <nav aria-label="COGO operation" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {MODE_LABELS.map((item) => (
+          <button key={item.id} type="button" className={mode === item.id ? "primary" : ""} aria-pressed={mode === item.id} onClick={() => { setMode(item.id); setMessage(null); }}>
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
+      {fields.length > 0 && (
+        <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10, background: "var(--bg-tertiary)", padding: 12, border: "1px solid var(--border-default)" }}>
+          {fields.map((field) => (
+            <label key={field.key} style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+              {field.label}
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                value={inputs[field.key] ?? ""}
+                placeholder={field.placeholder ?? "Required"}
+                aria-label={field.label}
+                onChange={(event) => updateInput(field.key, event.target.value)}
+              />
+            </label>
           ))}
-        </div>
-      </div>
-
-      {/* Radiation panel */}
-      {mode === "radiation" && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px", background: "var(--bg-tertiary)", padding: "12px", border: "1px solid var(--border-default)" }}>
-          <div><label style={{ display: "block", fontSize: "var(--text-xs)", marginBottom: "2px" }}>Station Easting</label><input type="number" value={radStnE} onChange={(e) => setRadStnE(+e.target.value || 0)} style={{ width: "100%" }} /></div>
-          <div><label style={{ display: "block", fontSize: "var(--text-xs)", marginBottom: "2px" }}>Station Northing</label><input type="number" value={radStnN} onChange={(e) => setRadStnN(+e.target.value || 0)} style={{ width: "100%" }} /></div>
-          <div><label style={{ display: "block", fontSize: "var(--text-xs)", marginBottom: "2px" }}>Bearing (deg)</label><input type="number" value={radBrg} step="0.0001" onChange={(e) => setRadBrg(+e.target.value || 0)} style={{ width: "100%" }} /></div>
-          <div><label style={{ display: "block", fontSize: "var(--text-xs)", marginBottom: "2px" }}>Distance (m)</label><input type="number" value={radDist} step="0.001" onChange={(e) => setRadDist(+e.target.value || 0)} style={{ width: "100%" }} /></div>
-        </div>
+          {mode === "offset" && (
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+              Offset side
+              <select value={side} onChange={(event) => setSide(event.target.value as Side)}>
+                <option value="left">Left of start-to-end line</option>
+                <option value="right">Right of start-to-end line</option>
+              </select>
+            </label>
+          )}
+        </section>
       )}
 
-      {/* BB panel */}
-      {mode === "bearing-bearing" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", background: "var(--bg-tertiary)", padding: "12px", border: "1px solid var(--border-default)" }}>
-          <div>
-            <h4 style={{ margin: "0 0 6px 0", color: "var(--accent-primary)" }}>Station A</h4>
-            <input type="number" placeholder="Easting" value={bbA.e} onChange={(e) => setBbA({ ...bbA, e: +e.target.value || 0 })} style={{ width: "100%", marginBottom: "4px" }} />
-            <input type="number" placeholder="Northing" value={bbA.n} onChange={(e) => setBbA({ ...bbA, n: +e.target.value || 0 })} style={{ width: "100%", marginBottom: "4px" }} />
-            <input type="number" placeholder="Bearing" value={bbA.bearing} onChange={(e) => setBbA({ ...bbA, bearing: +e.target.value || 0 })} style={{ width: "100%" }} />
-          </div>
-          <div>
-            <h4 style={{ margin: "0 0 6px 0", color: "var(--accent-primary)" }}>Station B</h4>
-            <input type="number" placeholder="Easting" value={bbB.e} onChange={(e) => setBbB({ ...bbB, e: +e.target.value || 0 })} style={{ width: "100%", marginBottom: "4px" }} />
-            <input type="number" placeholder="Northing" value={bbB.n} onChange={(e) => setBbB({ ...bbB, n: +e.target.value || 0 })} style={{ width: "100%", marginBottom: "4px" }} />
-            <input type="number" placeholder="Bearing" value={bbB.bearing} onChange={(e) => setBbB({ ...bbB, bearing: +e.target.value || 0 })} style={{ width: "100%" }} />
-          </div>
-        </div>
-      )}
-
-      {/* DD panel */}
-      {mode === "distance-distance" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", background: "var(--bg-tertiary)", padding: "12px", border: "1px solid var(--border-default)" }}>
-          <div>
-            <h4 style={{ margin: "0 0 6px 0", color: "var(--accent-primary)" }}>Center A</h4>
-            <input type="number" placeholder="Easting" value={ddA.e} onChange={(e) => setDdA({ ...ddA, e: +e.target.value || 0 })} style={{ width: "100%", marginBottom: "4px" }} />
-            <input type="number" placeholder="Northing" value={ddA.n} onChange={(e) => setDdA({ ...ddA, n: +e.target.value || 0 })} style={{ width: "100%", marginBottom: "4px" }} />
-            <input type="number" placeholder="Radius (m)" value={ddA.dist} step="0.001" onChange={(e) => setDdA({ ...ddA, dist: +e.target.value || 0 })} style={{ width: "100%" }} />
-          </div>
-          <div>
-            <h4 style={{ margin: "0 0 6px 0", color: "var(--accent-primary)" }}>Center B</h4>
-            <input type="number" placeholder="Easting" value={ddB.e} onChange={(e) => setDdB({ ...ddB, e: +e.target.value || 0 })} style={{ width: "100%", marginBottom: "4px" }} />
-            <input type="number" placeholder="Northing" value={ddB.n} onChange={(e) => setDdB({ ...ddB, n: +e.target.value || 0 })} style={{ width: "100%", marginBottom: "4px" }} />
-            <input type="number" placeholder="Radius (m)" value={ddB.dist} step="0.001" onChange={(e) => setDdB({ ...ddB, dist: +e.target.value || 0 })} style={{ width: "100%" }} />
-          </div>
-        </div>
-      )}
-
-      {/* Offset panel */}
-      {mode === "offset" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px", background: "var(--bg-tertiary)", padding: "12px", border: "1px solid var(--border-default)" }}>
-          <div><label style={{ fontSize: "var(--text-xs)" }}>From Easting</label><input type="number" value={offFrom.e} onChange={(e) => setOffFrom({ ...offFrom, e: +e.target.value || 0 })} style={{ width: "100%" }} /></div>
-          <div><label style={{ fontSize: "var(--text-xs)" }}>From Northing</label><input type="number" value={offFrom.n} onChange={(e) => setOffFrom({ ...offFrom, n: +e.target.value || 0 })} style={{ width: "100%" }} /></div>
-          <div><label style={{ fontSize: "var(--text-xs)" }}>To Easting</label><input type="number" value={offTo.e} onChange={(e) => setOffTo({ ...offTo, e: +e.target.value || 0 })} style={{ width: "100%" }} /></div>
-          <div><label style={{ fontSize: "var(--text-xs)" }}>To Northing</label><input type="number" value={offTo.n} onChange={(e) => setOffTo({ ...offTo, n: +e.target.value || 0 })} style={{ width: "100%" }} /></div>
-          <div><label style={{ fontSize: "var(--text-xs)" }}>Offset (m)</label><input type="number" value={offDist} step="0.001" onChange={(e) => setOffDist(+e.target.value || 0)} style={{ width: "100%" }} /></div>
-          <div>
-            <label style={{ fontSize: "var(--text-xs)" }}>Side</label>
-            <select value={offSide} onChange={(e) => setOffSide(e.target.value as any)} style={{ width: "100%" }}>
-              <option value="left">Left</option>
-              <option value="right">Right</option>
-            </select>
-          </div>
-        </div>
-      )}
-
-      {/* Area mode shows stats */}
       {mode === "area" && (
-        <div style={{ padding: "12px", background: "var(--bg-tertiary)", border: "1px solid var(--border-default)" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
-            <div style={{ padding: "8px" }}>
-              <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", textTransform: "uppercase" }}>Polygon Area</div>
-              <div style={{ fontSize: "var(--text-lg)", fontFamily: "var(--font-mono)" }}>{area.toFixed(4)} m&sup2;</div>
+        <section style={{ padding: 12, background: "var(--bg-tertiary)", border: "1px solid var(--border-default)" }}>
+          <p style={{ margin: "0 0 8px", color: "var(--text-secondary)", fontSize: "var(--text-sm)" }}>
+            Polygon order follows the point list. Import adjusted traverse coordinates from Traverse or create points above. The sidecar rejects repeated adjacent vertices, self-intersections, and degenerate rings.
+          </p>
+          {areaMetrics ? (
+            <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontFamily: "var(--font-mono)" }}>
+              <span>Planar area: {areaMetrics.planar_area_sq_m.toFixed(4)} m²</span>
+              <span>{areaMetrics.planar_area_ha.toFixed(6)} ha</span>
+              <span>{areaMetrics.planar_area_acres.toFixed(6)} acres</span>
+              <span>Perimeter: {areaMetrics.perimeter_m.toFixed(4)} m</span>
             </div>
-            <div style={{ padding: "8px" }}>
-              <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", textTransform: "uppercase" }}>Perimeter</div>
-              <div style={{ fontSize: "var(--text-lg)", fontFamily: "var(--font-mono)" }}>
-                {computedPoints.length >= 3
-                  ? (computedPoints.reduce((sum, p, i) => {
-                      const next = computedPoints[(i + 1) % computedPoints.length];
-                      return sum + distanceBetween(p, next);
-                    }, 0)).toFixed(4) + " m"
-                  : "Need 3+ points"}
-              </div>
-            </div>
-            <div style={{ padding: "8px" }}>
-              <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", textTransform: "uppercase" }}>Vertices</div>
-              <div style={{ fontSize: "var(--text-lg)", fontFamily: "var(--font-mono)" }}>{computedPoints.length}</div>
-            </div>
-          </div>
-          {computedPoints.length >= 3 && (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)", marginTop: "8px" }}>
-              <thead>
-                <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-default)" }}>
-                  <th style={{ padding: "4px 8px", textAlign: "left" }}>Pt</th>
-                  <th style={{ padding: "4px 8px", textAlign: "right" }}>E</th>
-                  <th style={{ padding: "4px 8px", textAlign: "right" }}>N</th>
-                  <th style={{ padding: "4px 8px", textAlign: "right" }}>Bearing to Next</th>
-                  <th style={{ padding: "4px 8px", textAlign: "right" }}>Distance to Next</th>
-                </tr>
-              </thead>
-              <tbody>
-                {computedPoints.map((p, i) => {
-                  const next = computedPoints[(i + 1) % computedPoints.length];
-                  return (
-                    <tr key={i} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                      <td style={{ padding: "4px 8px", fontWeight: "bold" }}>{p.id}</td>
-                      <td style={{ padding: "4px 8px", textAlign: "right" }}>{p.easting.toFixed(4)}</td>
-                      <td style={{ padding: "4px 8px", textAlign: "right" }}>{p.northing.toFixed(4)}</td>
-                      <td style={{ padding: "4px 8px", textAlign: "right" }}>{bearingDeg(p, next).toFixed(4)}&deg;</td>
-                      <td style={{ padding: "4px 8px", textAlign: "right" }}>{distanceBetween(p, next).toFixed(4)} m</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+          ) : <span style={{ color: "var(--text-tertiary)", fontSize: "var(--text-sm)" }}>No polygon metrics computed for the current point list.</span>}
+        </section>
       )}
 
-      {/* Compute & action buttons */}
-      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-        <button className="primary" onClick={handleCompute} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-          <Plus size={14} /> {mode === "area" ? "Compute Area" : "Compute Point"}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button type="button" className="primary" onClick={() => void compute()} disabled={busy}>
+          {busy ? "Computing…" : mode === "area" ? "Compute planar metrics" : "Compute point"}
         </button>
-        <button onClick={() => { setComputedPoints([]); setFeedback(null); setImportNotice(null); }} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-          <Trash2 size={14} /> Clear All
-        </button>
-        {computedPoints.length > 0 && (
-          <button onClick={() => {
-            const last = computedPoints[computedPoints.length - 1];
-            setFeedback(`${last.id}: E=${last.easting.toFixed(4)}, N=${last.northing.toFixed(4)}`);
-          }} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-            <Copy size={14} /> Last Point
-          </button>
-        )}
+        {points.length >= 2 && <button type="button" onClick={pushToTraverse}>Send draft points to Traverse</button>}
+        {points.length > 0 && <button type="button" onClick={pushToCad}>Open draft points in CAD</button>}
+        {points.length > 0 && <button type="button" onClick={() => void saveDraft()}>Save unverified project draft</button>}
+        {points.length > 0 && <button type="button" onClick={() => { setPoints([]); setAreaMetrics(null); setMessage(null); }}>Clear points</button>}
       </div>
 
-      {computedPoints.length > 0 && (
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", background: "var(--bg-tertiary)", padding: "10px 12px", border: "1px solid var(--border-default)", borderRadius: "4px" }}>
-          <span style={{ fontSize: "11px", fontWeight: "bold", color: "var(--accent-primary)", display: "flex", alignItems: "center" }}>
-            COGO Workflow Handoff:
-          </span>
-          {computedPoints.length >= 2 && (
-            <button onClick={pushToTraverse} style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "1px solid var(--accent-primary)", background: "transparent", color: "var(--accent-primary)", borderRadius: "3px", cursor: "pointer" }}>
-              Send to Traverse
-            </button>
-          )}
-          <button onClick={pushToCad} style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "1px solid var(--border-default)", background: "var(--bg-secondary)", color: "var(--text-primary)", borderRadius: "3px", cursor: "pointer" }}>
-            Open in 2D/3D CAD
-          </button>
-          {computedPoints.length >= 3 && (
-            <button onClick={pushToDeedPlan} style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "1px solid var(--border-default)", background: "var(--bg-secondary)", color: "var(--text-primary)", borderRadius: "3px", cursor: "pointer" }}>
-              Generate Deed Plan (Form 4)
-            </button>
-          )}
-          <button onClick={saveToProject} style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "none", background: "var(--accent-primary)", color: "#1A1F36", fontWeight: "bold", borderRadius: "3px", cursor: "pointer" }}>
-            Save to Active Project
-          </button>
+      {message && (
+        <div role={messageKind === "error" ? "alert" : "status"} style={{ padding: "8px 12px", background: messageKind === "error" ? "rgba(239,68,68,0.10)" : "var(--bg-tertiary)", borderLeft: `3px solid ${messageKind === "error" ? "#ef4444" : "var(--accent-primary)"}`, fontSize: "var(--text-sm)" }}>
+          {message}
         </div>
       )}
 
-      {importNotice && (
-        <div style={{ padding: "8px 12px", background: "rgba(34,197,94,0.1)", border: "1px solid #22c55e", color: "#22c55e", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)" }}>
-          {importNotice}
-        </div>
-      )}
-
-      {feedback && (
-        <div style={{ padding: "8px 12px", background: "var(--bg-tertiary)", borderLeft: "3px solid var(--accent-primary)", fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)" }}>
-          {feedback}
-        </div>
-      )}
-
-      <AutoExportBanner />
-
-      {/* Computed points table */}
-      {computedPoints.length > 0 && (
-        <div>
-          <h3 style={{ fontSize: "var(--text-md)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
-            Computed Points ({computedPoints.length})
-          </h3>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)" }}>
-            <thead>
-              <tr style={{ background: "var(--bg-tertiary)", borderBottom: "1px solid var(--border-default)" }}>
-                <th style={{ padding: "6px 8px", textAlign: "left" }}>ID</th>
-                <th style={{ padding: "6px 8px", textAlign: "right" }}>Easting</th>
-                <th style={{ padding: "6px 8px", textAlign: "right" }}>Northing</th>
-                <th style={{ padding: "6px 8px", textAlign: "left" }}>Source</th>
-              </tr>
-            </thead>
-            <tbody>
-              {computedPoints.map((p, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                  <td style={{ padding: "6px 8px", fontWeight: "bold" }}>{p.id}</td>
-                  <td style={{ padding: "6px 8px", textAlign: "right" }}>{p.easting.toFixed(4)}</td>
-                  <td style={{ padding: "6px 8px", textAlign: "right" }}>{p.northing.toFixed(4)}</td>
-                  <td style={{ padding: "6px 8px", fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>{p.source}</td>
+      <section>
+        <h3 style={{ margin: "0 0 8px", fontSize: "var(--text-md)", fontFamily: "var(--font-mono)" }}>Draft points ({points.length})</h3>
+        {points.length === 0 ? <p style={{ color: "var(--text-tertiary)", fontSize: "var(--text-sm)" }}>Enter a calculation or import coordinates to begin.</p> : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)" }}>
+              <thead><tr style={{ background: "var(--bg-tertiary)" }}><th align="left">ID</th><th align="right">Easting (m)</th><th align="right">Northing (m)</th><th align="left">Source</th><th><span className="sr-only">Actions</span></th></tr></thead>
+              <tbody>{points.map((point, index) => (
+                <tr key={`${point.id}-${index}`} style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                  <td>{point.id}</td><td align="right">{point.easting.toFixed(4)}</td><td align="right">{point.northing.toFixed(4)}</td><td>{point.source}</td>
+                  <td><button type="button" aria-label={`Remove ${point.id}`} onClick={() => { setPoints((current) => current.filter((_, i) => i !== index)); setAreaMetrics(null); }}>Remove</button></td>
                 </tr>
-              ))}
-            </tbody>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {areaMetrics && points.length >= 3 && (
+        <section>
+          <h3 style={{ margin: "0 0 8px", fontSize: "var(--text-md)", fontFamily: "var(--font-mono)" }}>Planar edge metrics</h3>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)" }}>
+            <thead><tr style={{ background: "var(--bg-tertiary)" }}><th align="left">From → to</th><th align="right">Bearing (°)</th><th align="right">Distance (m)</th></tr></thead>
+            <tbody>{areaMetrics.edges.map((edge, index) => (
+              <tr key={index} style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                <td>{points[index]?.id} → {points[(index + 1) % points.length]?.id}</td>
+                <td align="right">{edge.bearing_deg.toFixed(6)}</td>
+                <td align="right">{edge.distance_m.toFixed(4)}</td>
+              </tr>
+            ))}</tbody>
           </table>
-        </div>
+        </section>
       )}
 
-      {/* Survey canvas */}
       {canvasPoints.length > 0 && (
-        <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: "12px" }}>
-          <SurveyCanvas
-            height={320}
-            title="COGO Geometry"
-            points={canvasPoints}
-            lines={canvasLines}
-            showPointLabels={true}
-            showNorthArrow={true}
-            showScaleBar={true}
-          />
+        <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: 12 }}>
+          <SurveyCanvas height={320} title="Draft coordinate preview" points={canvasPoints} lines={canvasLines} showPointLabels showNorthArrow={false} showScaleBar={false} />
+          <p style={{ margin: "6px 0 0", color: "var(--text-tertiary)", fontSize: "var(--text-xs)" }}>Schematic preview only; no verified project north or print scale.</p>
         </div>
       )}
     </div>

@@ -17,6 +17,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Form3Input, SyncConfig, SyncProject, SyncStatus, SyncConflict, Form4Input, Lra27Input, BeaconCertificateInput, AuPlanOfSurveyInput, ZaSgDiagramInput, GbMeasuredSurveyReportInput, DeGrenzfeststellungInput } from "@metardu/engine-flight-planning";
 import type { StoredProject, ProjectStoreState, CreateProjectInput, UpdateProjectInput } from "../main/project-store-core.js";
+import { validateCogoSidecarParams } from "@metardu/ipc-schemas";
 
 /** Result of any statutory DRAFT renderer — PDF plus verification status. */
 interface StatutoryResult {
@@ -66,6 +67,12 @@ const ALLOWED_METHODS = new Set<string>([
   "gnss.batch_estimate_covariance",
   // Adjustment engine.
   "adjustment.run",
+  // COGO view — computation remains inside the Rust sidecar.
+  "cogo.radiation",
+  "cogo.bearing_bearing",
+  "cogo.distance_distance",
+  "cogo.midpoint_offset",
+  "cogo.area",
 ]);
 
 function validateMethod(method: unknown): asserts method is string {
@@ -81,7 +88,15 @@ const metarduApi = {
   sidecar: {
     call: async (method: string, params: unknown): Promise<unknown> => {
       validateMethod(method);
-      return ipcRenderer.invoke("metardu:sidecar:call", method, params);
+      const validation = validateCogoSidecarParams(method, params);
+      if (validation && !validation.success) {
+        throw new Error(`Invalid parameters for ${method}: ${validation.error}`);
+      }
+      return ipcRenderer.invoke(
+        "metardu:sidecar:call",
+        method,
+        validation?.success ? validation.data : params,
+      );
     },
     /** Get current sidecar state: "stopped" | "starting" | "running" | "stopping" | "crashed". */
     getState: (): Promise<string> => ipcRenderer.invoke("metardu:sidecar:state"),

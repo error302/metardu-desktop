@@ -22,6 +22,7 @@ mod protocol;
 use anyhow::Result;
 use protocol::{read_message, write_message, write_notification, Notification, Response};
 use std::io::{self, BufReader, BufWriter, Write};
+use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -48,9 +49,11 @@ async fn main() -> Result<()> {
     );
 
     // Use buffered I/O for throughput.
-    let stdin = io::stdin();
     let stdout = io::stdout();
-    let mut reader = BufReader::new(stdin.lock());
+    // Keep one buffered reader alive across RPCs. Recreating a BufReader for
+    // each request can discard read-ahead bytes, and holding StdinLock here
+    // while separately acquiring stdin in spawn_blocking deadlocks the IPC.
+    let request_reader = Arc::new(Mutex::new(BufReader::new(io::stdin())));
     let mut writer = BufWriter::new(stdout.lock());
 
     // Broadcast channel for streaming notifications (instrument events).
@@ -65,8 +68,13 @@ async fn main() -> Result<()> {
         tokio::select! {
             // Branch 1: incoming request from the main process.
             req_result = tokio::task::spawn_blocking({
-                let mut r = BufReader::new(io::stdin());
-                move || read_message(&mut r)
+                let reader = Arc::clone(&request_reader);
+                move || {
+                    let mut reader = reader
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("stdin reader lock poisoned"))?;
+                    read_message(&mut *reader)
+                }
             }) => {
                 match req_result {
                     Ok(Ok(Some(req))) => {

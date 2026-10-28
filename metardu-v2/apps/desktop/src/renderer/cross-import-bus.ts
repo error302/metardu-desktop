@@ -47,6 +47,8 @@ export interface CrossImportEvents {
   /** COGOView pushes accumulated computed points for import. */
   "cogo:points": {
     points: Array<{ id: string; easting: number; northing: number; source: string }>;
+    /** Marks geometric previews that are not tied to a verified project reference system. */
+    evidenceStatus?: "draft_unverified";
   };
 
   /** TraverseView pushes LS adjusted coordinates + diagnostics. */

@@ -36,7 +36,7 @@ impl Point2D {
     pub fn distance_to(&self, other: &Point2D) -> f64 {
         let de = other.easting - self.easting;
         let dn = other.northing - self.northing;
-        (de * de + dn * dn).sqrt()
+        de.hypot(dn)
     }
 
     /// Bearing from self to other, in decimal degrees clockwise from North.
@@ -54,6 +54,82 @@ impl Point2D {
         }
         deg
     }
+}
+
+fn validate_point(point: Point2D) -> Result<(), IntersectionError> {
+    if !point.easting.is_finite() || !point.northing.is_finite() {
+        return Err(IntersectionError::OutOfRange(
+            "coordinates must be finite numbers".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_bearing(bearing_deg: f64) -> Result<f64, IntersectionError> {
+    if !bearing_deg.is_finite() || !(0.0..=360.0).contains(&bearing_deg) {
+        return Err(IntersectionError::OutOfRange(
+            "bearing must be between 0 and 360 degrees clockwise from north".to_string(),
+        ));
+    }
+    Ok(if bearing_deg == 360.0 { 0.0 } else { bearing_deg })
+}
+
+fn validate_distance(distance_m: f64, label: &str) -> Result<(), IntersectionError> {
+    if !distance_m.is_finite() || distance_m < 0.0 {
+        return Err(IntersectionError::OutOfRange(format!(
+            "{label} must be a finite non-negative distance in metres"
+        )));
+    }
+    Ok(())
+}
+
+/// Forward radiation from a point using a grid/local-plane bearing clockwise
+/// from north and a horizontal distance in metres.
+pub fn radiation(
+    origin: Point2D,
+    bearing_deg: f64,
+    distance_m: f64,
+) -> Result<Point2D, IntersectionError> {
+    validate_point(origin)?;
+    let bearing = validate_bearing(bearing_deg)?.to_radians();
+    validate_distance(distance_m, "radiation distance")?;
+
+    let point = Point2D::new(
+        origin.easting + distance_m * bearing.sin(),
+        origin.northing + distance_m * bearing.cos(),
+    );
+    validate_point(point)?;
+    Ok(point)
+}
+
+/// Offset the midpoint of a straight local-plane segment by a perpendicular
+/// distance. `left` is relative to travel from `start` to `end`.
+pub fn midpoint_offset(
+    start: Point2D,
+    end: Point2D,
+    offset_m: f64,
+    left: bool,
+) -> Result<Point2D, IntersectionError> {
+    validate_point(start)?;
+    validate_point(end)?;
+    validate_distance(offset_m, "offset")?;
+
+    let de = end.easting - start.easting;
+    let dn = end.northing - start.northing;
+    let length = de.hypot(dn);
+    if !length.is_finite() || length == 0.0 {
+        return Err(IntersectionError::OutOfRange(
+            "offset line must have non-zero finite length".to_string(),
+        ));
+    }
+
+    let side = if left { 1.0 } else { -1.0 };
+    let point = Point2D::new(
+        (start.easting + end.easting) / 2.0 - side * dn / length * offset_m,
+        (start.northing + end.northing) / 2.0 + side * de / length * offset_m,
+    );
+    validate_point(point)?;
+    Ok(point)
 }
 
 /// Bearing-bearing intersection.
@@ -74,8 +150,10 @@ pub fn bearing_bearing(
     p2: Point2D,
     bearing2_deg: f64,
 ) -> Result<Point2D, IntersectionError> {
-    let b1 = bearing1_deg.to_radians();
-    let b2 = bearing2_deg.to_radians();
+    validate_point(p1)?;
+    validate_point(p2)?;
+    let b1 = validate_bearing(bearing1_deg)?.to_radians();
+    let b2 = validate_bearing(bearing2_deg)?.to_radians();
 
     // Direction vectors (sin brg, cos brg) — note the surveyor convention
     // where bearing is clockwise from North (not the math convention of
@@ -95,8 +173,16 @@ pub fn bearing_bearing(
     //   [d1.y  -d2.y] [t2] = [P2.y - P1.y]
     let dp = (p2.easting - p1.easting, p2.northing - p1.northing);
     let t1 = (dp.0 * d2.1 - dp.1 * d2.0) / det;
+    let t2 = (dp.0 * d1.1 - dp.1 * d1.0) / det;
+    if !t1.is_finite() || !t2.is_finite() || t1 < 0.0 || t2 < 0.0 {
+        return Err(IntersectionError::OutOfRange(
+            "bearing rays do not meet ahead of both occupied points".to_string(),
+        ));
+    }
 
-    Ok(Point2D::new(p1.easting + t1 * d1.0, p1.northing + t1 * d1.1))
+    let point = Point2D::new(p1.easting + t1 * d1.0, p1.northing + t1 * d1.1);
+    validate_point(point)?;
+    Ok(point)
 }
 
 /// Bearing-distance intersection.
@@ -146,7 +232,10 @@ pub fn bearing_distance_two_solutions(
     p2: Point2D,
     distance_from_p2_m: f64,
 ) -> Result<(Point2D, Point2D), IntersectionError> {
-    let b1 = bearing1_deg.to_radians();
+    validate_point(p1)?;
+    validate_point(p2)?;
+    let b1 = validate_bearing(bearing1_deg)?.to_radians();
+    validate_distance(distance_from_p2_m, "intersection radius")?;
     let dir = (b1.sin(), b1.cos()); // unit direction along bearing from p1
 
     // Vector from p1 to p2.
@@ -164,13 +253,15 @@ pub fn bearing_distance_two_solutions(
     }
 
     let delta_sq = r_sq - perp_sq;
-    if delta_sq < 0.0 {
+    if !perp_sq.is_finite() || !r_sq.is_finite() || !delta_sq.is_finite() || delta_sq < 0.0 {
         return Err(IntersectionError::NoRealSolution);
     }
     let delta = delta_sq.sqrt();
 
     let sol1 = Point2D::new(p1.easting + (t_proj - delta) * dir.0, p1.northing + (t_proj - delta) * dir.1);
     let sol2 = Point2D::new(p1.easting + (t_proj + delta) * dir.0, p1.northing + (t_proj + delta) * dir.1);
+    validate_point(sol1)?;
+    validate_point(sol2)?;
 
     Ok((sol1, sol2))
 }
@@ -206,7 +297,16 @@ pub fn distance_distance_two_solutions(
     p2: Point2D,
     r2_m: f64,
 ) -> Result<(Point2D, Point2D), IntersectionError> {
+    validate_point(p1)?;
+    validate_point(p2)?;
+    validate_distance(r1_m, "first intersection radius")?;
+    validate_distance(r2_m, "second intersection radius")?;
     let d = p1.distance_to(&p2);
+    if !d.is_finite() {
+        return Err(IntersectionError::OutOfRange(
+            "distance between centers is not finite".to_string(),
+        ));
+    }
 
     if d > r1_m + r2_m + 1e-9 {
         return Err(IntersectionError::NoRealSolution); // circles too far apart
@@ -224,7 +324,7 @@ pub fn distance_distance_two_solutions(
     // Height of the intersection triangle (perpendicular distance from
     // the p1-p2 line to the intersection points).
     let h_sq = r1_m * r1_m - a * a;
-    if h_sq < 0.0 {
+    if !a.is_finite() || !h_sq.is_finite() || h_sq < 0.0 {
         return Err(IntersectionError::NoRealSolution);
     }
     let h = h_sq.sqrt();
@@ -241,6 +341,8 @@ pub fn distance_distance_two_solutions(
     // perpendicular to the p1-p2 line.
     let sol1 = Point2D::new(fx + h * uy, fy - h * ux);
     let sol2 = Point2D::new(fx - h * uy, fy + h * ux);
+    validate_point(sol1)?;
+    validate_point(sol2)?;
 
     Ok((sol1, sol2))
 }
@@ -269,6 +371,80 @@ mod tests {
         let p2 = Point2D::new(0.0, 100.0);
         let result = bearing_bearing(p1, 0.0, p2, 0.0);
         assert!(matches!(result, Err(IntersectionError::ParallelBearings)));
+    }
+
+    #[test]
+    fn test_bearing_bearing_rejects_intersection_behind_a_station() {
+        let result = bearing_bearing(
+            Point2D::new(0.0, 0.0),
+            0.0,
+            Point2D::new(10.0, 10.0),
+            90.0,
+        );
+        assert!(matches!(result, Err(IntersectionError::OutOfRange(_))));
+    }
+
+    #[test]
+    fn test_radiation_known_cardinal_and_diagonal_answers() {
+        let north = radiation(Point2D::new(100.0, 200.0), 0.0, 25.0).unwrap();
+        assert!((north.easting - 100.0).abs() < 1e-12);
+        assert!((north.northing - 225.0).abs() < 1e-12);
+
+        let east = radiation(Point2D::new(100.0, 200.0), 90.0, 25.0).unwrap();
+        assert!((east.easting - 125.0).abs() < 1e-12);
+        assert!((east.northing - 200.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_radiation_rejects_invalid_bearing_and_negative_distance() {
+        assert!(matches!(
+            radiation(Point2D::new(0.0, 0.0), -1.0, 10.0),
+            Err(IntersectionError::OutOfRange(_))
+        ));
+        assert!(matches!(
+            radiation(Point2D::new(0.0, 0.0), 0.0, -1.0),
+            Err(IntersectionError::OutOfRange(_))
+        ));
+    }
+
+    #[test]
+    fn test_intersections_reject_non_finite_derived_geometry() {
+        let distance_result = distance_distance(
+            Point2D::new(0.0, 0.0),
+            1.0e308,
+            Point2D::new(1.0, 0.0),
+            1.0e308,
+        );
+        assert!(distance_result.is_err());
+
+        let bearing_distance_result = bearing_distance(
+            Point2D::new(0.0, 0.0),
+            90.0,
+            Point2D::new(1.0e200, 1.0e200),
+            1.0e200,
+        );
+        assert!(bearing_distance_result.is_err());
+    }
+
+    #[test]
+    fn test_midpoint_offset_uses_left_and_right_of_direction() {
+        let start = Point2D::new(0.0, 0.0);
+        let end = Point2D::new(0.0, 100.0);
+        let left = midpoint_offset(start, end, 10.0, true).unwrap();
+        let right = midpoint_offset(start, end, 10.0, false).unwrap();
+        assert!((left.easting + 10.0).abs() < 1e-12);
+        assert!((left.northing - 50.0).abs() < 1e-12);
+        assert!((right.easting - 10.0).abs() < 1e-12);
+        assert!((right.northing - 50.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_midpoint_offset_rejects_zero_length_lines() {
+        let point = Point2D::new(1.0, 2.0);
+        assert!(matches!(
+            midpoint_offset(point, point, 1.0, true),
+            Err(IntersectionError::OutOfRange(_))
+        ));
     }
 
     /// Bearing-distance: from origin at 90° (East), distance 100 from
