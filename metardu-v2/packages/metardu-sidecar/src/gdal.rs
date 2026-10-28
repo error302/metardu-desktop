@@ -90,7 +90,7 @@ pub fn generate_contours(params: ContourParams) -> Result<ContourResult> {
         ));
     }
 
-    #[cfg(feature = "gdal-bindings")]
+    #[cfg(all(feature = "gdal-bindings", not(feature = "shell-out")))]
     {
         return generate_contours_native(params);
     }
