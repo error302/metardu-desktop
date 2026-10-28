@@ -3331,3 +3331,28 @@ $ npx tsc --noEmit -p tsconfig.renderer-check.json
 No diagnostics; exit code 0.
 ~~~
 
+---
+Task ID: desktop-community-extension-architecture
+Agent: Codex 2026-10-29
+Task: Record a safe, community-supported extension direction for the international Desktop product
+
+Work Log:
+- Audited the Electron sandbox, typed preload bridge, Rust sidecar authority, offline invariants, existing international product plan, and ADR-0005's GIS/plugin scope decision. The controlling `upload/METARDU-DESKTOP-MASTER-PLAN.md` is absent from this checkout; this documentation change does not invent or rewrite it.
+- Added ADR-0007 to supersede only ADR-0005's blanket rejection of an in-app plugin ecosystem. It defines a versioned WebAssembly/WIT interface direction, no ambient capabilities, project-scoped inputs, derived outputs with provenance, offline package pinning, distinct publisher/security/method trust states, and staged implementation gates.
+- Updated the international product plan to include the extension ecosystem while keeping QGIS/CAD integration, statutory evidence requirements, and current implementation status explicit.
+- Added a scoped task brief. No runtime, package manager, catalog, SDK, or plugin UI was implemented in this documentation task.
+- Changed files: `metardu-v2/docs/decisions/0007-community-extension-ecosystem.md`, `metardu-v2/docs/agent-briefs/desktop-community-extension-architecture.md`, `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`, and this entry.
+
+Verification:
+~~~text
+$ git diff --cached --check -- metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md metardu-v2/docs/agent-briefs/desktop-community-extension-architecture.md metardu-v2/docs/decisions/0007-community-extension-ecosystem.md
+Exit code: 0; no whitespace diagnostics.
+
+$ git diff --cached --stat -- metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md metardu-v2/docs/agent-briefs/desktop-community-extension-architecture.md metardu-v2/docs/decisions/0007-community-extension-ecosystem.md
+3 files changed, 158 insertions(+)
+~~~
+
+Stage Summary:
+- The accepted architecture direction gives the community a path to extend survey workflows without loading arbitrary scripts into Electron or letting an extension promote its own results to verified survey outputs.
+- Next gate: prototype and threat-model the component host and prove resource limits, cancellation, package validation, reproducibility, and Windows/macOS/Linux packaging before enabling third-party code execution.
+

@@ -24,6 +24,16 @@ The market promise is **one surveyor’s workspace, many verified jurisdictions*
 
 Global availability means the core understands declared coordinate systems and evidence. It does not mean that every country pack ships with the app or that a global geoid replaces a national vertical datum.
 
+## Community extension ecosystem
+
+METARDU Desktop should support a QGIS-like community ecosystem for survey work: instrument and file adapters, specialist analysis tools, project templates, local code sets, reference-data packs, report add-ons, and visualization overlays. Extensions broaden the workflows that a surveyor can complete inside the standalone desktop workspace while the core remains survey-compute-first and interoperates with GIS and CAD tools.
+
+The extension API must be versioned, capability-scoped, and project-aware. Community code must not run with direct Electron, filesystem, network, or database privileges. It must consume explicitly selected project data and return derived artifacts with the plugin identity, exact version and digest, declared method, coordinate context, inputs, warnings, and output provenance recorded. Community output remains visibly unreviewed or draft until METARDU's own review evidence qualifies the specific method and use.
+
+Packages and their dependencies must be installable and pinned for offline work. Catalog browsing and updates may use the network, but survey computation must not depend on the catalog. Country and legal packs require source provenance and jurisdiction-specific review; installing a community pack alone does not make it an official or accepted survey convention.
+
+The architecture decision and rollout gates are recorded in `docs/decisions/0007-community-extension-ecosystem.md`. The runtime, developer SDK, installer, and catalog are future implementation work; this product plan does not claim they exist today.
+
 ## Shared METARDU account and subscription
 
 Every active paid METARDU Web plan (Pro, Team, Firm, or Enterprise) includes Desktop access for the same entitled account. No separate Desktop subscription, add-on, or checkout is required. Team and firm Desktop access follows the same Web account and seat assignments. The Web server remains the source of truth for account identity, subscription status, and seat eligibility. Desktop must not infer payment from a plan name, user-entered tier, cached local preference, or a successful Web sign-in alone.
