@@ -3110,3 +3110,134 @@ Stage Summary:
 - Neutral projects can persist a selected global WGS 84 / UTM CRS and invoke the existing Rust inverse projection for map display. Existing coordinates are never silently transformed when metadata changes.
 - This is an international foundation, not an all-country survey-grade release: most workflows/exports still require implemented country profiles, and arbitrary CRS catalogs, regional datum/epoch operations, geoid grids, instrument validation, and country-specific legal acceptance remain future work.
 
+---
+Task ID: global-topographic-draft-integrity
+Agent: Codex 2026-10-29
+Task: Make topographic drafts project-referenced, neutral-jurisdiction capable, and explicit about unverified survey evidence
+
+Work Log:
+- Removed the seeded Kenya survey, default jurisdiction, fabricated surveyor identity, and zero-filling CSV parser from the topographic UI.
+- Bound the workflow to the active project's catalogued CRS. Required the user to confirm metre input and declare the shared vertical reference; preserved both with the output as unverified context.
+- Added strict headerless CSV parsing, finite/complete coordinate validation, unique point-ID checks, positive contour/spot spacing validation, and a safe contour-level cap.
+- Made country profile tolerance optional and changed the uncomputed residual from `0` to `null`. The UI now says when the tolerance or residual is not established.
+- Added a draft-only persistence path that updates the active survey/project state without triggering statutory auto-export. Added the reference context and draft status to the cross-view surface event and GeoJSON/GeoPackage metadata.
+- Replaced silent empty-TIN results for large inputs with a visible 100-point cap. The brute-force triangulator is not robust or scalable and is explicitly disclosed as a draft limitation.
+- Added `metardu-v2/docs/agent-briefs/global-topographic-draft-integrity.md`.
+
+Verification:
+~~~text
+$ npm run build --workspace @metardu/engine-flight-planning
+> @metardu/engine-flight-planning@0.1.0 build
+> tsc -p tsconfig.json
+Exit code: 0
+~~~
+
+~~~text
+$ npx tsc --noEmit -p packages/engine/tsconfig.json
+No diagnostics; exit code 0.
+
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No diagnostics; exit code 0.
+
+$ npm run build --workspace @metardu/desktop
+> @metardu/desktop@0.2.0 build
+> tsc -p tsconfig.json
+Exit code: 0
+~~~
+
+~~~text
+$ npm test --workspace @metardu/engine-flight-planning
+Test Files  45 passed (45)
+Tests  866 passed (866)
+Exit code: 0
+~~~
+
+~~~text
+$ npx vitest run src/workflows/tests/all-workflows.test.ts src/integration/tests/geojson-export-topo-eng.test.ts src/integration/tests/detect-survey-type-extended.test.ts
+Test Files  3 passed (3)
+Tests  59 passed (59)
+Exit code: 0
+~~~
+
+~~~text
+$ npm test --workspace @metardu/desktop
+Test Files  22 passed | 1 skipped (23)
+Tests  253 passed | 7 skipped (260)
+Exit code: 0
+~~~
+
+~~~text
+$ git diff --check
+Exit code: 0; no whitespace diagnostics. Git reported only its configured LF-to-CRLF conversion notices for three edited renderer files.
+~~~
+
+Rust verification limits:
+~~~text
+$ cargo build --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+thread 'main' panicked at ... gdal-sys-0.10.0/build.rs:204:9:
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code: 101
+
+$ cargo test --release
+thread 'main' panicked at ... gdal-sys-0.10.0/build.rs:204:9:
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code: 101
+
+$ cargo test --no-default-features --features instrument
+test result: FAILED. 155 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out
+The three existing failures are `gdal::tests::test_generate_contours_rejects_nonpositive_interval`, `odm::tests::test_process_photos_rejects_empty_photos_directory`, and `odm::tests::test_process_photos_rejects_unknown_mode` (the latter attempts to create `/tmp/output`). No Rust source was changed in this task.
+~~~
+
+Stage Summary:
+- Unsupported jurisdictions can now produce a project-referenced, local topographic draft without receiving Kenya data, an invented tolerance/residual, or automatic statutory output.
+- This is not survey-grade terrain readiness: the current TIN uses a bounded brute-force algorithm capped at 100 points, does not validate co-circular/near-collinear geometry robustly, and no neutral-country export path is available in ExportPanel yet. These are blockers for a global field-to-delivery promise.
+- The standard Rust build remains blocked on missing Windows GDAL libraries; no-GDAL Rust tests have three existing failures. The renderer and engine checks above pass, but the missing GDAL build and test failures remain release blockers.
+
+---
+Task ID: gcp-export-primary-crs-label
+Agent: Codex 2026-10-29
+Task: Match a GCP export's CRS display label to its actual configured primary EPSG code
+
+Work Log:
+- Changed GCP CRS label selection from the first country projection zone to the zone whose SRID equals the configured primary SRID.
+- Added `metardu-v2/docs/agent-briefs/gcp-export-primary-crs-label.md`.
+- The GCP regression cases passed in the full engine suite below; an EPSG:21037 record now uses its matching configured display name rather than the first zone in the array.
+
+Verification:
+~~~text
+$ npm test --workspace @metardu/engine-flight-planning
+Test Files  45 passed (45)
+Tests  866 passed (866)
+Exit Code: 0
+~~~
+
+Stage Summary:
+- The GCP file now reports a display zone consistent with the EPSG code carried in its CRS URN.
+- This fix does not perform a coordinate transformation or establish the CRS area of use.
+
+Final verification addendum after preserving an unsupported project's jurisdiction code:
+~~~text
+$ npx vitest run src/workflows/tests/all-workflows.test.ts src/integration/tests/gcp-export.test.ts src/integration/tests/geojson-export-topo-eng.test.ts src/integration/tests/detect-survey-type-extended.test.ts
+Test Files  4 passed (4)
+Tests  83 passed (83)
+Exit code: 0
+
+$ npm test --workspace @metardu/desktop
+Test Files  22 passed | 1 skipped (23)
+Tests  253 passed | 7 skipped (260)
+Exit code: 0
+
+$ npm run build --workspace @metardu/engine-flight-planning
+Exit code: 0
+
+$ npm run build --workspace @metardu/desktop
+Exit code: 0
+
+$ npx tsc --noEmit -p packages/engine/tsconfig.json
+No diagnostics; exit code 0.
+
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No diagnostics; exit code 0.
+~~~
+

@@ -2,13 +2,14 @@
  * Topographic workflow — field data → TIN → contours → plan.
  *
  * Master plan Section 6.1. Consumes raw field data (point cloud or
- * total station points), generates a TIN, extracts contours at the
- * country-specified interval, and outputs a topographic plan.
+ * total station points), generates a bounded draft TIN, and extracts
+ * contours at the explicitly supplied interval. This module does not
+ * adjust observations or establish a statutory topographic plan.
  *
  * # Pipeline
  *
  *   1. Import field points (CSV, GSI, SDR, JOB, RINEX)
- *   2. Generate TIN via Delaunay triangulation (Delaunator)
+ *   2. Generate a bounded draft TIN (current brute-force implementation)
  *   3. Compute slope + aspect (optional, for the plan)
  *   4. Generate contours at the country-specified interval (sidecar
  *      gdal_contour, or the engine's own marching-squares fallback)
@@ -37,6 +38,10 @@
 
 import type { CountrySurveyConfig } from "@metardu/country-config";
 import type { PointUncertainty } from "../survey-types.js";
+import { validateNonEmptyString, validateNonNaN, validatePoints, validatePositive } from "./validation.js";
+
+/** Current safe cap for the brute-force TypeScript triangulator. */
+export const MAX_TOPOGRAPHIC_TIN_POINTS = 100;
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -76,6 +81,15 @@ export interface SpotHeight {
   elevation: number;
 }
 
+/** User-declared project context; this workflow does not independently verify it. */
+export interface TopographicCoordinateContext {
+  horizontalCrsEpsg: number;
+  horizontalCrsLabel: string;
+  horizontalUnits: "m";
+  verticalReference: string;
+  referenceStatus: "user-declared-unverified";
+}
+
 /** Input to the topographic workflow. */
 export interface TopoWorkflowInput {
   /** Field points to triangulate. */
@@ -88,12 +102,14 @@ export interface TopoWorkflowInput {
   maxElevation?: number;
   /** Spot height density (every Nth point). Default 10. */
   spotHeightEvery?: number;
-  /** Active country config (for tolerances + SRID). */
-  country: CountrySurveyConfig;
+  /** Optional active country config for a jurisdictional tolerance profile. */
+  country?: CountrySurveyConfig;
+  /** Project reference metadata supplied by the caller and retained with the draft. */
+  coordinateContext?: TopographicCoordinateContext;
   /** Parcel metadata for the plan title block. */
-  planTitle: string;
+  planTitle?: string;
   /** Surveyor info. */
-  surveyor: {
+  surveyor?: {
     name: string;
     regNo: string;
     dateOfSurvey: string;
@@ -117,9 +133,13 @@ export interface TopoWorkflowOutput {
   /** Number of triangles in the TIN. */
   triangleCount: number;
   /** QC: topographic horizontal tolerance from the country config. */
-  topographicToleranceM: number;
-  /** QC: max point-to-TIN residual (should be 0 since the TIN passes through all points). */
-  maxResidualM: number;
+  topographicToleranceM: number | null;
+  /** No residual check is currently run; null means not computed. */
+  maxResidualM: number | null;
+  /** Raw field points are interpolated without least-squares adjustment. */
+  evidenceStatus: "computed-draft-unadjusted";
+  /** Declared project context; the workflow does not validate CRS or vertical datum. */
+  coordinateContext?: TopographicCoordinateContext;
   /**
    * Per-point uncertainty, keyed by point ID. Per master plan Section
    * 5.3 invariant C1: every survey point must carry its propagated
@@ -141,11 +161,10 @@ export interface TopoWorkflowOutput {
 // ─── TIN generation (Delaunay triangulation) ─────────────────────
 
 /**
- * Build a TIN from a set of 3D points using a simple Delaunay
- * triangulation. This is a naive O(n²) implementation suitable for
- * small point sets (< 1000 points). For production work, swap in
- * Delaunator (https://github.com/mapbox/delaunator) — it's O(n log n)
- * and battle-tested.
+ * Build a TIN from a set of 3D points using a brute-force empty-circle
+ * test (O(n^4)). It is capped at MAX_TOPOGRAPHIC_TIN_POINTS and is not
+ * a robust-predicate triangulator. The result must remain a draft until
+ * a robust scalable sidecar implementation replaces this routine.
  *
  * The algorithm: for each triple of points, check if their circumcircle
  * is empty (no other point inside). If yes, it's a Delaunay triangle.
@@ -170,17 +189,12 @@ function buildTIN(points: TopoPoint[]): TIN {
     return { vertices: unique, triangles: [] };
   }
 
-  // For small datasets (< 200 points) we can afford O(n⁴) Delaunay.
-  // For larger datasets, the caller should pre-process to a smaller
-  // subset (e.g. grid decimation) before calling this function.
+  // This O(n^4) routine is deliberately capped for small draft datasets;
+  // large surfaces require a robust, scalable implementation.
   const triangles: [number, number, number][] = [];
   const n = unique.length;
-  const maxPoints = 500;
-  if (n > maxPoints) {
-    // Too many points — return an empty TIN and let the caller handle
-    // the decimation. (Phase 11 will integrate Delaunator for true
-    // O(n log n) Delaunay.)
-    return { vertices: unique, triangles: [] };
+  if (n > MAX_TOPOGRAPHIC_TIN_POINTS) {
+    throw new Error(`Topographic TIN currently supports at most ${MAX_TOPOGRAPHIC_TIN_POINTS} points; received ${n}. Large-surface triangulation is not available yet.`);
   }
 
   for (let i = 0; i < n - 2; i++) {
@@ -258,10 +272,15 @@ function generateContours(tin: TIN, interval: number, minE: number, maxE: number
   // Round min/max to the nearest interval multiple.
   const startE = Math.ceil(minE / interval) * interval;
   const endE = Math.floor(maxE / interval) * interval;
+  const levelCount = Math.max(0, Math.floor((endE - startE) / interval) + 1);
+  if (!Number.isFinite(levelCount) || levelCount > 10_000) {
+    throw new Error(`Contour interval would generate ${levelCount} levels; maximum supported is 10,000.`);
+  }
 
   const contours: Contour[] = [];
 
-  for (let elev = startE; elev <= endE + 1e-9; elev += interval) {
+  for (let levelIndex = 0; levelIndex < levelCount; levelIndex++) {
+    const elev = startE + levelIndex * interval;
     const segments: [number, number][][] = [];
 
     for (const tri of tin.triangles) {
@@ -367,23 +386,48 @@ function computeMeanSlope(tin: TIN): number {
  */
 export function runTopographicWorkflow(input: TopoWorkflowInput): TopoWorkflowOutput {
   if (input.points.length < 3) {
-    throw new Error(
-      `Topographic workflow requires at least 3 points; got ${input.points.length}.`,
-    );
+    throw new Error(`Topographic workflow requires at least 3 points; got ${input.points.length}.`);
   }
-  if (input.contourInterval <= 0) {
-    throw new Error(
-      `Contour interval must be positive; got ${input.contourInterval}.`,
-    );
+  validatePoints(input.points, "Topographic workflow", { checkCollinear: true });
+  validatePositive(input.contourInterval, "Topographic workflow.contourInterval");
+  if (input.points.length > MAX_TOPOGRAPHIC_TIN_POINTS) {
+    throw new Error(`Topographic TIN currently supports at most ${MAX_TOPOGRAPHIC_TIN_POINTS} points; received ${input.points.length}. Large-surface triangulation is not available yet.`);
+  }
+  const pointIds = new Set<string>();
+  for (const [index, point] of input.points.entries()) {
+    validateNonEmptyString(point.id, `Topographic workflow.points[${index}].id`);
+    if (pointIds.has(point.id)) {
+      throw new Error(`Topographic workflow has duplicate point ID '${point.id}'. Point IDs must be unique.`);
+    }
+    pointIds.add(point.id);
+  }
+  if (input.spotHeightEvery !== undefined && (!Number.isInteger(input.spotHeightEvery) || input.spotHeightEvery <= 0)) {
+    throw new Error(`Topographic workflow.spotHeightEvery must be a positive integer; got ${input.spotHeightEvery}.`);
+  }
+  if (input.coordinateContext) {
+    if (!Number.isInteger(input.coordinateContext.horizontalCrsEpsg) || input.coordinateContext.horizontalCrsEpsg <= 0) {
+      throw new Error("Topographic workflow.coordinateContext.horizontalCrsEpsg must be a positive integer.");
+    }
+    validateNonEmptyString(input.coordinateContext.horizontalCrsLabel, "Topographic workflow.coordinateContext.horizontalCrsLabel");
+    validateNonEmptyString(input.coordinateContext.verticalReference, "Topographic workflow.coordinateContext.verticalReference");
+    if (input.coordinateContext.horizontalUnits !== "m" || input.coordinateContext.referenceStatus !== "user-declared-unverified") {
+      throw new Error("Topographic workflow coordinate context must explicitly declare metre units and an unverified vertical reference.");
+    }
   }
 
   // Build the TIN.
   const tin = buildTIN(input.points);
+  if (tin.triangles.length === 0) {
+    throw new Error("Topographic TIN could not be constructed from the supplied points.");
+  }
 
   // Compute min/max elevation.
   const elevations = input.points.map((p) => p.elevation);
   const minE = input.minElevation ?? Math.min(...elevations);
   const maxE = input.maxElevation ?? Math.max(...elevations);
+  validateNonNaN(minE, "Topographic workflow.minElevation");
+  validateNonNaN(maxE, "Topographic workflow.maxElevation");
+  if (minE > maxE) throw new Error(`Topographic workflow.minElevation (${minE}) must not exceed maxElevation (${maxE}).`);
 
   // Generate contours.
   const contours = generateContours(tin, input.contourInterval, minE, maxE);
@@ -396,13 +440,14 @@ export function runTopographicWorkflow(input: TopoWorkflowInput): TopoWorkflowOu
 
   // QC: get the topographic horizontal tolerance from the country config.
   // (If no specific topo tolerance, fall back to engineering standard.)
-  const topoRule = input.country.toleranceTable.find(
+  const topoRule = input.country?.toleranceTable.find(
     (r) => r.surveyType === "Topographic" && r.toleranceType === "horizontal_position",
   );
-  const topographicToleranceM = topoRule ? topoRule.compute({}) : 0.100;
+  const topographicToleranceM = topoRule ? topoRule.compute({}) : null;
 
-  // Max residual = 0 (TIN passes through all input points by construction).
-  const maxResidualM = 0;
+  // A TIN interpolates input vertices by construction; that is not an
+  // independent residual or accuracy check, so the metric remains unknown.
+  const maxResidualM = null;
 
   // Per-point uncertainty: the current topographic workflow does NOT run
   // an LS adjustment — it triangulates raw field points directly. So every
@@ -425,6 +470,8 @@ export function runTopographicWorkflow(input: TopoWorkflowInput): TopoWorkflowOu
     triangleCount: tin.triangles.length,
     topographicToleranceM,
     maxResidualM,
+    evidenceStatus: "computed-draft-unadjusted",
+    ...(input.coordinateContext ? { coordinateContext: input.coordinateContext } : {}),
     pointUncertainty,
   };
 }

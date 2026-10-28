@@ -286,6 +286,8 @@ export {
   type SpotHeight,
   type TopoWorkflowInput,
   type TopoWorkflowOutput,
+  type TopographicCoordinateContext,
+  MAX_TOPOGRAPHIC_TIN_POINTS,
   // Engineering (Phase 9B)
   runEngineeringWorkflow,
   type DesignSurface,

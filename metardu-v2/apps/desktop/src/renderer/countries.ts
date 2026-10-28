@@ -52,6 +52,18 @@ export const COUNTRY_OPTIONS: CountryOption[] = implementedCountries().map((code
   config: getCountryConfig(code),
 }));
 
+/** Whether the bundled catalog has a declared definition for this project CRS. */
+export function isProjectCrsKnown(crsSrid?: number, countryCode?: string): boolean {
+  if (crsSrid === undefined || !Number.isInteger(crsSrid)) return false;
+  if (getWgs84UtmProjectionZone(crsSrid)) return true;
+  const matchingCountry = countryCode ? COUNTRY_OPTIONS.find((option) => option.code === countryCode) : undefined;
+  const candidates = matchingCountry ? [matchingCountry] : COUNTRY_OPTIONS;
+  return candidates.some(({ config }) =>
+    config.geodeticFramework.primarySRID === crsSrid ||
+    config.geodeticFramework.projectionZones.some((zone) => zone.srid === crsSrid),
+  );
+}
+
 /** Convenience: code → config lookup for the views. */
 export function getCountryOption(code: string): CountryOption {
   const option = COUNTRY_OPTIONS.find((o) => o.code === code);

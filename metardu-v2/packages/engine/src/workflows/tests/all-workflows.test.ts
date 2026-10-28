@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { KENYA, AUSTRALIA, UNITED_KINGDOM } from "@metardu/country-config";
+import { KENYA, AUSTRALIA, UNITED_KINGDOM, listWgs84UtmProjectionZones } from "@metardu/country-config";
 import {
   runTopographicWorkflow,
   runEngineeringWorkflow,
@@ -121,7 +121,7 @@ describe("Topographic workflow", () => {
     })).toThrow(/positive/i);
   });
 
-  it("maxResidualM is 0 (TIN passes through all points by construction)", () => {
+  it("does not report an interpolating TIN as a zero-residual adjustment", () => {
     const result = runTopographicWorkflow({
       points,
       contourInterval: 5,
@@ -129,7 +129,51 @@ describe("Topographic workflow", () => {
       planTitle: "Test",
       surveyor: { name: "Test", regNo: "LS/1234", dateOfSurvey: "2026-07-19" },
     });
-    expect(result.maxResidualM).toBe(0);
+    expect(result.maxResidualM).toBeNull();
+    expect(result.evidenceStatus).toBe("computed-draft-unadjusted");
+  });
+
+  it("supports a neutral jurisdiction without inventing a tolerance", () => {
+    const { topographicToleranceM, evidenceStatus } = runTopographicWorkflow({
+      points,
+      contourInterval: 5,
+      planTitle: "Neutral draft",
+    });
+    expect(topographicToleranceM).toBeNull();
+    expect(evidenceStatus).toBe("computed-draft-unadjusted");
+  });
+
+  it("rejects malformed coordinates and duplicate point identifiers", () => {
+    const malformed = points.map((point) => ({ ...point }));
+    malformed[0]!.easting = Number.NaN;
+    expect(() => runTopographicWorkflow({ points: malformed, contourInterval: 5 })).toThrow(/NaN/i);
+
+    const duplicateIds = points.map((point) => ({ ...point }));
+    duplicateIds[1]!.id = duplicateIds[0]!.id;
+    expect(() => runTopographicWorkflow({ points: duplicateIds, contourInterval: 5 })).toThrow(/duplicate point ID/i);
+  });
+
+  it("blocks datasets beyond the current TIN limit instead of returning an empty surface", () => {
+    const largeGrid: TopoPoint[] = [];
+    for (let x = 0; x < 23; x++) {
+      for (let y = 0; y < 23; y++) {
+        largeGrid.push({ id: `L${x}_${y}`, easting: x, northing: y, elevation: x + y });
+      }
+    }
+    expect(() => runTopographicWorkflow({ points: largeGrid, contourInterval: 1 })).toThrow(/at most 100 points/i);
+  });
+
+  it("retains the project CRS and unverified vertical reference on the draft", () => {
+    const projectCrs = listWgs84UtmProjectionZones()[0]!;
+    const coordinateContext = {
+      horizontalCrsEpsg: projectCrs.srid,
+      horizontalCrsLabel: projectCrs.name,
+      horizontalUnits: "m" as const,
+      verticalReference: "Local benchmark datum",
+      referenceStatus: "user-declared-unverified" as const,
+    };
+    const result = runTopographicWorkflow({ points, contourInterval: 5, coordinateContext });
+    expect(result.coordinateContext).toEqual(coordinateContext);
   });
 });
 

@@ -26,7 +26,8 @@
         "contourCount": 64,
         "spotHeightCount": 3,
         "topographicToleranceM": 0.1,
-        "maxResidualM": 0
+        "maxResidualM": null,
+        "evidenceStatus": "computed-draft-unadjusted"
       }
     }
   },

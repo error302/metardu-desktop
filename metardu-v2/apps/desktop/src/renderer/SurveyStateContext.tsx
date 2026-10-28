@@ -132,6 +132,8 @@ interface SurveyStateContextValue {
   state: SurveyState | null;
   /** Set the current survey output. Called by workflow views. */
   setSurveyOutput: (output: unknown, surveyType: string, sourceView: string, countryCode: string) => void;
+  /** Set and persist a computed draft without invoking statutory auto-export. */
+  setSurveyDraftOutput: (output: unknown, surveyType: string, sourceView: string, countryCode: string) => Promise<void>;
   /** Persist an explicitly unverified draft without setting export state or triggering statutory auto-export. */
   saveDraftToProject: (output: unknown, surveyType: string, sourceView: string, countryCode: string) => Promise<void>;
   /** Clear the current survey state. */
@@ -279,6 +281,20 @@ export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ childre
     [storeSave],
   );
 
+  const setSurveyDraftOutput = useCallback(
+    async (output: unknown, surveyType: string, sourceView: string, countryCode: string) => {
+      await storeSave(output, surveyType, sourceView, countryCode);
+      setState({
+        output,
+        surveyType,
+        sourceView,
+        timestamp: new Date().toISOString(),
+        countryCode,
+      });
+    },
+    [storeSave],
+  );
+
   const triggerAutoExportRef = React.useRef<(o: unknown, t: string, s: string, c: string) => void>(() => {});
   triggerAutoExportRef.current = triggerAutoExport;
 
@@ -310,6 +326,7 @@ export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ childre
       value={{
         state,
         setSurveyOutput,
+        setSurveyDraftOutput,
         saveDraftToProject,
         clear,
         crossImport,

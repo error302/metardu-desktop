@@ -69,6 +69,14 @@ export interface CrossImportEvents {
   /** TopographicView pushes a surface model / TIN for LULC or contour. */
   "topo:surface": {
     points: Array<{ easting: number; northing: number; elevation: number }>;
+    coordinateContext?: {
+      horizontalCrsEpsg: number;
+      horizontalCrsLabel: string;
+      horizontalUnits: "m";
+      verticalReference: string;
+      referenceStatus: "user-declared-unverified";
+    };
+    evidenceStatus?: "computed-draft-unadjusted";
     breaklines?: Array<{ from: string; to: string }>;
   };
 
