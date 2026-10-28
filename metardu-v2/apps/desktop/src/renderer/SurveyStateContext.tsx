@@ -158,7 +158,7 @@ interface SurveyStateContextValue {
   /** Create a new empty project and make it active. Resolves when the IPC write lands. */
   createProject: (input: Omit<CreateProjectInput, "sourceView" | "output">) => Promise<void>;
   /** Update a project's editable fields (name, description, countryCode, surveyType, planSheet). Resolves when the IPC write lands. */
-  updateProject: (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "surveyType" | "planSheet">>) => Promise<void>;
+  updateProject: (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "crsSrid" | "surveyType" | "planSheet">>) => Promise<void>;
   /** Delete a project (the active project moves to the most recent). Resolves when the IPC write lands. */
   deleteProject: (id: string) => Promise<void>;
 }
@@ -297,7 +297,7 @@ export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ childre
     await storeCreate(input);
   }, [storeCreate]);
 
-  const updateProject = useCallback(async (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "surveyType" | "planSheet">>) => {
+  const updateProject = useCallback(async (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "crsSrid" | "surveyType" | "planSheet">>) => {
     await storeUpdate(id, input);
   }, [storeUpdate]);
 

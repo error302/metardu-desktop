@@ -85,7 +85,7 @@ import { UNITED_ARAB_EMIRATES } from "./countries/united-arab-emirates.js";
 import { GERMANY } from "./countries/germany.js";
 import { UNITED_STATES } from "./countries/united-states.js";
 import { GHANA } from "./countries/ghana.js";
-import type { CountryCode, CountrySurveyConfig } from "./types.js";
+import type { CountryCode, CountrySurveyConfig, ProjectionZone } from "./types.js";
 
 /**
  * Map of all country configs by ISO code.
@@ -126,6 +126,51 @@ export function implementedCountries(): CountryCode[] {
   return (Object.keys(COUNTRY_REGISTRY) as CountryCode[]).filter(
     (c) => COUNTRY_REGISTRY[c] !== undefined,
   );
+}
+
+/**
+ * Return the EPSG-defined WGS 84 / UTM projected CRS for a code in the
+ * global north/south UTM series. The EPSG authority codes are 32601–32660
+ * for northern zones and 32701–32760 for southern zones. This is a CRS
+ * definition only: it does not establish that a point is inside the CRS
+ * area of use or provide a regional datum/epoch transformation.
+ *
+ * The zone series is listed in the DGIWG GeoPackage Profile 1.1 crosswalk
+ * to the EPSG registry (2025-05, Annex C):
+ * https://portal.dgiwg.org/files/?artifact_id=73489
+ */
+export function getWgs84UtmProjectionZone(srid: number): ProjectionZone | null {
+  if (!Number.isInteger(srid)) return null;
+
+  const isNorthern = srid >= 32601 && srid <= 32660;
+  const isSouthern = srid >= 32701 && srid <= 32760;
+  if (!isNorthern && !isSouthern) return null;
+
+  const zone = srid % 100;
+  const hemisphere = isNorthern ? "N" : "S";
+  return {
+    srid,
+    name: `WGS 84 / UTM zone ${zone}${hemisphere}`,
+    method: "Transverse Mercator",
+    central_meridian_deg: zone * 6 - 183,
+    latitude_of_origin_deg: 0,
+    false_easting_m: 500_000,
+    false_northing_m: isNorthern ? 0 : 10_000_000,
+    scale_factor: 0.9996,
+    ellipsoid: "WGS84",
+  };
+}
+
+/** Enumerate the 120 EPSG WGS 84 / UTM CRSs for explicit project selection. */
+export function listWgs84UtmProjectionZones(): ProjectionZone[] {
+  const zones: ProjectionZone[] = [];
+  for (let zone = 1; zone <= 60; zone += 1) {
+    zones.push(getWgs84UtmProjectionZone(32_600 + zone)!);
+  }
+  for (let zone = 1; zone <= 60; zone += 1) {
+    zones.push(getWgs84UtmProjectionZone(32_700 + zone)!);
+  }
+  return zones;
 }
 
 /**

@@ -3057,3 +3057,56 @@ Stage Summary:
 - COGO is now a sidecar-backed local-planar drafting tool with explicit unverified evidence, and its standalone IPC smoke passes through a live sidecar process.
 - Production GDAL-enabled sidecar build/test and rendered Electron UI smoke remain unverified in this environment. This closes a concrete COGO integrity defect and does not establish international release readiness or full survey-grade capability.
 
+---
+Task ID: global-project-crs-and-durable-local-store
+Agent: Codex 2026-10-29
+Task: Persist explicit project CRS independently of jurisdiction and enable a global WGS 84 / UTM project foundation
+
+Work Log:
+- Replaced the live in-memory project database mock with Better SQLite at Electron `userData/metardu.db`; configures the path before project IPC initialization and retains WAL/foreign-key behavior.
+- Added SQLite schema v2 with nullable `crsSrid`, an idempotent v1 migration, project CRUD/JSON-import mapping, undo/redo preservation, and real close/reopen persistence coverage.
+- Added the EPSG WGS 84 / UTM series 32601–32660 and 32701–32760 as an explicit global CRS catalog, independent of jurisdiction. The source reference is the DGIWG GeoPackage Profile 1.1 EPSG registry crosswalk; this does not validate area-of-use or provide datum/epoch operations.
+- Routed the project CRS through map reprojection. Country profile datum checks remain fail-closed; an unknown country may use only an explicitly selected supported global WGS 84 / UTM CRS.
+- Added a project CRS selector and metadata-only warning. Added an export guard so current jurisdiction-based exporters refuse when an explicit project CRS conflicts with the jurisdiction primary CRS.
+- Added `metardu-v2/docs/agent-briefs/global-project-crs-and-durable-local-store.md`. The AGENT.md-referenced `upload/METARDU-DESKTOP-MASTER-PLAN.md` is absent in this checkout.
+- Preserved the pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked assets/artifacts; none are included in this task commit.
+
+Verification:
+~~~text
+$ npm run build --workspace @metardu/country-config
+> @metardu/country-config@0.1.0 build
+> tsc -p tsconfig.json
+Exit code: 0
+
+$ npm run build --workspace @metardu/desktop
+> @metardu/desktop@0.2.0 build
+> tsc -p tsconfig.json
+Exit code: 0
+~~~
+
+~~~text
+$ npm run test --workspace @metardu/desktop
+Test Files  21 passed | 1 skipped (22)
+Tests  245 passed | 7 skipped (252)
+Exit code: 0
+
+$ npm run test --workspace @metardu/country-config
+Test Files  4 passed (4)
+Tests  158 passed (158)
+Exit code: 0
+~~~
+
+~~~text
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No diagnostics; exit code 0.
+
+$ git diff --check
+Exit code: 0; no whitespace diagnostics.
+~~~
+
+The repository-referenced `scripts/electron-smoke.sh` is absent, so no rendered Electron/IPC end-to-end smoke was run. No Rust or engine math was changed. The focused tests and builds above establish local code/package behavior only; they do not prove international field accuracy, CRS area-of-use, statutory acceptance, or receiving-CAD behavior.
+
+Stage Summary:
+- Neutral projects can persist a selected global WGS 84 / UTM CRS and invoke the existing Rust inverse projection for map display. Existing coordinates are never silently transformed when metadata changes.
+- This is an international foundation, not an all-country survey-grade release: most workflows/exports still require implemented country profiles, and arbitrary CRS catalogs, regional datum/epoch operations, geoid grids, instrument validation, and country-specific legal acceptance remain future work.
+

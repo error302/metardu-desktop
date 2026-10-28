@@ -26,7 +26,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Plus, FolderOpen, Folder, Pencil, Trash2, Check, X, Loader2, Star, FolderArchive, Sparkles, ChevronRight, Eye, EyeOff } from "lucide-react";
 import { useSurveyState } from "../SurveyStateContext.js";
 import { PROJECT_TEMPLATES, getTemplateById, type ProjectTemplate } from "../project-templates.js";
-import { COUNTRY_OPTIONS } from "../countries.js";
+import { COUNTRY_OPTIONS, GLOBAL_WGS84_UTM_OPTIONS, projectCrsLabel } from "../countries.js";
 
 const SURVEY_TYPES = [
   "cadastral",
@@ -55,6 +55,7 @@ export const ProjectsPanel: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
   const [country, setCountry] = useState("");
+  const [crsSrid, setCrsSrid] = useState("");
   const [surveyType, setSurveyType] = useState("cadastral");
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
@@ -102,16 +103,22 @@ export const ProjectsPanel: React.FC = () => {
     setBusy(true); setError(null); setLastResult(null);
     try {
       const templateNote = selectedTemplate ? ` (template: ${selectedTemplate.name})` : "";
-      await createProject({ name: trimmed, countryCode: country, surveyType });
+      await createProject({
+        name: trimmed,
+        countryCode: country,
+        crsSrid: crsSrid ? Number(crsSrid) : undefined,
+        surveyType,
+      });
       setLastResult(`Created "${trimmed}"${templateNote} — now active.`);
       setName("");
+      setCrsSrid("");
       setSelectedTemplate(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [name, country, surveyType, createProject, selectedTemplate]);
+  }, [name, country, crsSrid, surveyType, createProject, selectedTemplate]);
 
   const handleSetActive = useCallback(async (id: string) => {
     setBusy(true); setError(null);
@@ -124,6 +131,21 @@ export const ProjectsPanel: React.FC = () => {
       setBusy(false);
     }
   }, [setActiveProject]);
+
+  const handleProjectCrsChange = useCallback(async (id: string, value: string) => {
+    setBusy(true); setError(null); setLastResult(null);
+    try {
+      const selectedSrid = value ? Number(value) : null;
+      await updateProject(id, { crsSrid: selectedSrid });
+      setLastResult(selectedSrid
+        ? `Project CRS set to ${projectCrsLabel(selectedSrid)}. Existing coordinates were not transformed.`
+        : "Explicit project CRS cleared. Existing coordinates were not transformed.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [updateProject]);
 
   const startRename = useCallback((id: string, currentName: string) => {
     setEditingId(id);
@@ -440,6 +462,15 @@ export const ProjectsPanel: React.FC = () => {
               ))}
             </select>
           </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: "1 1 260px" }}>
+            <label style={subLabelStyle}>Project CRS (optional)</label>
+            <select style={inputStyle} value={crsSrid} onChange={(e) => setCrsSrid(e.target.value)}>
+              <option value="">Not assigned</option>
+              {GLOBAL_WGS84_UTM_OPTIONS.map((option) => (
+                <option key={option.srid} value={option.srid}>{option.name} · EPSG:{option.srid}</option>
+              ))}
+            </select>
+          </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
             <label style={subLabelStyle}>Survey type</label>
             <select style={inputStyle} value={surveyType} onChange={(e) => setSurveyType(e.target.value)}>
@@ -454,6 +485,32 @@ export const ProjectsPanel: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {activeProject && (
+        <div style={{ border: "1px solid var(--border-default)", borderRadius: "10px", padding: "14px 16px", background: "var(--bg-secondary)" }}>
+          <label style={subLabelStyle}>Active project coordinate reference system</label>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginTop: "6px" }}>
+            <select
+              style={{ ...inputStyle, minWidth: 320, maxWidth: "100%" }}
+              value={activeProject.crsSrid?.toString() ?? ""}
+              onChange={(e) => void handleProjectCrsChange(activeProject.id, e.target.value)}
+              disabled={busy}
+              aria-label="Active project CRS"
+            >
+              <option value="">No explicit CRS override</option>
+              {GLOBAL_WGS84_UTM_OPTIONS.map((option) => (
+                <option key={option.srid} value={option.srid}>{option.name} · EPSG:{option.srid}</option>
+              ))}
+            </select>
+            <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+              {projectCrsLabel(activeProject.crsSrid, activeProject.countryCode)}
+            </span>
+          </div>
+          <p style={{ margin: "8px 0 0", fontSize: "11px", lineHeight: 1.45, color: "var(--text-tertiary)" }}>
+            Jurisdiction controls local workflows; this CRS records the coordinate basis. The selector currently includes EPSG WGS 84 / UTM zones worldwide. Choosing a CRS records metadata only and never transforms existing coordinates. Other datums and height systems need a verified operation or grid before conversion.
+          </p>
+        </div>
+      )}
 
       {/* ─── List ───────────────────────────────────────────────── */}
       {projects.length === 0 ? (
@@ -481,6 +538,7 @@ export const ProjectsPanel: React.FC = () => {
                 </th>
                 <th style={th}>Name</th>
                 <th style={th}>Country</th>
+                <th style={th}>CRS</th>
                 <th style={th}>Type</th>
                 <th style={th}>Source</th>
                 <th style={th}>Ver</th>
@@ -540,6 +598,7 @@ export const ProjectsPanel: React.FC = () => {
                       </div>
                     </td>
                     <td style={td}>{p.countryCode || "Not specified"}</td>
+                    <td style={td}>{projectCrsLabel(p.crsSrid, p.countryCode)}</td>
                     <td style={td}>{p.surveyType}</td>
                     <td style={td}>{p.sourceView}</td>
                     <td style={td}>v{p.version}</td>

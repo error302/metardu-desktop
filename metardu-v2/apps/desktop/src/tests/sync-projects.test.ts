@@ -49,6 +49,12 @@ describe("projectFromStored", () => {
     expect(wire.data.sourceView).toBe("TopographicView");
   });
 
+  it("carries the explicit project CRS in the sync data envelope", () => {
+    const wire = projectFromStored(makeStored({ countryCode: "", crsSrid: 32756 }), 0);
+    expect(wire.data.crsSrid).toBe(32756);
+    expect(wire.countryCode).toBe("");
+  });
+
   it("passes the saved version through so re-pushes stay PUTs (not POST duplicates)", () => {
     const wire = projectFromStored(makeStored(), 7);
     expect(wire.version).toBe(7);

@@ -560,18 +560,20 @@ const metarduApi = {
   /** Coordinate helpers (projected → WGS84) for the MapView overlay. */
   geo: {
     /**
-     * Convert projected coordinates (easting/northing in the country's
-     * primary SRID) to WGS84 lat/lon via the sidecar. Used by the MapView
+     * Convert projected coordinates in the explicit project CRS (or the
+     * configured jurisdiction profile CRS) to WGS84 via the sidecar. Used by the MapView
      * to place the active project's real survey geometry on the basemap.
-     * @param countryCode ISO 3166-1 alpha-2 (e.g. "KE")
-     * @param points Array of { easting, northing } in the country CRS
+     * @param countryCode Optional ISO 3166-1 alpha-2 jurisdiction
+     * @param points Array of { easting, northing } in the project CRS
+     * @param sourceSrid Optional explicit EPSG code, independent of jurisdiction
      * @returns Same-length array of { lat, lon } in WGS84 decimal degrees
      */
     projectToWgs84: (
-      countryCode: string,
+      countryCode: string | undefined,
       points: Array<{ easting: number; northing: number }>,
+      sourceSrid?: number,
     ): Promise<Array<{ lat: number; lon: number }>> =>
-      ipcRenderer.invoke("metardu:geo:projectToWgs84", countryCode, points),
+      ipcRenderer.invoke("metardu:geo:projectToWgs84", countryCode, points, sourceSrid),
   },
   /** Sync with metardu web (offline-first). The SyncClient lives in the
    *  main process; these handlers proxy to it. */

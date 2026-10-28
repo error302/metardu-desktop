@@ -300,8 +300,19 @@ export const ExportPanel: React.FC = () => {
       const resolved = resolveSurveyOutput();
       if (!resolved) throw new Error("There is no survey output to export. Run a workflow and save its real result to a project first.");
       if (!resolved.country) throw new Error("Select the jurisdiction for this project before exporting.");
+      if (activeProject?.crsSrid !== undefined) {
+        const countryProfile = COUNTRY_OPTIONS.find((option) => option.code === resolved.country);
+        const countryPrimarySrid = countryProfile?.config.geodeticFramework.primarySRID;
+        if (countryPrimarySrid !== activeProject.crsSrid) {
+          throw new Error(
+            `Export is blocked: this exporter currently labels coordinates with the jurisdiction profile CRS (EPSG:${String(countryPrimarySrid ?? "unknown")}), ` +
+            `but this project records EPSG:${activeProject.crsSrid}. Exporting would mislabel the coordinates.`,
+          );
+        }
+      }
       const options: Record<string, unknown> = {
         countryCode: resolved.country,
+        ...(activeProject?.crsSrid !== undefined ? { crsSrid: activeProject.crsSrid } : {}),
         outputWgs84,
         projectMetadata: {
           projectName,

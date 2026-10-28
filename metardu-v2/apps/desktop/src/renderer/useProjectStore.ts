@@ -27,6 +27,8 @@ export interface StoredProject {
   name: string;
   description?: string;
   countryCode: string;
+  /** Explicit EPSG horizontal CRS, independent of legal jurisdiction. */
+  crsSrid?: number;
   surveyType: string;
   sourceView: string;
   output: unknown;
@@ -50,6 +52,7 @@ export interface CreateProjectInput {
   name: string;
   description?: string;
   countryCode: string;
+  crsSrid?: number;
   surveyType: string;
   sourceView: string;
   output?: unknown;
@@ -61,6 +64,7 @@ export interface UpdateProjectInput {
   name?: string;
   description?: string;
   countryCode?: string;
+  crsSrid?: number | null;
   surveyType?: string;
   sourceView?: string;
   output?: unknown;
@@ -111,7 +115,7 @@ export interface UseProjectStoreReturn {
   /** Create a new project and make it active. */
   create: (input: Omit<CreateProjectInput, "sourceView" | "output">) => Promise<StoredProject | null>;
   /** Update a project's fields. */
-  update: (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "surveyType" | "planSheet">>) => Promise<void>;
+  update: (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "crsSrid" | "surveyType" | "planSheet">>) => Promise<void>;
   /** Delete a project. Active moves to most recent remaining. */
   remove: (id: string) => Promise<void>;
   /** Switch which project is active. */
@@ -197,7 +201,7 @@ export function useProjectStore(): UseProjectStoreReturn {
     return created;
   }, []);
 
-  const update = useCallback(async (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "surveyType" | "planSheet">>) => {
+  const update = useCallback(async (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "crsSrid" | "surveyType" | "planSheet">>) => {
     const api = apiRef.current;
     await api.update?.({ id, ...input });
   }, []);

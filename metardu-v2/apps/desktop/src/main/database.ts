@@ -24,8 +24,10 @@
  * in WAL mode for concurrent reads during writes.
  */
 
+import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
 import * as fs from "node:fs";
+import * as path from "node:path";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -34,6 +36,8 @@ export interface StoredProject {
   name: string;
   description?: string;
   countryCode: string;
+  /** Explicit EPSG horizontal CRS. Absent means no project CRS was assigned. */
+  crsSrid?: number;
   surveyType: string;
   sourceView: string;
   output: unknown;
@@ -59,6 +63,7 @@ export interface CreateProjectInput {
   name: string;
   description?: string;
   countryCode: string;
+  crsSrid?: number;
   surveyType: string;
   sourceView: string;
   output?: unknown;
@@ -70,6 +75,7 @@ export interface UpdateProjectInput {
   name?: string;
   description?: string;
   countryCode?: string;
+  crsSrid?: number | null;
   surveyType?: string;
   sourceView?: string;
   output?: unknown;
@@ -89,7 +95,7 @@ export interface OperationLogEntry {
 
 // ─── Schema ──────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA_SQL = `
   -- Schema version tracking
@@ -103,6 +109,7 @@ const SCHEMA_SQL = `
     name        TEXT NOT NULL,
     description TEXT,
     countryCode TEXT NOT NULL DEFAULT '',
+    crsSrid     INTEGER,
     surveyType  TEXT NOT NULL DEFAULT '',
     sourceView  TEXT NOT NULL DEFAULT '',
     output      TEXT,          -- JSON-serialized survey workflow output
@@ -139,77 +146,33 @@ const SCHEMA_SQL = `
 // ─── Database singleton ──────────────────────────────────────────
 
 let db: BetterSqlite3.Database | null = null;
+let configuredDatabasePath: string | null = null;
+
+/** Set the durable per-user database location before the first database read. */
+export function configureDatabasePath(databasePath: string): void {
+  if (!databasePath.trim()) throw new Error("A non-empty local database path is required.");
+  if (db && configuredDatabasePath !== databasePath) {
+    throw new Error("The project database is already open at a different path.");
+  }
+  configuredDatabasePath = databasePath;
+}
 
 /**
  * Open (or return the existing) SQLite database.
  * The database lives at <userData>/metardu.db.
  */
-const inMemoryProjects = new Map<string, any>();
-let activeProjId: string | null = null;
-
 export function getDatabase(): BetterSqlite3.Database {
   if (db) return db;
-
-  const mockDb: any = {
-    pragma: () => {},
-    exec: () => {},
-    close: () => {},
-    transaction: (fn: (...args: any[]) => any) => (...args: any[]) => fn(...args),
-    prepare: (sql: string) => {
-      return {
-        run: (...args: any[]) => {
-          if (sql.includes("INSERT INTO projects") || sql.includes("UPDATE projects") || sql.includes("INSERT OR IGNORE INTO projects")) {
-            const id = args[0];
-            inMemoryProjects.set(id, {
-              id: args[0],
-              name: args[1],
-              description: args[2],
-              countryCode: args[3],
-              surveyType: args[4],
-              sourceView: args[5],
-              output: args[6],
-              planSheet: args[7],
-              createdAt: args[8],
-              updatedAt: args[9],
-              version: args[10] || 0,
-            });
-          } else if (sql.includes("DELETE FROM projects")) {
-            inMemoryProjects.delete(args[0]);
-          } else if (sql.includes("INSERT OR REPLACE INTO active_project")) {
-            activeProjId = args[0];
-          }
-          return { changes: 1, lastInsertRowid: 1 };
-        },
-        get: (...args: any[]) => {
-          if (sql.includes("SELECT name FROM sqlite_master")) {
-            return { name: "schema_version" };
-          }
-          if (sql.includes("SELECT version FROM schema_version")) {
-            return { version: 1 };
-          }
-          if (sql.includes("SELECT projectId FROM active_project")) {
-            return { projectId: activeProjId };
-          }
-          if (sql.includes("SELECT * FROM projects WHERE id = ?")) {
-            return inMemoryProjects.get(args[0]) || undefined;
-          }
-          if (sql.includes("MAX(id)")) {
-            return { maxId: null };
-          }
-          return undefined;
-        },
-        all: () => {
-          if (sql.includes("SELECT * FROM projects")) {
-            return Array.from(inMemoryProjects.values());
-          }
-          return [];
-        },
-      };
-    },
-  };
-
-  db = mockDb as BetterSqlite3.Database;
-  migrate(db);
+  if (!configuredDatabasePath) {
+    throw new Error("The local project database path must be configured before opening it.");
+  }
+  if (configuredDatabasePath !== ":memory:") {
+    fs.mkdirSync(path.dirname(configuredDatabasePath), { recursive: true });
+  }
+  db = new Database(configuredDatabasePath);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  migrateDatabase(db);
   return db;
 }
 
@@ -225,7 +188,7 @@ export function closeDatabase(): void {
 
 // ─── Migrations ──────────────────────────────────────────────────
 
-function migrate(database: BetterSqlite3.Database): void {
+export function migrateDatabase(database: BetterSqlite3.Database): void {
   // Check if schema_version table exists.
   const hasVersion = database
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'")
@@ -249,8 +212,15 @@ function migrate(database: BetterSqlite3.Database): void {
     database.prepare("UPDATE schema_version SET version = ?").run(1);
   }
 
-  // Future migrations go here:
-  // if (current < 2) { ... database.prepare("UPDATE schema_version SET version = ?").run(2); }
+  if (current < 2) {
+    database.transaction(() => {
+      const projectColumns = database.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>;
+      if (!projectColumns.some((column) => column.name === "crsSrid")) {
+        database.exec("ALTER TABLE projects ADD COLUMN crsSrid INTEGER");
+      }
+      database.prepare("UPDATE schema_version SET version = ?").run(2);
+    })();
+  }
 }
 
 // ─── Project CRUD ────────────────────────────────────────────────
@@ -283,6 +253,7 @@ export function createProjectInDb(
     name: input.name,
     description: input.description,
     countryCode: input.countryCode,
+    crsSrid: input.crsSrid,
     surveyType: input.surveyType,
     sourceView: input.sourceView,
     output: input.output ?? null,
@@ -293,8 +264,8 @@ export function createProjectInDb(
   };
 
   const insert = database.prepare(`
-    INSERT INTO projects (id, name, description, countryCode, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO projects (id, name, description, countryCode, crsSrid, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   insert.run(
@@ -302,6 +273,7 @@ export function createProjectInDb(
     project.name,
     project.description ?? null,
     project.countryCode,
+    project.crsSrid ?? null,
     project.surveyType,
     project.sourceView,
     JSON.stringify(project.output),
@@ -330,6 +302,7 @@ export function updateProjectInDb(
     ...(input.name !== undefined ? { name: input.name } : {}),
     ...(input.description !== undefined ? { description: input.description } : {}),
     ...(input.countryCode !== undefined ? { countryCode: input.countryCode } : {}),
+    ...(input.crsSrid !== undefined ? { crsSrid: input.crsSrid ?? undefined } : {}),
     ...(input.surveyType !== undefined ? { surveyType: input.surveyType } : {}),
     ...(input.sourceView !== undefined ? { sourceView: input.sourceView } : {}),
     ...(input.output !== undefined ? { output: input.output } : {}),
@@ -341,7 +314,7 @@ export function updateProjectInDb(
   database
     .prepare(
       `UPDATE projects SET
-        name = ?, description = ?, countryCode = ?, surveyType = ?, sourceView = ?,
+        name = ?, description = ?, countryCode = ?, crsSrid = ?, surveyType = ?, sourceView = ?,
         output = ?, planSheet = ?, updatedAt = ?, version = ?
       WHERE id = ?`,
     )
@@ -349,6 +322,7 @@ export function updateProjectInDb(
       updated.name,
       updated.description ?? null,
       updated.countryCode,
+      updated.crsSrid ?? null,
       updated.surveyType,
       updated.sourceView,
       JSON.stringify(updated.output),
@@ -480,14 +454,15 @@ export function importFromJson(
       for (const p of projects) {
         database
           .prepare(
-            `INSERT OR IGNORE INTO projects (id, name, description, countryCode, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR IGNORE INTO projects (id, name, description, countryCode, crsSrid, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             p.id,
             p.name,
             p.description ?? null,
             p.countryCode,
+            p.crsSrid ?? null,
             p.surveyType,
             p.sourceView,
             JSON.stringify(p.output),
@@ -522,6 +497,7 @@ interface Row {
   name: string;
   description: string | null;
   countryCode: string;
+  crsSrid: number | null;
   surveyType: string;
   sourceView: string;
   output: string | null;
@@ -546,6 +522,7 @@ function rowToProject(row: Row): StoredProject {
     name: row.name,
     description: row.description ?? undefined,
     countryCode: row.countryCode,
+    crsSrid: row.crsSrid ?? undefined,
     surveyType: row.surveyType,
     sourceView: row.sourceView,
     output: row.output ? JSON.parse(row.output) : null,

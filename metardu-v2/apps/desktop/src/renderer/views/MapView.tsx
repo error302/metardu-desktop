@@ -292,6 +292,7 @@ export const MapView: React.FC = () => {
 
     const output = activeProject?.output ?? surveyState?.output ?? null;
     const countryCode = activeProject?.countryCode ?? surveyState?.countryCode;
+    const sourceSrid = activeProject?.crsSrid;
     const sourceLabel = activeProject?.name ?? (surveyState ? `${surveyState.surveyType} (${surveyState.sourceView})` : null);
 
     source.clear();
@@ -320,8 +321,8 @@ export const MapView: React.FC = () => {
       return;
     }
 
-    if (!countryCode) {
-      setOverlayInfo("Survey overlay unavailable: set the project's country and coordinate reference system first.");
+    if (!countryCode && sourceSrid === undefined) {
+      setOverlayInfo("Survey overlay unavailable: assign an explicit project CRS before mapping a neutral project.");
       setConverting(false);
       return;
     }
@@ -345,14 +346,14 @@ export const MapView: React.FC = () => {
     const toLonLatMap = new Map<string, LonLat>();
 
     const geoApi = (window as unknown as {
-      metardu?: { geo?: { projectToWgs84?: (cc: string, pts: Array<{ easting: number; northing: number }>) => Promise<LonLat[]> } };
+      metardu?: { geo?: { projectToWgs84?: (cc: string | undefined, pts: Array<{ easting: number; northing: number }>, srid?: number) => Promise<LonLat[]> } };
     }).metardu?.geo?.projectToWgs84;
 
     try {
       if (!geoApi) {
         throw new Error("The Rust geodesy service is unavailable in this renderer.");
       }
-      const converted = await geoApi(countryCode, points);
+      const converted = await geoApi(countryCode, points, sourceSrid);
       if (converted.length !== points.length || converted.some((ll) =>
         !Number.isFinite(ll.lat) || !Number.isFinite(ll.lon) || Math.abs(ll.lat) > 90 || Math.abs(ll.lon) > 180
       )) {
@@ -502,15 +503,16 @@ export const MapView: React.FC = () => {
         const easting = parts[0]!;
         const northing = parts[1]!;
         const countryCode = activeProject?.countryCode ?? surveyState?.countryCode;
+        const sourceSrid = activeProject?.crsSrid;
         const geoApi = (window as unknown as {
-          metardu?: { geo?: { projectToWgs84?: (cc: string, pts: Array<{ easting: number; northing: number }>) => Promise<LonLat[]> } };
+          metardu?: { geo?: { projectToWgs84?: (cc: string | undefined, pts: Array<{ easting: number; northing: number }>, srid?: number) => Promise<LonLat[]> } };
         }).metardu?.geo?.projectToWgs84;
-        if (!countryCode || !geoApi) {
+        if ((!countryCode && sourceSrid === undefined) || !geoApi) {
           setCoords("Projected-coordinate search requires a project CRS and the Rust geodesy service.");
           return;
         }
         try {
-          const [wgs] = await geoApi(countryCode, [{ easting, northing }]);
+          const [wgs] = await geoApi(countryCode, [{ easting, northing }], sourceSrid);
           if (!wgs || !Number.isFinite(wgs.lon) || !Number.isFinite(wgs.lat) || Math.abs(wgs.lat) > 90 || Math.abs(wgs.lon) > 180) {
             throw new Error("The geodesy service returned invalid coordinates.");
           }

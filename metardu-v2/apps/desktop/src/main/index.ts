@@ -213,11 +213,16 @@ function registerIpcHandlers(): void {
     // the sidecar (Rust) — this callback is the bridge, never in-engine
     // math. Shared with the map overlay via makeProjectToWgs84.
     if (options.outputWgs84) {
-      const toWgs84 = makeProjectToWgs84(options.countryCode as string, sidecar);
+      const sourceSrid = typeof options.crsSrid === "number" ? options.crsSrid : undefined;
+      const toWgs84 = makeProjectToWgs84(
+        typeof options.countryCode === "string" ? options.countryCode : undefined,
+        sidecar,
+        sourceSrid,
+      );
       if (!toWgs84) {
         throw new Error(
-          `WGS84 export is unavailable for '${String(options.countryCode)}'. ` +
-          "A running Rust sidecar and a configured WGS84 source datum are required; export in the native CRS instead.",
+          `WGS84 export is unavailable for project CRS '${String(options.crsSrid ?? options.countryCode)}'. ` +
+          "An explicit supported WGS84 CRS and a running Rust sidecar are required; export in the native CRS instead.",
         );
       }
       options.projectToWgs84 = toWgs84;
@@ -333,19 +338,31 @@ function registerIpcHandlers(): void {
   // display on the OpenLayers basemap. Same sidecar dispatch as export.
   ipcMain.handle("metardu:geo:projectToWgs84", async (
     _event,
-    countryCode: string,
+    countryCode: string | undefined,
     points: Array<{ easting: number; northing: number }>,
+    sourceSrid?: number,
   ): Promise<Array<{ lat: number; lon: number }>> => {
-    const toWgs84 = makeProjectToWgs84(countryCode, sidecar);
+    let resolvedSrid = sourceSrid;
+    if (resolvedSrid === undefined && countryCode?.trim()) {
+      try {
+        resolvedSrid = getCountryConfig(countryCode.trim().toUpperCase() as CountryCode)
+          .geodeticFramework.primarySRID;
+      } catch {
+        // Projects without a configured jurisdiction must provide an explicit CRS.
+      }
+    }
+    if (typeof resolvedSrid !== "number" || !Number.isSafeInteger(resolvedSrid)) {
+      throw new Error("Map reprojection requires an explicit project EPSG CRS or a configured jurisdiction profile.");
+    }
+
+    const toWgs84 = makeProjectToWgs84(countryCode, sidecar, resolvedSrid);
     if (!toWgs84) {
       throw new Error(
-        `WGS84 map reprojection is unavailable for '${countryCode}'. ` +
-        "A running Rust sidecar and a configured WGS84 source datum are required.",
+        `WGS84 map reprojection is unavailable for EPSG:${resolvedSrid}. ` +
+        "A running Rust sidecar and a verified supported WGS84 coordinate operation are required.",
       );
     }
-    const config = getCountryConfig(countryCode as CountryCode);
-    const sourceSrid = config.geodeticFramework.primarySRID;
-    const results = await Promise.all(points.map((p) => toWgs84(p.easting, p.northing, sourceSrid)));
+    const results = await Promise.all(points.map((p) => toWgs84(p.easting, p.northing, resolvedSrid)));
     return results.map((r) => ({ lat: r.lat, lon: r.lon }));
   });
 
