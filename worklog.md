@@ -3699,3 +3699,35 @@ Evidence limits: Rust job lifecycle and cancellation are covered with generated 
 
 Next product gate: exercise these IPC handlers through a real Electron test harness, then add the separate host-managed chunk API for trusted point-cloud tools. Classification remains unavailable until a named method, derived-output provenance, and independent reference-data validation are implemented.
 
+---
+Task ID: point-cloud-inspection-controller-verification
+Agent: Codex, 29 October 2026
+Task: Isolate and directly verify the main-process LAS/LAZ inspection job controller
+
+Work Log:
+- Extracted the project-scoped inspection job lifecycle from the Electron entrypoint into `main/point-cloud-inspection.ts`, retaining the same three dedicated IPC channel names through a single production route binder.
+- Added rechecks that the source still belongs to the active project after the asynchronous pre-scan hash completes and again after the sidecar job is created. A source-membership change cancels the new sidecar job where possible and prevents the renderer job from being created.
+- Hardened malformed sidecar job IDs and invalid cancellation states so the controller attempts cleanup and fails closed rather than leaving an unknown job pending.
+- Added controller tests using the production route binder, real SQLite project/source/inspection tables, the real content-addressed object store and hash verifier, and a controlled fake sidecar. Cases cover route registration, project scope, malformed IDs, pre-scan tampering, source detachment, progress, final digest mismatch, single persistence, project switching, and cancellation/completion races.
+- Updated the international product plan, ADR-0010, and the task brief to distinguish controller/adapter coverage from a real Electron IPC runtime test.
+
+Verification:
+~~~text
+$ npm run build --workspace @metardu/desktop
+Exit code 0.
+
+$ npm run test --workspace @metardu/desktop -- --run src/tests/point-cloud-inspection-controller.test.ts
+Test Files  1 passed (1)
+Tests       9 passed (9)
+Exit code 0.
+
+$ npm run test --workspace @metardu/desktop -- --run
+Test Files  25 passed | 1 skipped (26)
+Tests       277 passed | 7 skipped (284)
+Exit code 0. The seven skipped tests are the existing Electron-to-sidecar round-trip suite; this is not Electron runtime proof.
+~~~
+
+Evidence limits: the new tests exercise main-process controller logic and its route binder with a fake sidecar, not a launched Electron app or real sidecar job. Renderer cancellation interaction, packaged operation, and large-file behavior remain unverified in the live app.
+
+Next product gate: add a real Electron IPC integration harness, then continue the documented LAS/LAZ structure-validation and host-managed chunk-access gates. No classification or survey deliverable is enabled by this task.
+

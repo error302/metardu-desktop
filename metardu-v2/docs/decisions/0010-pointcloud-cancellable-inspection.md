@@ -33,5 +33,5 @@ The renderer can start a scan only by a source ID, then poll or cancel an app-is
 ## Verification required
 
 - Rust tests cover progress, cooperative cancellation, job status transitions, duplicate-active-job rejection, and bounded/expired job state.
-- Desktop tests cover project/source scoping, hash verification before and after, cancellation/no partial report, and one-time persistence.
-- Typecheck/build and focused tests pass. An Electron IPC smoke is recorded only if the harness exists and actually launches the app.
+- `point-cloud-inspection-controller.test.ts` exercises the production dedicated IPC route binder and controller with real SQLite and content-addressed object storage plus a controlled sidecar double. It covers project/source scoping, hash verification before and after, changed-source and changed-project behavior, cancellation/completion races, malformed identifiers, progress, failure, and one-time persistence. These tests do not launch Electron.
+- Typecheck/build and focused tests pass. The existing Electron-to-sidecar round-trip suite is skipped when the release sidecar binary is absent; an Electron IPC smoke is recorded only if the harness exists and actually launches the app.

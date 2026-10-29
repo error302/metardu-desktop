@@ -37,8 +37,8 @@ desktop-pointcloud-cancellable-inspection
 - Progress reports decoded versus source-header-declared point count without transferring point arrays or paths.
 - Cancellation stops between batches and never persists partial inspection evidence.
 - Completion rechecks the source digest, confirms the originating project remains active, and persists exactly one digest-bound inspection report.
-- Rust job lifecycle/cancellation tests and Desktop IPC/UI tests cover success, cancellation, failure, and invalid job/source scope.
-- Desktop typecheck/build and focused Rust/Desktop tests pass. Electron runtime behavior is claimed only if the harness can exercise the handlers.
+- Rust job lifecycle/cancellation tests and Desktop controller tests cover success, cancellation, failure, and invalid job/source scope. The controller suite uses the production route binder, SQLite, and managed object store with a controlled sidecar double; it does not launch Electron or cover the renderer UI.
+- Desktop typecheck/build and focused Rust/Desktop tests pass. Electron runtime and UI behavior are claimed only if the harness exercises those paths.
 - Update the product plan and append verbatim verification evidence and remaining limits to `worklog.md`.
 
 ## Anti-hallucination clause
