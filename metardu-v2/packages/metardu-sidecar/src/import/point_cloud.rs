@@ -466,6 +466,16 @@ fn read_bounded_raw_header(path: &Path, file_size: u64) -> Result<raw::Header, H
         HandlerError::InvalidParams(format!("LAS/LAZ fixed header could not be read: {error}"))
     })?;
 
+    // las-rs 0.11.2 models LAS 1.0 through 1.4. Its generic header-size
+    // calculation treats future minor versions as 1.4, so reject them before
+    // any 1.4 offsets or fields can be interpreted as authoritative.
+    if header.version.major != 1 || header.version.minor > 4 {
+        return Err(HandlerError::InvalidParams(format!(
+            "LAS/LAZ version {} is not supported by this reader; supported versions are 1.0 through 1.4.",
+            header.version,
+        )));
+    }
+
     if header.header_size < header.version.header_size() {
         return Err(HandlerError::InvalidParams(
             "LAS/LAZ header size is smaller than the declared version requires.".into(),
@@ -1357,6 +1367,27 @@ mod tests {
                     .unwrap()
                     .contains("whole-file integrity were not checked")
             }));
+    }
+
+    #[test]
+    fn rejects_las_1_5_before_interpreting_it_as_a_las_1_4_header() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("future-version.las");
+        write_fixture(&path, false);
+
+        // LAS public-header version minor is byte 25. Keep all other fixture
+        // bytes unchanged so this exercises the version gate itself.
+        let mut bytes = std::fs::read(&path).unwrap();
+        bytes[25] = 5;
+        std::fs::write(&path, bytes).unwrap();
+
+        let error = inspect_header(&path).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("LAS/LAZ version 1.5 is not supported"));
+        assert!(error
+            .to_string()
+            .contains("supported versions are 1.0 through 1.4"));
     }
 
     #[test]

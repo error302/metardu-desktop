@@ -3731,3 +3731,52 @@ Evidence limits: the new tests exercise main-process controller logic and its ro
 
 Next product gate: add a real Electron IPC integration harness, then continue the documented LAS/LAZ structure-validation and host-managed chunk-access gates. No classification or survey deliverable is enabled by this task.
 
+---
+Task ID: point-cloud-las-version-support-gate
+Agent: Codex, 29 October 2026
+Task: Reject LAS/LAZ versions that the pinned reader does not model
+
+Work Log:
+- Inspected the pinned `las-rs 0.11.2` version implementation. Its point-format support ends at version 1.4, while its generic header-size fallback treats future minor versions like the 1.4 layout.
+- Added a fail-closed version check to the bounded raw-header preflight: only LAS major version 1, minor versions 0 through 4 are accepted. Other versions return a clear unsupported-version error before downstream code uses their offsets or metadata.
+- Added a generated LAS 1.5 boundary fixture and verified that the LAS 1.4 fixture continues to be handled by the existing focused suite.
+- Updated the international product plan and added ADR-0011 to reference the current ASPRS LAS 1.4 R16 and LAS 1.5 R00 publications. The documentation explicitly states that this gate does not establish R16 conformance and that LAS 1.5 remains unsupported.
+
+Verification:
+~~~text
+$ cargo test --offline --no-default-features --features instrument import::point_cloud::tests -- --nocapture
+running 12 tests
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out
+Exit code 0. Existing unrelated sidecar compiler warnings remain.
+
+$ rustfmt --edition 2021 --check metardu-v2/packages/metardu-sidecar/src/import/point_cloud.rs
+Exit code 0.
+
+$ git diff --check
+Exit code 0; Git printed only Windows LF-to-CRLF notices.
+~~~
+
+Evidence limits: the test proves explicit rejection of a LAS 1.5 version byte and continued passing of current LAS 1.4 fixtures. No LAS 1.4 R16 producer matrix, LAS 1.5 reader, whole-file conformance claim, or point classification is delivered.
+
+Next product gate: validate the pinned reader against LAS 1.4 R16 known-answer and producer fixtures, then complete waveform/EVLR/padding and pointwise-LAZ structure handling before exposing large point chunks to extension tools.
+
+---
+Task ID: sidecar-cross-platform-test-fixtures
+Agent: Codex, 29 October 2026
+Task: Remove Unix-only filesystem assumptions from sidecar tests
+
+Work Log:
+- Replaced the GDAL nonpositive-interval test's `/etc/hostname` path with an existing temporary file; the test is specifically checking parameter validation before raster decoding.
+- Replaced hard-coded `/tmp/output` paths in two ODM validation tests with temporary output directories, preserving automatic cleanup and allowing the tests to run on Windows.
+- No production GDAL or ODM behavior was changed.
+
+Verification:
+~~~text
+$ cargo test --offline --no-default-features --features instrument
+running 192 tests
+test result: ok. 192 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+Exit code 0. Existing unrelated sidecar compiler warnings remain.
+~~~
+
+This confirms the current sidecar unit suite passes on the Windows development host with these platform-neutral fixtures. It is not packaged-app, device, or field-workflow evidence.
+
