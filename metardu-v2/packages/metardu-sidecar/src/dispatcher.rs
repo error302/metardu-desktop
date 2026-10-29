@@ -22,6 +22,9 @@ pub enum HandlerError {
 
     #[error("Not implemented yet: {0}")]
     NotImplemented(String),
+
+    #[error("Plugin execution failed: {0}")]
+    PluginExecution(String),
 }
 
 impl HandlerError {
@@ -31,6 +34,7 @@ impl HandlerError {
             HandlerError::InvalidParams(_) => "INVALID_PARAMS",
             HandlerError::Internal(_) => "INTERNAL_ERROR",
             HandlerError::NotImplemented(_) => "NOT_IMPLEMENTED",
+            HandlerError::PluginExecution(_) => "PLUGIN_EXECUTION_FAILED",
         }
     }
 }
@@ -234,6 +238,9 @@ impl Dispatcher {
         });
 
         // COGO: Intersection
+        self.register("cogo.radiation", |params: Value| async move {
+            crate::compute_handlers::handle_radiation(params).await
+        });
         self.register("cogo.bearing_bearing", |params: Value| async move {
             crate::compute_handlers::handle_bearing_bearing(params).await
         });
@@ -242,6 +249,9 @@ impl Dispatcher {
         });
         self.register("cogo.distance_distance", |params: Value| async move {
             crate::compute_handlers::handle_distance_distance(params).await
+        });
+        self.register("cogo.midpoint_offset", |params: Value| async move {
+            crate::compute_handlers::handle_midpoint_offset(params).await
         });
 
         // COGO: Area
@@ -254,6 +264,17 @@ impl Dispatcher {
             crate::compute_handlers::handle_adjustment_run(params).await
         });
 
+        // Topographic planar Delaunay triangulation. The sidecar performs
+        // the geometry while TypeScript preserves original point metadata.
+        self.register("topographic.build_tin", |params: Value| async move {
+            crate::topographic::handle_build_tin(params).await
+        });
+
+        // Community WebAssembly tools execute without WASI or host imports.
+        self.register("plugin.run", |params: Value| async move {
+            crate::plugins::handle_run(params)
+        });
+
         // ---- Phase 1 #4: Statutory PDF signing (dispatched via
         // TS engine's existing `digital-signature.ts` module which uses
         // Web Crypto API RSASSA-PKCS1-v1_5 SHA-256. The heavy math
@@ -262,6 +283,21 @@ impl Dispatcher {
         // trivial and lives on the TS/Electron side.)
         self.register("import.rinex_epochs", |params: Value| async move {
             crate::import::handle_rinex_epochs(params).await
+        });
+        self.register("pointcloud.inspect_header", |params: Value| async move {
+            crate::import::handle_point_cloud_header_inspection(params).await
+        });
+        self.register("pointcloud.inspect_records", |params: Value| async move {
+            crate::import::handle_point_cloud_record_inspection(params).await
+        });
+        self.register("pointcloud.start_record_inspection", |params: Value| async move {
+            crate::import::handle_start_point_cloud_record_inspection(params).await
+        });
+        self.register("pointcloud.record_inspection_status", |params: Value| async move {
+            crate::import::handle_point_cloud_record_inspection_status(params).await
+        });
+        self.register("pointcloud.cancel_record_inspection", |params: Value| async move {
+            crate::import::handle_cancel_point_cloud_record_inspection(params).await
         });
 
         // ---- Instrument connection — live serial, BLE, NTRIP streaming ----
@@ -448,6 +484,29 @@ mod tests {
                 assert_eq!(error.code, "INVALID_PARAMS");
             }
             _ => panic!("expected Err"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_topographic_build_tin_dispatches_sidecar_geometry() {
+        let d = test_dispatcher();
+        let req = Request {
+            id: "test-topographic-tin".into(),
+            method: "topographic.build_tin".into(),
+            params: serde_json::json!({
+                "points": [
+                    { "easting": 0.0, "northing": 0.0, "elevation": 10.0 },
+                    { "easting": 10.0, "northing": 0.0, "elevation": 11.0 },
+                    { "easting": 5.0, "northing": 10.0, "elevation": 12.0 }
+                ]
+            }),
+        };
+        let resp = d.dispatch(req).await;
+        match resp.payload {
+            crate::protocol::ResponsePayload::Ok { result, .. } => {
+                assert_eq!(result["triangles"], serde_json::json!([[0, 1, 2]]));
+            }
+            _ => panic!("expected valid TIN result"),
         }
     }
 }

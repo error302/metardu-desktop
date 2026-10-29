@@ -16,7 +16,13 @@
 //!   - RINEX 2.11: https://files.igs.org/pub/data/format/rinex211.txt
 
 pub mod rinex;
+pub mod point_cloud;
 
 // Only the handler is needed by the dispatcher; types are reachable via
 // `crate::import::rinex::*` from tests.
 pub use rinex::handle_rinex_epochs;
+pub use point_cloud::{
+    handle_cancel_point_cloud_record_inspection, handle_point_cloud_header_inspection,
+    handle_point_cloud_record_inspection, handle_point_cloud_record_inspection_status,
+    handle_start_point_cloud_record_inspection,
+};

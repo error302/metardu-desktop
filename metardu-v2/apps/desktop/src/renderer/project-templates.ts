@@ -1,5 +1,5 @@
 /**
- * project-templates.ts — Pre-configured project templates for common Kenya survey types.
+ * project-templates.ts — Pre-configured workflows for supported jurisdictions.
  *
  * Each template defines:
  *   - Default project settings (country, survey type, description)
@@ -8,8 +8,8 @@
  *   - Fee estimation defaults
  *   - Regulatory references
  *
- * Templates help surveyors follow statutory workflows without
- * manually configuring each view.
+ * Templates organize common project tasks and surface jurisdiction-specific
+ * references. They do not establish legal compliance or deliverable acceptance.
  */
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     views: [
       { viewId: "projects", label: "Projects", purpose: "Create project with cadastral survey type", required: true },
       { viewId: "traverse", label: "Traverse", purpose: "Run control traverse to establish survey framework", required: true, defaults: { mode: "bowditch", closingErrorTolerance: "1:5000" } },
-      { viewId: "cogo", label: "COGO", purpose: "Compute new parcel boundaries by radiation and intersection", required: true, defaults: { mode: "radiation" } },
+      { viewId: "cogo", label: "COGO", purpose: "Draft local planar parcel coordinates by radiation or intersection; verify CRS and observations before survey use", required: true, defaults: { mode: "radiation" } },
       { viewId: "subdivision", label: "Subdivision", purpose: "Design lot splits with road reserves and utility corridors", required: true },
       { viewId: "fieldbook", label: "Field Book", purpose: "Record field observations for beacon placement", required: true },
       { viewId: "lsa", label: "Network LSA", purpose: "Least-squares adjustment of traverse and GNSS baselines", required: false },
@@ -105,7 +105,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
       { viewId: "projects", label: "Projects", purpose: "Create project with cadastral survey type", required: true },
       { viewId: "map", label: "Map", purpose: "Locate existing beacons and parcel boundaries on basemap", required: true },
       { viewId: "traverse", label: "Traverse", purpose: "Control traverse from known reference marks", required: true, defaults: { mode: "bowditch" } },
-      { viewId: "cogo", label: "COGO", purpose: "Compute expected beacon positions from title deed bearings/distances", required: true, defaults: { mode: "radiation" } },
+      { viewId: "cogo", label: "COGO", purpose: "Compute candidate coordinates from deed bearings/distances as a local planar draft; verify source records and CRS separately", required: true, defaults: { mode: "radiation" } },
       { viewId: "fieldbook", label: "Field Book", purpose: "Record measurements to existing and proposed beacon positions", required: true },
       { viewId: "lsa", label: "Network LSA", purpose: "Adjust observations to find best-fit beacon positions", required: false },
       { viewId: "deedplan", label: "Deed Plan", purpose: "Generate updated deed plan showing re-established beacons", required: true },
@@ -135,7 +135,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
       { viewId: "gnss", label: "GNSS Monitor", purpose: "RTK GNSS for control and detail point collection", required: true },
       { viewId: "fieldbook", label: "Field Book", purpose: "Record spot heights and feature codes", required: true },
       { viewId: "topo", label: "Topographic", purpose: "Generate TIN, contours, and terrain model", required: true },
-      { viewId: "cogo", label: "COGO", purpose: "Compute area and perimeter of mapped features", required: false },
+      { viewId: "cogo", label: "COGO", purpose: "Compute planar area and perimeter only; no ground correction is applied", required: false },
       { viewId: "lulc", label: "LULC Analysis", purpose: "Classify land use from survey data", required: false },
       { viewId: "export", label: "Export", purpose: "Export DXF/DWG for CAD, GeoTIFF for GIS", required: true },
       { viewId: "officemgmt", label: "Office & Billing", purpose: "Generate proforma invoice", required: false },
@@ -224,7 +224,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
       { viewId: "projects", label: "Projects", purpose: "Create project for cadastral mapping", required: true },
       { viewId: "map", label: "Map", purpose: "Overlay existing parcels on satellite/basemap imagery", required: true },
       { viewId: "gnss", label: "GNSS Monitor", purpose: "Collect boundary corner coordinates with RTK", required: true },
-      { viewId: "cogo", label: "COGO", purpose: "Compute parcel areas and verify against registry", required: true },
+      { viewId: "cogo", label: "COGO", purpose: "Review candidate parcel area from a local planar coordinate plane; no external registry evidence is checked", required: true },
       { viewId: "deedplan", label: "Deed Plan", purpose: "Generate statutory plans for each parcel", required: true },
       { viewId: "lulc", label: "LULC Analysis", purpose: "Classify land use for planning overlays", required: false },
       { viewId: "export", label: "Export", purpose: "LandXML/GeoPackage for NLIMS/ArdhiSasa submission", required: true },
@@ -251,7 +251,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     views: [
       { viewId: "projects", label: "Projects", purpose: "Create AU cadastral project (GDA2020/MGA)", required: true },
       { viewId: "traverse", label: "Traverse", purpose: "Control traverse (ICSM SP1 v2.2)", required: true, defaults: { mode: "bowditch" } },
-      { viewId: "cogo", label: "COGO", purpose: "Compute parcel boundaries", required: true },
+      { viewId: "cogo", label: "COGO", purpose: "Draft parcel boundary coordinates on a local plane; verify CRS and field evidence separately", required: true },
       { viewId: "deedplan", label: "Deed Plan", purpose: "Generate deposited plan (DP) per NSW LRS template", required: true },
       { viewId: "signing", label: "Sign & Seal", purpose: "BOSSI/CSPS certification", required: true },
       { viewId: "export", label: "Export", purpose: "LandXML/GeoJSON for NSW LRS / ICSM", required: false },
@@ -304,7 +304,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     views: [
       { viewId: "projects", label: "Projects", purpose: "Create ZA cadastral project (Hartebeesthoek94/Lo)", required: true },
       { viewId: "traverse", label: "Traverse", purpose: "SG traverse (SANS 2814 Class A/B)", required: true },
-      { viewId: "cogo", label: "COGO", purpose: "Compute beacons/boundaries", required: true },
+      { viewId: "cogo", label: "COGO", purpose: "Draft beacon and boundary coordinates on a local plane; verify CRS and SG requirements separately", required: true },
       { viewId: "deedplan", label: "Deed Plan", purpose: "Generate SG Diagram (A1 portrait, SAGC seal)", required: true },
       { viewId: "signing", label: "Sign & Seal", purpose: "SAGC (PLATO) certification", required: true },
       { viewId: "export", label: "Export", purpose: "LandXML/GeoJSON for SG", required: false },
@@ -331,7 +331,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     views: [
       { viewId: "projects", label: "Projects", purpose: "Create DE cadastral project (ETRS89/UTM)", required: true },
       { viewId: "traverse", label: "Traverse", purpose: "Traverse per DVW/AdV (Genauigkeitsstufe A/B)", required: true },
-      { viewId: "cogo", label: "COGO", purpose: "Boundary determination / Abmarkung", required: true },
+      { viewId: "cogo", label: "COGO", purpose: "Prepare local planar coordinate drafts; this does not determine or mark a legal boundary", required: true },
       { viewId: "deedplan", label: "Deed Plan", purpose: "Amtlicher Lageplan / Grenzfeststellung (A4 portrait)", required: true },
       { viewId: "signing", label: "Sign & Seal", purpose: "ÖbVI certification (DVW)", required: true },
       { viewId: "export", label: "Export", purpose: "LandXML/GeoJSON in ETRS89/UTM (EPSG:25832/25833)", required: false },

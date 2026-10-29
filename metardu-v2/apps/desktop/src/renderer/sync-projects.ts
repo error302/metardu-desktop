@@ -18,6 +18,7 @@ export interface StoredForSync {
   name: string;
   description?: string;
   countryCode: string;
+  crsSrid?: number;
   surveyType: string;
   sourceView: string;
   output: unknown;
@@ -64,6 +65,7 @@ export function projectFromStored(
     data: {
       output: stored.output,
       sourceView: stored.sourceView,
+      ...(stored.crsSrid !== undefined ? { crsSrid: stored.crsSrid } : {}),
       ...(stored.planSheet ? { planSheet: stored.planSheet } : {}),
     },
   };

@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback, type ComponentType } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, type ComponentType } from "react";
 import { CommandPalette, type CommandPaletteViewId, type CommandPaletteNavItem } from "./CommandPalette.js";
+import { useLicense } from "../services/license-service.js";
 import {
   Map as MapIcon,
   Crosshair,
@@ -39,6 +40,7 @@ import {
   BarChart3,
   Maximize2,
   Camera,
+  Puzzle,
   type LucideProps,
 } from "lucide-react";
 import "../styles/metardu-theme.css";
@@ -57,7 +59,7 @@ type ViewId =
   | "dwgcad" | "photogrammetry" | "ntripcaster" | "landportal" | "volumechange"
   | "gnssppk" | "datumtransform"
   | "verticalalignment" | "deformation"
-  | "topo" | "engineering" | "sectional" | "export" | "import" | "signing" | "sync" | "history";
+  | "topo" | "engineering" | "sectional" | "export" | "import" | "signing" | "sync" | "history" | "extensions";
 
 interface NavItem {
   id: ViewId;
@@ -94,8 +96,8 @@ const NAV: NavItem[] = [
   { id: "subdivision", label: "Subdivision", icon: Split, category: "Surveying", shortcut: "g k" },
   { id: "lsa", label: "Network LSA", icon: Activity, category: "Surveying", shortcut: "g j" },
   { id: "deedplan", label: "Deed Plan", icon: FileText, category: "Surveying", shortcut: "g e" },
-  { id: "archive", label: "Registry Archive", icon: Archive, category: "Surveying", shortcut: "g a" },
-  { id: "signing", label: "Sign & Seal", icon: PenTool, category: "Surveying", shortcut: "g y" },
+  { id: "archive", label: "Registry Archive Status", icon: Archive, category: "Surveying", shortcut: "g a" },
+  { id: "signing", label: "Signing Status", icon: PenTool, category: "Surveying", shortcut: "g y" },
   // Engineering
   { id: "verticalalignment", label: "Vertical Alignment", icon: TrendingUp, category: "Engineering", shortcut: "g 2" },
   { id: "deformation", label: "Deformation Monitor", icon: Activity, category: "Engineering", shortcut: "g 3" },
@@ -106,16 +108,71 @@ const NAV: NavItem[] = [
   { id: "asbuilt", label: "As-Built QC", icon: TrendingUp, category: "Engineering", shortcut: "g q" },
   { id: "sectional", label: "Sectional Properties", icon: Building2, category: "Engineering", shortcut: "g z" },
   // Office & Topo
-  { id: "landportal", label: "Land Portal Submit", icon: Send, category: "Office", shortcut: "g 7" },
+  { id: "landportal", label: "Registry Access", icon: Send, category: "Office", shortcut: "g 7" },
   { id: "topo", label: "Topographic", icon: Mountain, category: "Office", shortcut: "g m" },
   { id: "lulc", label: "LULC Analysis", icon: Layers, category: "Office", shortcut: "g u" },
   { id: "officemgmt", label: "Office & Billing", icon: Briefcase, category: "Office", shortcut: "g w" },
-  { id: "licensing", label: "License & Token", icon: Key, category: "Office", shortcut: "g k" },
+  { id: "licensing", label: "Account & Subscription", icon: Key, category: "Office", shortcut: "g k" },
   { id: "history", label: "Version History", icon: Clock, category: "Office", shortcut: "g h" },
   // Export
   { id: "export", label: "Export", icon: Download, category: "Export", shortcut: "g x" },
+  // Community
+  { id: "extensions", label: "Extensions (Preview)", icon: Puzzle, category: "Extensions", shortcut: "g 0" },
 ];
-const CATS = ["Projects", "Field Work", "Drone", "Surveying", "Engineering", "Office", "Export"];
+const CATS = ["Projects", "Field Work", "Drone", "Surveying", "Engineering", "Office", "Export", "Extensions"];
+
+export interface WorkflowStage {
+  id: string;
+  name: string;
+  shortName: string;
+  description: string;
+  viewIds: ViewId[];
+}
+
+export const WORKFLOW_STAGES: WorkflowStage[] = [
+  {
+    id: "all",
+    name: "Available Views",
+    shortName: "All",
+    description: "Views available in this build. Workflow coverage, device support, and jurisdiction evidence vary by module.",
+    viewIds: [],
+  },
+  {
+    id: "stage1_ingest",
+    name: "1. Import & Review",
+    shortName: "1. Input",
+    description: "Project setup, file import, field-book review, and device tools. Instrument support requires model-specific validation.",
+    viewIds: ["projects", "hardware", "import", "fieldbook", "stakeout", "gnss", "gnssppk", "ntripcaster", "sync"],
+  },
+  {
+    id: "stage2_geodesy",
+    name: "2. Geodesy & LSA",
+    shortName: "2. Geodesy",
+    description: "Coordinate, traverse, adjustment, and COGO workspaces. Results require valid inputs and supported sidecar operations.",
+    viewIds: ["traverse", "lsa", "datumtransform", "cogo", "subdivision", "map"],
+  },
+  {
+    id: "stage3_cad_surfaces",
+    name: "3. CAD & Topo",
+    shortName: "3. CAD",
+    description: "CAD, topographic, and engineering workspaces. Output depends on source data, project reference context, and implemented operations.",
+    viewIds: ["dwgcad", "topo", "volumechange", "roaddesign", "verticalalignment", "crosssection", "asbuilt"],
+  },
+  {
+    id: "stage4_drone_lidar",
+    name: "4. Drone & LiDAR",
+    shortName: "4. Drone",
+    description: "Flight-planning, photogrammetry, point-cloud, and raster workspaces. Device and processing coverage must be validated for the intended workflow.",
+    viewIds: ["flight", "photogrammetry", "drone", "pointcloud", "raster", "deformation"],
+  },
+  {
+    id: "stage5_deliverables",
+    name: "5. Documents & Export",
+    shortName: "5. Deliver",
+    description: "Document and export workspaces. Signing, registry lookup, portal submission, and legal acceptance require verified jurisdiction sources and connected services.",
+    viewIds: ["deedplan", "landportal", "signing", "sectional", "archive", "export", "officemgmt", "licensing", "history"],
+  },
+];
 
 const APP_VERSION = "0.5.0";
 
@@ -366,6 +423,8 @@ export const AppShell: React.FC<{
   const [sidebar, setSidebar] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [theme, setThemeState] = useState<ThemeId>(loadPersistedTheme);
+  const [selectedStage, setSelectedStage] = useState<string>("all");
+  const { license } = useLicense();
   const sidecarState = useSidecarState();
   const syncState = useSyncState();
   const projectName = useActiveProjectName();
@@ -373,6 +432,20 @@ export const AppShell: React.FC<{
   const lastKey = useRef<string | null>(null);
   const lastTime = useRef(0);
   const undoRedo = useUndoRedo();
+
+  const currentStage = WORKFLOW_STAGES.find((s) => s.id === selectedStage);
+
+  const filteredNav = useMemo(() => {
+    if (selectedStage === "all" || !currentStage || currentStage.viewIds.length === 0) {
+      return NAV;
+    }
+    return NAV.filter((item) => currentStage.viewIds.includes(item.id));
+  }, [selectedStage, currentStage]);
+
+  const activeCats = useMemo(() => {
+    if (selectedStage === "all") return CATS;
+    return CATS.filter((cat) => filteredNav.some((n) => n.category === cat));
+  }, [selectedStage, filteredNav]);
 
   // Apply persisted theme on mount
   useEffect(() => { applyTheme(theme); }, [theme]);
@@ -448,15 +521,62 @@ export const AppShell: React.FC<{
             <span className="sidebar-brand-version">Desktop v{APP_VERSION}</span>
           </div>
         </div>
+
+        {/* ── Workflow Pipeline Stage Switcher ── */}
+        <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--border-subtle)", background: "rgba(0,0,0,0.2)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+            <span style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--accent-primary)", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Survey Pipeline
+            </span>
+            {selectedStage !== "all" && (
+              <button
+                onClick={() => setSelectedStage("all")}
+                style={{ fontSize: "9px", fontFamily: "var(--font-mono)", color: "var(--text-tertiary)", background: "transparent", border: "none", cursor: "pointer", padding: "1px 4px" }}
+              >
+                Show All
+              </button>
+            )}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "4px" }}>
+            {WORKFLOW_STAGES.map((s) => {
+              const isSelected = selectedStage === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedStage(s.id)}
+                  style={{
+                    fontSize: "10px",
+                    padding: "4px 2px",
+                    textAlign: "center",
+                    borderRadius: "3px",
+                    border: isSelected ? "1px solid var(--accent-primary)" : "1px solid var(--border-subtle)",
+                    background: isSelected ? "var(--accent-primary)" : "var(--bg-tertiary)",
+                    color: isSelected ? "#1A1F36" : "var(--text-secondary)",
+                    fontWeight: isSelected ? "bold" : "normal",
+                    cursor: "pointer",
+                    fontFamily: "var(--font-mono)",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                  title={s.description}
+                >
+                  {s.shortName}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <nav className="app-sidebar-nav">
-          {CATS.map(cat => (
+          {activeCats.map(cat => (
             <div key={cat}>
               <div style={{
                 fontFamily: "var(--font-mono)", fontSize: "10px",
                 color: "var(--text-disabled)", textTransform: "uppercase",
                 letterSpacing: "0.08em", padding: "12px 12px 4px",
               }}>{cat}</div>
-              {NAV.filter(n => n.category === cat).map(item => {
+              {filteredNav.filter(n => n.category === cat).map(item => {
                 const Icon = item.icon;
                 return (
                   <button
@@ -485,10 +605,10 @@ export const AppShell: React.FC<{
       <div className="app-main">
         <div className="app-toolbar">
           <button onClick={cycleTheme} title={`Theme: ${theme} (click to cycle)`} style={{ padding: "3px 10px", fontSize: "11px", fontFamily: "var(--font-mono)", color: "var(--text-tertiary)", background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", borderRadius: "4px", cursor: "pointer" }}>
-            {THEMES.find(t => t.id === theme)?.icon ?? "🌙"}
+            {THEMES.find(t => t.id === theme)?.icon ?? "DARK"}
           </button>
           <button onClick={() => setCmdOpen(true)} title="Search views, projects, points (Ctrl+K)" style={{ padding: "3px 10px", fontSize: "11px", fontFamily: "var(--font-mono)", color: "var(--text-tertiary)", background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", borderRadius: "4px", cursor: "pointer" }}>
-            ⌘K
+            Ctrl+K
           </button>
           <button onClick={() => setSidebar(v => !v)} style={{ padding: "4px 8px", minWidth: 28 }}>
             {sidebar ? "\u25C0" : "\u25B6"}
@@ -532,6 +652,31 @@ export const AppShell: React.FC<{
           <span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
             project: <span style={{ color: "var(--text-secondary)" }}>{projectName}</span>
           </span>
+          <div style={{ width: 1, height: 16, background: "var(--border-default)", margin: "0 4px" }} />
+          <button
+            onClick={() => setView("licensing")}
+            title={
+              license.isAuthenticated
+                ? `Subscription: ${license.tier} (${license.daysRemainingOffline}d offline field lease remaining)`
+                : "METARDU Web subscription verification is not connected. Desktop access is not verified."
+            }
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "5px",
+              padding: "2px 8px",
+              fontSize: "10px",
+              fontFamily: "var(--font-mono)",
+              borderRadius: "4px",
+              cursor: "pointer",
+              border: license.isAuthenticated ? "1px solid var(--accent-primary)" : "1px solid var(--border-default)",
+              background: license.isAuthenticated ? "rgba(255, 149, 0, 0.12)" : "var(--bg-tertiary)",
+              color: license.isAuthenticated ? "var(--accent-primary)" : "var(--text-tertiary)",
+            }}
+          >
+            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: license.isAuthenticated ? "#22C55E" : "#EAB308" }} />
+            <span>{license.isAuthenticated ? `${license.tier.toUpperCase()} | ${license.daysRemainingOffline}D OFFLINE` : "ACCOUNT NOT VERIFIED"}</span>
+          </button>
         </div>
         <div className="app-breadcrumb">
           <span style={{ color: "var(--text-tertiary)" }}>Home</span>
@@ -595,6 +740,9 @@ export const AppShell: React.FC<{
                 {" "}· {syncState.deletes} del
               </span>
             )}
+          </span>
+          <span className="mono" style={{ color: license.isAuthenticated ? "var(--accent-primary)" : "var(--text-disabled)" }}>
+            subscription: {license.isAuthenticated ? `${license.tier.toLowerCase()} (${license.status.toLowerCase()})` : "not verified"}
           </span>
           <div style={{ flex: 1 }} />
           <span className="mono" style={{ color: "var(--text-tertiary)" }}>MetaRDU Desktop v{APP_VERSION}</span>

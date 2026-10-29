@@ -29,6 +29,8 @@ export {
   type SpotHeight,
   type TopoWorkflowInput,
   type TopoWorkflowOutput,
+  type TopographicCoordinateContext,
+  MAX_TOPOGRAPHIC_TIN_POINTS,
 } from "./topographic.js";
 
 export {

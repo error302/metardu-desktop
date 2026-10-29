@@ -28,6 +28,7 @@ import { qgsProjectExporter } from "../qgs-project-generator.js";
 import { INTEGRATION_EXPORTERS } from "../index.js";
 import { runCadastralWorkflow } from "../../workflows/cadastral.js";
 import { runTopographicWorkflow, runEngineeringWorkflow } from "../../workflows/index.js";
+import { gridTinTriangles } from "../../workflows/tests/topographic-fixtures.js";
 import { KENYA } from "@metardu/country-config";
 import type { TopoPoint, TIN } from "../../workflows/topographic.js";
 import type { QgsOptions } from "../qgs-project-generator.js";
@@ -75,6 +76,7 @@ function kenyaTopoOutput() {
   }
   return runTopographicWorkflow({
     points,
+    tinTriangles: gridTinTriangles(5, 5),
     contourInterval: 5,
     country: KENYA,
     planTitle: "Brief 05 Topo",

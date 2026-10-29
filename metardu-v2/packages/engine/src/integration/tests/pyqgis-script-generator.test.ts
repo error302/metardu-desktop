@@ -30,6 +30,7 @@ import { pyQgisScriptExporter } from "../pyqgis-script-generator.js";
 import { INTEGRATION_EXPORTERS } from "../index.js";
 import { runCadastralWorkflow } from "../../workflows/cadastral.js";
 import { runTopographicWorkflow, runEngineeringWorkflow } from "../../workflows/index.js";
+import { gridTinTriangles } from "../../workflows/tests/topographic-fixtures.js";
 import { KENYA } from "@metardu/country-config";
 import type { TopoPoint, TIN } from "../../workflows/topographic.js";
 import type { PyQgisOptions } from "../pyqgis-script-generator.js";
@@ -77,6 +78,7 @@ function kenyaTopoOutput() {
   }
   return runTopographicWorkflow({
     points,
+    tinTriangles: gridTinTriangles(5, 5),
     contourInterval: 5,
     country: KENYA,
     planTitle: "Brief 04 Topo",

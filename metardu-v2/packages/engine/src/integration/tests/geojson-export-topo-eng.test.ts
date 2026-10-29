@@ -31,6 +31,7 @@
 import { describe, it, expect } from "vitest";
 import { geoJsonExporter } from "../geojson-export.js";
 import { runTopographicWorkflow, runEngineeringWorkflow } from "../../workflows/index.js";
+import { gridTinTriangles } from "../../workflows/tests/topographic-fixtures.js";
 import { KENYA } from "@metardu/country-config";
 import type { TopoWorkflowOutput, TopoPoint, TIN } from "../../workflows/topographic.js";
 import type { EngineeringWorkflowOutput } from "../../workflows/engineering.js";
@@ -69,6 +70,7 @@ function makeTopoPoints(): TopoPoint[] {
 function runTopo(): TopoWorkflowOutput {
   return runTopographicWorkflow({
     points: makeTopoPoints(),
+    tinTriangles: gridTinTriangles(5, 5),
     contourInterval: 5,
     country: KENYA,
     planTitle: "Brief 02 Topo Test",
@@ -416,7 +418,7 @@ describe("geoJsonExporter — topo + engineering golden fixtures", () => {
     }
 
     // Topographic summary block in metadata.
-    expect(parsed.metadata.metardu.topographic.triangleCount).toBe(64);
+    expect(parsed.metadata.metardu.topographic.triangleCount).toBe(32);
     expect(parsed.metadata.metardu.topographic.minElevation).toBe(100);
     expect(parsed.metadata.metardu.topographic.maxElevation).toBe(120);
     expect(parsed.metadata.metardu.topographic.contourCount).toBeGreaterThan(0);

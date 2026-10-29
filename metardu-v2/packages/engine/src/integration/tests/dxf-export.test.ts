@@ -6,6 +6,7 @@ import { runTopographicWorkflow, runEngineeringWorkflow } from "../../workflows/
 import { KENYA } from "@metardu/country-config";
 import type { TopoPoint, TIN } from "../../workflows/topographic.js";
 import type { DxfOptions } from "../dxf-export.js";
+import { gridTinTriangles } from "../../workflows/tests/topographic-fixtures.js";
 
 const baseMetadata = {
   projectName: "Brief 08 DXF Test", surveyorName: "Test Surveyor",
@@ -35,7 +36,7 @@ function kenyaTopoOutput() {
   const points: TopoPoint[] = [];
   for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++)
     points.push({ id: `P${x}${y}`, easting: 1000 + x * 10, northing: 2000 + y * 10, elevation: 100 + x * 5 });
-  return runTopographicWorkflow({ points, contourInterval: 5, country: KENYA,
+  return runTopographicWorkflow({ points, tinTriangles: gridTinTriangles(5, 5), contourInterval: 5, country: KENYA,
     planTitle: "Topo", surveyor: { name: "T", regNo: "LS/1234", dateOfSurvey: "2026-07-23" } });
 }
 

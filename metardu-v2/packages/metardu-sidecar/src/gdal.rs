@@ -501,8 +501,11 @@ mod tests {
 
     #[test]
     fn test_generate_contours_rejects_nonpositive_interval() {
+        let temp = tempfile::tempdir().unwrap();
+        let existing_dsm = temp.path().join("invalid-but-existing.tif");
+        std::fs::write(&existing_dsm, b"not a raster; interval validation runs first").unwrap();
         let params = ContourParams {
-            dsm_path: "/etc/hostname".to_string(), // exists but not a GeoTIFF
+            dsm_path: existing_dsm.to_string_lossy().to_string(),
             interval: 0.0,
             min_length: None,
             format: "geojson".to_string(),

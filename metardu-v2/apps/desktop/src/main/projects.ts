@@ -30,6 +30,7 @@ import { app, ipcMain, type BrowserWindow } from "electron";
 import * as path from "node:path";
 import {
   getDatabase,
+  configureDatabasePath,
   closeDatabase,
   listProjects,
   getActiveProjectId,
@@ -91,6 +92,7 @@ function migrateJsonIfNeeded(): void {
 // ─── IPC handler registration ────────────────────────────────────
 
 export function registerProjectIpcHandlers(getWindow: () => BrowserWindow | null): void {
+  configureDatabasePath(path.join(app.getPath("userData"), "metardu.db"));
   console.log("[projects] Initializing database...");
   try {
     getDatabase();

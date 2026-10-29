@@ -17,6 +17,31 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Form3Input, SyncConfig, SyncProject, SyncStatus, SyncConflict, Form4Input, Lra27Input, BeaconCertificateInput, AuPlanOfSurveyInput, ZaSgDiagramInput, GbMeasuredSurveyReportInput, DeGrenzfeststellungInput } from "@metardu/engine-flight-planning";
 import type { StoredProject, ProjectStoreState, CreateProjectInput, UpdateProjectInput } from "../main/project-store-core.js";
+import type {
+  PointCloudImportResult,
+  PointCloudProjectSourceList,
+  PointCloudRecordInspectionJobStart,
+  PointCloudRecordInspectionJobStatus,
+  PointCloudSourceVerification,
+} from "../shared/point-cloud.js";
+import {
+  PLUGIN_RUN_INPUT_SCHEMA,
+  POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA,
+  POINT_CLOUD_SOURCE_ID_SCHEMA,
+  validateSidecarParams,
+} from "@metardu/ipc-schemas";
+
+function requirePointCloudSourceId(value: string): string {
+  const parsed = POINT_CLOUD_SOURCE_ID_SCHEMA.safeParse(value);
+  if (!parsed.success) throw new Error("Point-cloud source identifier must be a UUID.");
+  return parsed.data;
+}
+
+function requirePointCloudInspectionJobId(value: string): string {
+  const parsed = POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA.safeParse(value);
+  if (!parsed.success) throw new Error("Point-cloud inspection job identifier must be a UUID.");
+  return parsed.data;
+}
 
 /** Result of any statutory DRAFT renderer — PDF plus verification status. */
 interface StatutoryResult {
@@ -66,6 +91,14 @@ const ALLOWED_METHODS = new Set<string>([
   "gnss.batch_estimate_covariance",
   // Adjustment engine.
   "adjustment.run",
+  // COGO view — computation remains inside the Rust sidecar.
+  "cogo.radiation",
+  "cogo.bearing_bearing",
+  "cogo.distance_distance",
+  "cogo.midpoint_offset",
+  "cogo.area",
+  // Robust planar Delaunay construction for topographic draft surfaces.
+  "topographic.build_tin",
 ]);
 
 function validateMethod(method: unknown): asserts method is string {
@@ -81,7 +114,15 @@ const metarduApi = {
   sidecar: {
     call: async (method: string, params: unknown): Promise<unknown> => {
       validateMethod(method);
-      return ipcRenderer.invoke("metardu:sidecar:call", method, params);
+      const validation = validateSidecarParams(method, params);
+      if (validation && !validation.success) {
+        throw new Error(`Invalid parameters for ${method}: ${validation.error}`);
+      }
+      return ipcRenderer.invoke(
+        "metardu:sidecar:call",
+        method,
+        validation?.success ? validation.data : params,
+      );
     },
     /** Get current sidecar state: "stopped" | "starting" | "running" | "stopping" | "crashed". */
     getState: (): Promise<string> => ipcRenderer.invoke("metardu:sidecar:state"),
@@ -90,6 +131,20 @@ const metarduApi = {
       const listener = (_event: unknown, state: string): void => callback(state);
       ipcRenderer.on("metardu:sidecar:state", listener);
       return () => ipcRenderer.off("metardu:sidecar:state", listener);
+    },
+  },
+  /** Restricted community WebAssembly preview; selected module bytes never enter the renderer. */
+  plugins: {
+    pickModule: (): Promise<
+      | { canceled: true }
+      | { canceled: false; token: string; filename: string; sizeBytes: number; sha256: string; expiresAt: number; evictedPreviousSelection: boolean }
+    > => ipcRenderer.invoke("metardu:plugins:pickModule"),
+    run: async (request: { moduleToken: string; pluginId: string; version: string; input: unknown }): Promise<unknown> => {
+      const parsed = PLUGIN_RUN_INPUT_SCHEMA.safeParse(request);
+      if (!parsed.success) {
+        throw new Error(`Invalid community plugin request: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+      }
+      return ipcRenderer.invoke("metardu:plugins:run", parsed.data);
     },
   },
   /** App metadata. */
@@ -142,6 +197,21 @@ const metarduApi = {
       format: string;
       pointCount: number;
     }> => ipcRenderer.invoke("metardu:import:fieldData", filename, content),
+  },
+  /** Import a LAS/LAZ source into the active project through the native file picker. */
+  pointCloud: {
+    importSource: (): Promise<PointCloudImportResult> =>
+      ipcRenderer.invoke("metardu:pointcloud:importToActiveProject"),
+    listActiveProjectSources: (): Promise<PointCloudProjectSourceList> =>
+      ipcRenderer.invoke("metardu:pointcloud:listActiveProjectSources"),
+    verifySource: (sourceId: string): Promise<PointCloudSourceVerification> =>
+      ipcRenderer.invoke("metardu:pointcloud:verifyActiveProjectSource", requirePointCloudSourceId(sourceId)),
+    startRecordInspection: (sourceId: string): Promise<PointCloudRecordInspectionJobStart> =>
+      ipcRenderer.invoke("metardu:pointcloud:startActiveProjectRecordInspection", requirePointCloudSourceId(sourceId)),
+    recordInspectionStatus: (jobId: string): Promise<PointCloudRecordInspectionJobStatus> =>
+      ipcRenderer.invoke("metardu:pointcloud:activeProjectRecordInspectionStatus", requirePointCloudInspectionJobId(jobId)),
+    cancelRecordInspection: (jobId: string): Promise<{ accepted: boolean }> =>
+      ipcRenderer.invoke("metardu:pointcloud:cancelActiveProjectRecordInspection", requirePointCloudInspectionJobId(jobId)),
   },
   /** Digital signature + seal (Tier 1 #4). */
   signing: {
@@ -545,18 +615,20 @@ const metarduApi = {
   /** Coordinate helpers (projected → WGS84) for the MapView overlay. */
   geo: {
     /**
-     * Convert projected coordinates (easting/northing in the country's
-     * primary SRID) to WGS84 lat/lon via the sidecar. Used by the MapView
+     * Convert projected coordinates in the explicit project CRS (or the
+     * configured jurisdiction profile CRS) to WGS84 via the sidecar. Used by the MapView
      * to place the active project's real survey geometry on the basemap.
-     * @param countryCode ISO 3166-1 alpha-2 (e.g. "KE")
-     * @param points Array of { easting, northing } in the country CRS
+     * @param countryCode Optional ISO 3166-1 alpha-2 jurisdiction
+     * @param points Array of { easting, northing } in the project CRS
+     * @param sourceSrid Optional explicit EPSG code, independent of jurisdiction
      * @returns Same-length array of { lat, lon } in WGS84 decimal degrees
      */
     projectToWgs84: (
-      countryCode: string,
+      countryCode: string | undefined,
       points: Array<{ easting: number; northing: number }>,
+      sourceSrid?: number,
     ): Promise<Array<{ lat: number; lon: number }>> =>
-      ipcRenderer.invoke("metardu:geo:projectToWgs84", countryCode, points),
+      ipcRenderer.invoke("metardu:geo:projectToWgs84", countryCode, points, sourceSrid),
   },
   /** Sync with metardu web (offline-first). The SyncClient lives in the
    *  main process; these handlers proxy to it. */

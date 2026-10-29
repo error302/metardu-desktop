@@ -62,6 +62,27 @@ describe("project-store-core", () => {
     expect(activeProjectOf(s1)?.id).toBe(p.id);
   });
 
+  it("creates a neutral project without assigning a jurisdiction", () => {
+    const s1 = createProject(emptyProjectStore(), makeInput({
+      name: "Global Control Network",
+      countryCode: "",
+    }));
+
+    expect(s1.projects[0]!.name).toBe("Global Control Network");
+    expect(s1.projects[0]!.countryCode).toBe("");
+    expect(activeProjectOf(s1)?.countryCode).toBe("");
+  });
+
+  it("stores an explicit project CRS independently of the jurisdiction", () => {
+    const s1 = createProject(emptyProjectStore(), makeInput({
+      name: "Global UTM project",
+      countryCode: "",
+      crsSrid: 32756,
+    }));
+
+    expect(s1.projects[0]).toMatchObject({ countryCode: "", crsSrid: 32756 });
+  });
+
   it("create is immutable — the input state is untouched", () => {
     const s0 = emptyProjectStore();
     createProject(s0, makeInput());
@@ -82,6 +103,18 @@ describe("project-store-core", () => {
     expect(p.surveyType).toBe("cadastral");
     expect(p.sourceView).toBe("TopographicView");
     expect(activeProjectOf(s2)?.id).toBe(id);
+  });
+
+  it("updates and clears the explicit project CRS without changing jurisdiction", () => {
+    const s1 = createProject(emptyProjectStore(), makeInput({ countryCode: "", crsSrid: 32756 }));
+    const id = s1.projects[0]!.id;
+    const s2 = updateProject(s1, { id, crsSrid: 32633 });
+    expect(s2.projects[0]).toMatchObject({ countryCode: "", crsSrid: 32633, version: 1 });
+
+    const s3 = updateProject(s2, { id, crsSrid: null });
+    expect(s3.projects[0]?.crsSrid).toBeUndefined();
+    expect(s3.projects[0]?.countryCode).toBe("");
+    expect(s3.projects[0]?.version).toBe(2);
   });
 
   it("update with an unknown id is a no-op (same state reference)", () => {

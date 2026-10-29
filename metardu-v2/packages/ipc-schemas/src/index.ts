@@ -40,6 +40,22 @@ import { GCP_SCHEMAS, type GcpSchemaName } from "./namespaces/gcp.js";
 import { PIPELINE_SCHEMAS, type PipelineSchemaName } from "./namespaces/pipeline.js";
 import { PARCEL_SCHEMAS, type ParcelSchemaName } from "./namespaces/parcel.js";
 import { TRAVERSE_SCHEMAS, type TraverseSchemaName } from "./namespaces/traverse.js";
+import {
+  COGO_SIDECAR_PARAMS,
+  TOPOGRAPHIC_SIDECAR_PARAMS,
+  SIDECAR_PARAMS,
+  type CogoSidecarMethod,
+  type TopographicSidecarMethod,
+  type SidecarMethod,
+  validateCogoSidecarParams,
+  validateSidecarParams,
+} from "./namespaces/cogo.js";
+export { MAX_COMMUNITY_PLUGIN_INPUT_BYTES, PLUGIN_RUN_INPUT_SCHEMA } from "./namespaces/plugins.js";
+export type { PluginRunInput } from "./namespaces/plugins.js";
+export {
+  POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA,
+  POINT_CLOUD_SOURCE_ID_SCHEMA,
+} from "./namespaces/point-cloud.js";
 
 // ─── Aggregate registry ────────────────────────────────────────────
 
@@ -168,3 +184,12 @@ export type {
   ParcelSchemaName,
   TraverseSchemaName,
 };
+
+export {
+  COGO_SIDECAR_PARAMS,
+  TOPOGRAPHIC_SIDECAR_PARAMS,
+  SIDECAR_PARAMS,
+  validateCogoSidecarParams,
+  validateSidecarParams,
+};
+export type { CogoSidecarMethod, TopographicSidecarMethod, SidecarMethod };

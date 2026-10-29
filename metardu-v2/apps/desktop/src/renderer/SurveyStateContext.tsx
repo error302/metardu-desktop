@@ -132,6 +132,10 @@ interface SurveyStateContextValue {
   state: SurveyState | null;
   /** Set the current survey output. Called by workflow views. */
   setSurveyOutput: (output: unknown, surveyType: string, sourceView: string, countryCode: string) => void;
+  /** Set and persist a computed draft without invoking statutory auto-export. */
+  setSurveyDraftOutput: (output: unknown, surveyType: string, sourceView: string, countryCode: string) => Promise<void>;
+  /** Persist an explicitly unverified draft without setting export state or triggering statutory auto-export. */
+  saveDraftToProject: (output: unknown, surveyType: string, sourceView: string, countryCode: string) => Promise<void>;
   /** Clear the current survey state. */
   clear: () => void;
   /** Cross-import payload from another view (one-shot — consumed on read). @deprecated Use bus.on() / bus.emit() */
@@ -156,7 +160,7 @@ interface SurveyStateContextValue {
   /** Create a new empty project and make it active. Resolves when the IPC write lands. */
   createProject: (input: Omit<CreateProjectInput, "sourceView" | "output">) => Promise<void>;
   /** Update a project's editable fields (name, description, countryCode, surveyType, planSheet). Resolves when the IPC write lands. */
-  updateProject: (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "surveyType" | "planSheet">>) => Promise<void>;
+  updateProject: (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "crsSrid" | "surveyType" | "planSheet">>) => Promise<void>;
   /** Delete a project (the active project moves to the most recent). Resolves when the IPC write lands. */
   deleteProject: (id: string) => Promise<void>;
 }
@@ -185,6 +189,14 @@ export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ childre
     setActive: storeSetActive,
     save: storeSave,
   } = useProjectStore();
+
+  // Mirror the active project into a ref so async callbacks (auto-export)
+  // can read the latest value without re-binding. Declared here because
+  // triggerAutoExport references it during render.
+  const activeProjectRef = React.useRef(activeProject);
+  React.useEffect(() => {
+    activeProjectRef.current = activeProject;
+  }, [activeProject]);
 
   // Persist a survey output into the project store. Delegates to the
   // standalone useProjectStore hook which handles auto-create and IPC.
@@ -262,6 +274,27 @@ export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ childre
     [storeSave],
   );
 
+  const saveDraftToProject = useCallback(
+    async (output: unknown, surveyType: string, sourceView: string, countryCode: string) => {
+      await storeSave(output, surveyType, sourceView, countryCode);
+    },
+    [storeSave],
+  );
+
+  const setSurveyDraftOutput = useCallback(
+    async (output: unknown, surveyType: string, sourceView: string, countryCode: string) => {
+      await storeSave(output, surveyType, sourceView, countryCode);
+      setState({
+        output,
+        surveyType,
+        sourceView,
+        timestamp: new Date().toISOString(),
+        countryCode,
+      });
+    },
+    [storeSave],
+  );
+
   const triggerAutoExportRef = React.useRef<(o: unknown, t: string, s: string, c: string) => void>(() => {});
   triggerAutoExportRef.current = triggerAutoExport;
 
@@ -280,7 +313,7 @@ export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ childre
     await storeCreate(input);
   }, [storeCreate]);
 
-  const updateProject = useCallback(async (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "surveyType" | "planSheet">>) => {
+  const updateProject = useCallback(async (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "crsSrid" | "surveyType" | "planSheet">>) => {
     await storeUpdate(id, input);
   }, [storeUpdate]);
 
@@ -293,6 +326,8 @@ export const SurveyStateProvider: React.FC<{ children: ReactNode }> = ({ childre
       value={{
         state,
         setSurveyOutput,
+        setSurveyDraftOutput,
+        saveDraftToProject,
         clear,
         crossImport,
         setCrossImport,
