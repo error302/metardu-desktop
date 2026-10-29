@@ -3530,3 +3530,80 @@ No full Electron launch or user-selected LAS/LAZ file run was performed. The Rus
 
 Next product gate: support durable project-managed source data and full point-record inspection, then validate one named classifier on independent fixtures and representative field datasets before exposing classified deliverables.
 
+---
+
+## 29 October 2026 — Project-linked LAS/LAZ source storage
+
+Changed files:
+- `metardu-v2/apps/desktop/src/main/database.ts`
+- `metardu-v2/apps/desktop/src/main/index.ts`
+- `metardu-v2/apps/desktop/src/main/point-cloud-store.ts`
+- `metardu-v2/apps/desktop/src/preload/index.ts`
+- `metardu-v2/apps/desktop/src/renderer/views/PointCloudView.tsx`
+- `metardu-v2/apps/desktop/src/shared/point-cloud.ts`
+- `metardu-v2/apps/desktop/src/tests/database-point-cloud.test.ts`
+- `metardu-v2/apps/desktop/src/tests/database-project-crs.test.ts`
+- `metardu-v2/apps/desktop/src/tests/point-cloud-store.test.ts`
+- `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`
+- `metardu-v2/docs/agent-briefs/desktop-pointcloud-project-source-store.md`
+- `metardu-v2/docs/decisions/0008-pointcloud-source-store.md`
+- `worklog.md`
+
+Changes:
+- Added a transactional SQLite v2-to-v3 migration and project-linked source metadata. Existing project rows remain unchanged; deleting a project detaches source metadata and does not delete the stored bytes.
+- LAS/LAZ import is now project-scoped. Electron main copies the selected file through a constant-memory staging stream, hashes the copied bytes, inspects the staged header in the Rust sidecar, then publishes an exclusive content-addressed copy and verifies its final byte count and SHA-256 before inserting metadata. The selected original is never modified.
+- The renderer gets a typed project source summary without absolute paths or storage keys. It can list sources for the active project and explicitly recheck the full stored-file hash; source IDs outside the active project are rejected.
+- The managed object store lives in the current Desktop installation's `userData` directory. It is not a portable project bundle or backup. An interrupted object copy may leave an incomplete content-keyed file; later imports fail closed on that file, and a reviewed recovery tool remains future work.
+- The LinkedIn post is a product signal: its author describes building a small point-cloud classification tool with Claude, but does not identify its method, class schema, reference data, or accuracy. The current product still does not read every point record, classify, generate DTM/contours, or produce survey deliverables.
+
+Verification:
+~~~text
+$ npm run test --workspace @metardu/desktop -- --run src/tests/point-cloud-store.test.ts src/tests/database-point-cloud.test.ts src/tests/database-project-crs.test.ts
+Test Files  3 passed (3)
+Tests       8 passed (8)
+Exit code 0.
+
+$ npm run test --workspace @metardu/desktop -- --run
+Test Files  24 passed | 1 skipped (25)
+Tests      267 passed | 7 skipped (274)
+Exit code 0. The skipped cases include the existing IPC round-trip suite.
+
+$ npm run build --workspace @metardu/desktop
+Exit code 0.
+
+$ npx tsc --noEmit  # apps/desktop
+Exit code 0.
+
+$ npm run build:renderer
+2,455 modules transformed; built in 11.19s.
+Exit code 0. Existing Node built-in externalization warnings remain.
+
+$ npx tsc --noEmit  # packages/engine
+Exit code 0.
+
+$ npm test --workspace @metardu/engine-flight-planning
+Test Files  45 passed (45)
+Tests      868 passed (868)
+Exit code 0. The loopback mock-server suite required approved host access because sandbox networking denied its 127.0.0.1 bind.
+
+$ cargo test --release --no-default-features --features instrument import::point_cloud::tests
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out
+Exit code 0.
+
+$ cargo test --release --no-default-features --features instrument
+test result: FAILED. 181 passed; 3 failed; 0 ignored
+Exit code 1. The unrelated failures are two existing tests whose asserted error messages do not match and one test that cannot create the hard-coded /tmp/output directory (Windows access denied). Rerunning with approved host access did not change these failures.
+
+$ cargo build --release
+Exit code 101. The default GDAL-enabled build requires missing `gdal_i.lib` (`GDAL_LIB_DIR` or `GDAL_HOME\lib`). The default release test has the same missing-library blocker.
+
+$ Test-Path scripts/electron-smoke.sh
+False. No Electron IPC runtime smoke or actual GUI import is claimed.
+
+$ git diff --check
+Exit code 0; Git printed only Windows LF-to-CRLF notices.
+~~~
+
+Next product gate: stream and validate actual point records, expose cancellable host-managed chunk reads to trusted processing code, then evaluate a named classifier against independent reference datasets. Preserve source hash and method provenance in every derived artifact; keep classification and professional delivery unavailable until accuracy and round-trip evidence is established.
+

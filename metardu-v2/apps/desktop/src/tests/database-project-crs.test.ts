@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 describe("durable project CRS metadata", () => {
-  it("migrates a v1 project table without changing legacy project rows", () => {
+  it("migrates a v1 project table to the current schema without changing legacy project rows", () => {
     const db = new Database(":memory:") as BetterSqlite3.Database;
     try {
       db.exec(`
@@ -45,7 +45,8 @@ describe("durable project CRS metadata", () => {
 
       const columns = db.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>;
       expect(columns.some((column) => column.name === "crsSrid")).toBe(true);
-      expect((db.prepare("SELECT version FROM schema_version").get() as { version: number }).version).toBe(2);
+      expect((db.prepare("SELECT version FROM schema_version").get() as { version: number }).version).toBe(3);
+      expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'point_cloud_sources'").get()).toBeTruthy();
       expect(getProject(db, "legacy-1")).toMatchObject({
         id: "legacy-1",
         name: "Legacy Project",

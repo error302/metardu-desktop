@@ -33,6 +33,27 @@ import { getCountryConfig, crsLabelForCountry, type CountryCode, type TitleBlock
 import { registerSyncIpcHandlers } from "./sync.js";
 import { registerProjectIpcHandlers } from "./projects.js";
 import { registerInstrumentIpcHandlers } from "./instrument.js";
+import {
+  createPointCloudSource,
+  getActiveProjectId,
+  getDatabase,
+  getProject,
+  listProjectPointCloudSources,
+  type StoredPointCloudSource,
+} from "./database.js";
+import {
+  publishPointCloudObject,
+  removeStagedPointCloudSource,
+  stagePointCloudSource,
+  verifyPointCloudObject,
+} from "./point-cloud-store.js";
+import type {
+  PointCloudHeaderDetails,
+  PointCloudImportResult,
+  PointCloudProjectSourceList,
+  PointCloudSourceSummary,
+  PointCloudSourceVerification,
+} from "../shared/point-cloud.js";
 import { makeProjectToWgs84 } from "./geodesy.js";
 import { PLUGIN_RUN_INPUT_SCHEMA, type PluginRunInput } from "@metardu/ipc-schemas";
 
@@ -87,19 +108,20 @@ function resolveSidecarBinary(): string | null {
 let mainWindow: BrowserWindow | null = null;
 let sidecar: SidecarClient | null = null;
 
-interface PointCloudHeaderDetails {
-  format: "LAS" | "LAZ";
-  version: string;
-  headerDeclaredPointCount: string;
-  pointFormatId: number;
-  pointRecordAttributes: { gpsTime: boolean; rgb: boolean; nearInfrared: boolean; waveform: boolean; extraBytes: number };
-  bounds: { min: Record<"x" | "y" | "z", number | null>; max: Record<"x" | "y" | "z", number | null> };
-  coordinateScale: Record<"x" | "y" | "z", number | null>;
-  coordinateOffset: Record<"x" | "y" | "z", number | null>;
-  crsEvidence: { hasAnyCrsRecord: boolean; hasWktCrs: boolean; wktCrs: string | null; geoTiffCrsDecoded: boolean };
-  headerDeclaredPointsByReturn: Array<{ returnNumber: number; headerDeclaredPointCount: string | null }>;
-  copcInfoRecordPresent: boolean;
-  warnings: string[];
+function pointCloudSourceSummary(
+  source: StoredPointCloudSource,
+  storageStatus: PointCloudSourceSummary["storageStatus"] = "notChecked",
+): PointCloudSourceSummary {
+  return {
+    id: source.id,
+    fileName: path.basename(source.fileName),
+    fileSizeBytes: source.fileSizeBytes,
+    contentSha256: source.contentSha256,
+    format: source.format,
+    importedAt: source.importedAt,
+    storageStatus,
+    header: JSON.parse(source.headerJson) as PointCloudHeaderDetails,
+  };
 }
 
 const MAX_PLUGIN_MODULE_BYTES = 8 * 1024 * 1024;
@@ -406,36 +428,90 @@ function registerIpcHandlers(): void {
     return importFieldDataAsync(filename, content, { parseRinexEpochs });
   });
 
-  // LAS/LAZ source inspection is read-only. The native picker owns the path;
-  // it is sent to the sidecar but never returned to the renderer or extension API.
-  ipcMain.handle("metardu:pointcloud:pickAndInspect", async () => {
+  // The native picker and managed source store keep all absolute paths in main.
+  // Only a typed, project-linked source summary crosses the preload bridge.
+  ipcMain.handle("metardu:pointcloud:importToActiveProject", async (): Promise<PointCloudImportResult> => {
+    const database = getDatabase();
+    const activeProjectId = getActiveProjectId(database);
+    const project = activeProjectId ? getProject(database, activeProjectId) : null;
+    if (!project) throw new Error("Create or activate a survey project before importing a point cloud.");
+    if (!sidecar || !sidecar.isRunning()) {
+      throw new Error("Rust sidecar is not running; point-cloud header inspection is unavailable.");
+    }
     if (!mainWindow) throw new Error("Desktop window is not available");
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: "Inspect a LAS or LAZ point-cloud header",
-      buttonLabel: "Inspect header",
+      title: `Import a LAS or LAZ source into ${project.name}`,
+      buttonLabel: "Import source",
       properties: ["openFile"],
       filters: [{ name: "LAS / LAZ point clouds", extensions: ["las", "laz"] }],
     });
     if (result.canceled || result.filePaths.length === 0) return { canceled: true as const };
 
-    const sourcePath = result.filePaths[0]!;
-    const extension = path.extname(sourcePath).toLowerCase();
-    if (extension !== ".las" && extension !== ".laz") {
-      throw new Error("Select a LAS or LAZ file for header inspection.");
+    const staged = await stagePointCloudSource(result.filePaths[0]!, app.getPath("userData"));
+    try {
+      // Validate the managed staging copy, not the mutable original path. A malformed
+      // source never becomes a project record or a published source object.
+      const header = await sidecar.call<PointCloudHeaderDetails>("pointcloud.inspect_header", {
+        path: staged.stagingPath,
+      });
+      const published = await publishPointCloudObject(staged, app.getPath("userData"));
+      const stored = createPointCloudSource(database, {
+        projectId: project.id,
+        fileName: staged.fileName,
+        storageKey: published.storageKey,
+        contentSha256: staged.contentSha256,
+        fileSizeBytes: staged.fileSizeBytes,
+        sourceExtension: staged.sourceExtension,
+        format: header.format,
+        headerJson: JSON.stringify(header),
+      });
+      return {
+        canceled: false,
+        projectName: project.name,
+        source: pointCloudSourceSummary(stored, "verified"),
+      };
+    } finally {
+      await removeStagedPointCloudSource(staged.stagingPath).catch((error) => {
+        console.warn("[point-cloud] Could not remove staging file:", (error as Error).message);
+      });
     }
-    const sourceMetadata = await fs.promises.stat(sourcePath);
-    if (!sourceMetadata.isFile()) throw new Error("Selected point-cloud source is not a regular file.");
-    if (sourceMetadata.size < 227) throw new Error("Selected file is too small to contain a LAS header.");
-    if (!sidecar || !sidecar.isRunning()) {
-      throw new Error("Rust sidecar is not running; point-cloud header inspection is unavailable.");
-    }
+  });
 
-    const header = await sidecar.call<PointCloudHeaderDetails>("pointcloud.inspect_header", { path: sourcePath });
+  ipcMain.handle("metardu:pointcloud:listActiveProjectSources", (): PointCloudProjectSourceList => {
+    const database = getDatabase();
+    const projectId = getActiveProjectId(database);
+    const project = projectId ? getProject(database, projectId) : null;
+    if (!project) return { activeProjectName: null, sources: [] };
     return {
-      canceled: false as const,
-      fileName: path.basename(sourcePath),
-      fileSizeBytes: sourceMetadata.size.toString(),
-      header,
+      activeProjectName: project.name,
+      sources: listProjectPointCloudSources(database, project.id).map((source) => pointCloudSourceSummary(source)),
+    };
+  });
+
+  ipcMain.handle("metardu:pointcloud:verifyActiveProjectSource", async (_event, sourceId: unknown): Promise<PointCloudSourceVerification> => {
+    if (typeof sourceId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceId)) {
+      throw new Error("Point-cloud source identifier is invalid.");
+    }
+    const database = getDatabase();
+    const projectId = getActiveProjectId(database);
+    const source = projectId
+      ? listProjectPointCloudSources(database, projectId).find((candidate) => candidate.id === sourceId)
+      : undefined;
+    if (!source) throw new Error("Point-cloud source is not attached to the active project.");
+
+    const verification = await verifyPointCloudObject(
+      app.getPath("userData"),
+      source.storageKey,
+      source.contentSha256,
+      source.fileSizeBytes,
+    );
+    return {
+      sourceId,
+      status: verification.status,
+      recordedSha256: source.contentSha256,
+      actualSha256: verification.actualSha256,
+      recordedSizeBytes: source.fileSizeBytes,
+      actualSizeBytes: verification.actualSizeBytes,
     };
   });
 

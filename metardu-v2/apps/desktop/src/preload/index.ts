@@ -17,6 +17,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Form3Input, SyncConfig, SyncProject, SyncStatus, SyncConflict, Form4Input, Lra27Input, BeaconCertificateInput, AuPlanOfSurveyInput, ZaSgDiagramInput, GbMeasuredSurveyReportInput, DeGrenzfeststellungInput } from "@metardu/engine-flight-planning";
 import type { StoredProject, ProjectStoreState, CreateProjectInput, UpdateProjectInput } from "../main/project-store-core.js";
+import type { PointCloudImportResult, PointCloudProjectSourceList, PointCloudSourceVerification } from "../shared/point-cloud.js";
 import { PLUGIN_RUN_INPUT_SCHEMA, validateSidecarParams } from "@metardu/ipc-schemas";
 
 /** Result of any statutory DRAFT renderer — PDF plus verification status. */
@@ -174,30 +175,14 @@ const metarduApi = {
       pointCount: number;
     }> => ipcRenderer.invoke("metardu:import:fieldData", filename, content),
   },
-  /** Read LAS/LAZ header metadata from a file chosen by the native file picker. */
+  /** Import a LAS/LAZ source into the active project through the native file picker. */
   pointCloud: {
-    inspectSource: (): Promise<
-      | { canceled: true }
-      | {
-          canceled: false;
-          fileName: string;
-          fileSizeBytes: string;
-          header: {
-            format: "LAS" | "LAZ";
-            version: string;
-            headerDeclaredPointCount: string;
-            pointFormatId: number;
-            pointRecordAttributes: { gpsTime: boolean; rgb: boolean; nearInfrared: boolean; waveform: boolean; extraBytes: number };
-            bounds: { min: Record<"x" | "y" | "z", number | null>; max: Record<"x" | "y" | "z", number | null> };
-            coordinateScale: Record<"x" | "y" | "z", number | null>;
-            coordinateOffset: Record<"x" | "y" | "z", number | null>;
-            crsEvidence: { hasAnyCrsRecord: boolean; hasWktCrs: boolean; wktCrs: string | null; geoTiffCrsDecoded: boolean };
-            headerDeclaredPointsByReturn: Array<{ returnNumber: number; headerDeclaredPointCount: string | null }>;
-            copcInfoRecordPresent: boolean;
-            warnings: string[];
-          };
-        }
-    > => ipcRenderer.invoke("metardu:pointcloud:pickAndInspect"),
+    importSource: (): Promise<PointCloudImportResult> =>
+      ipcRenderer.invoke("metardu:pointcloud:importToActiveProject"),
+    listActiveProjectSources: (): Promise<PointCloudProjectSourceList> =>
+      ipcRenderer.invoke("metardu:pointcloud:listActiveProjectSources"),
+    verifySource: (sourceId: string): Promise<PointCloudSourceVerification> =>
+      ipcRenderer.invoke("metardu:pointcloud:verifyActiveProjectSource", sourceId),
   },
   /** Digital signature + seal (Tier 1 #4). */
   signing: {

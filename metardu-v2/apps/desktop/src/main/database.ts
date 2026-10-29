@@ -93,9 +93,53 @@ export interface OperationLogEntry {
   timestamp: string;
 }
 
+/** Database metadata for a project-linked point-cloud source. Paths never cross IPC. */
+export interface StoredPointCloudSource {
+  id: string;
+  projectId: string | null;
+  fileName: string;
+  storageKey: string;
+  contentSha256: string;
+  fileSizeBytes: string;
+  sourceExtension: "las" | "laz";
+  format: "LAS" | "LAZ";
+  headerJson: string;
+  importedAt: string;
+}
+
+export interface CreatePointCloudSourceInput {
+  projectId: string;
+  fileName: string;
+  storageKey: string;
+  contentSha256: string;
+  fileSizeBytes: string;
+  sourceExtension: "las" | "laz";
+  format: "LAS" | "LAZ";
+  headerJson: string;
+}
+
 // ─── Schema ──────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
+
+const POINT_CLOUD_SOURCE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS point_cloud_sources (
+    id             TEXT PRIMARY KEY,
+    projectId      TEXT,
+    fileName       TEXT NOT NULL,
+    storageKey     TEXT NOT NULL,
+    contentSha256  TEXT NOT NULL CHECK (length(contentSha256) = 64),
+    fileSizeBytes  TEXT NOT NULL,
+    sourceExtension TEXT NOT NULL CHECK (sourceExtension IN ('las', 'laz')),
+    format         TEXT NOT NULL CHECK (format IN ('LAS', 'LAZ')),
+    headerJson     TEXT NOT NULL,
+    importedAt     TEXT NOT NULL,
+    FOREIGN KEY (projectId) REFERENCES projects(id) ON DELETE SET NULL,
+    UNIQUE (projectId, storageKey)
+  );
+  CREATE INDEX IF NOT EXISTS idx_point_cloud_sources_project
+    ON point_cloud_sources(projectId, importedAt DESC);
+`;
 
 const SCHEMA_SQL = `
   -- Schema version tracking
@@ -141,6 +185,8 @@ const SCHEMA_SQL = `
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+
+  ${POINT_CLOUD_SOURCE_SCHEMA_SQL}
 `;
 
 // ─── Database singleton ──────────────────────────────────────────
@@ -221,6 +267,13 @@ export function migrateDatabase(database: BetterSqlite3.Database): void {
       database.prepare("UPDATE schema_version SET version = ?").run(2);
     })();
   }
+
+  if (current < 3) {
+    database.transaction(() => {
+      database.exec(POINT_CLOUD_SOURCE_SCHEMA_SQL);
+      database.prepare("UPDATE schema_version SET version = ?").run(3);
+    })();
+  }
 }
 
 // ─── Project CRUD ────────────────────────────────────────────────
@@ -240,6 +293,71 @@ export function getActiveProjectId(database: BetterSqlite3.Database): string | n
 export function getProject(database: BetterSqlite3.Database, id: string): StoredProject | null {
   const row = database.prepare("SELECT * FROM projects WHERE id = ?").get(id) as Row | undefined;
   return row ? rowToProject(row) : null;
+}
+
+export function createPointCloudSource(
+  database: BetterSqlite3.Database,
+  input: CreatePointCloudSourceInput,
+): StoredPointCloudSource {
+  const digest = input.contentSha256.toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error("Point-cloud source SHA-256 is invalid.");
+  if (input.storageKey !== `${digest}.${input.sourceExtension}`) {
+    throw new Error("Point-cloud source storage key does not match its hash and extension.");
+  }
+  if (!/^\d+$/.test(input.fileSizeBytes)) throw new Error("Point-cloud source size must be an unsigned byte count.");
+  if (input.format !== "LAS" && input.format !== "LAZ") throw new Error("Point-cloud source format is unsupported.");
+  JSON.parse(input.headerJson);
+
+  const existing = database
+    .prepare("SELECT * FROM point_cloud_sources WHERE projectId = ? AND storageKey = ?")
+    .get(input.projectId, input.storageKey) as StoredPointCloudSource | undefined;
+  if (existing) {
+    if (existing.contentSha256 !== digest || existing.fileSizeBytes !== input.fileSizeBytes) {
+      throw new Error("Existing project source metadata conflicts with the verified content object.");
+    }
+    return existing;
+  }
+
+  const source: StoredPointCloudSource = {
+    id: crypto.randomUUID(),
+    projectId: input.projectId,
+    fileName: input.fileName,
+    storageKey: input.storageKey,
+    contentSha256: digest,
+    fileSizeBytes: input.fileSizeBytes,
+    sourceExtension: input.sourceExtension,
+    format: input.format,
+    headerJson: input.headerJson,
+    importedAt: new Date().toISOString(),
+  };
+  database
+    .prepare(
+      `INSERT INTO point_cloud_sources
+        (id, projectId, fileName, storageKey, contentSha256, fileSizeBytes, sourceExtension, format, headerJson, importedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      source.id,
+      source.projectId,
+      source.fileName,
+      source.storageKey,
+      source.contentSha256,
+      source.fileSizeBytes,
+      source.sourceExtension,
+      source.format,
+      source.headerJson,
+      source.importedAt,
+    );
+  return source;
+}
+
+export function listProjectPointCloudSources(
+  database: BetterSqlite3.Database,
+  projectId: string,
+): StoredPointCloudSource[] {
+  return database
+    .prepare("SELECT * FROM point_cloud_sources WHERE projectId = ? ORDER BY importedAt DESC, id ASC")
+    .all(projectId) as StoredPointCloudSource[];
 }
 
 export function createProjectInDb(
