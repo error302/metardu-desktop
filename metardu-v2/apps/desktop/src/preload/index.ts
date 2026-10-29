@@ -174,6 +174,31 @@ const metarduApi = {
       pointCount: number;
     }> => ipcRenderer.invoke("metardu:import:fieldData", filename, content),
   },
+  /** Read LAS/LAZ header metadata from a file chosen by the native file picker. */
+  pointCloud: {
+    inspectSource: (): Promise<
+      | { canceled: true }
+      | {
+          canceled: false;
+          fileName: string;
+          fileSizeBytes: string;
+          header: {
+            format: "LAS" | "LAZ";
+            version: string;
+            headerDeclaredPointCount: string;
+            pointFormatId: number;
+            pointRecordAttributes: { gpsTime: boolean; rgb: boolean; nearInfrared: boolean; waveform: boolean; extraBytes: number };
+            bounds: { min: Record<"x" | "y" | "z", number | null>; max: Record<"x" | "y" | "z", number | null> };
+            coordinateScale: Record<"x" | "y" | "z", number | null>;
+            coordinateOffset: Record<"x" | "y" | "z", number | null>;
+            crsEvidence: { hasAnyCrsRecord: boolean; hasWktCrs: boolean; wktCrs: string | null; geoTiffCrsDecoded: boolean };
+            headerDeclaredPointsByReturn: Array<{ returnNumber: number; headerDeclaredPointCount: string | null }>;
+            copcInfoRecordPresent: boolean;
+            warnings: string[];
+          };
+        }
+    > => ipcRenderer.invoke("metardu:pointcloud:pickAndInspect"),
+  },
   /** Digital signature + seal (Tier 1 #4). */
   signing: {
     signPdf: (

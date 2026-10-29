@@ -87,6 +87,21 @@ function resolveSidecarBinary(): string | null {
 let mainWindow: BrowserWindow | null = null;
 let sidecar: SidecarClient | null = null;
 
+interface PointCloudHeaderDetails {
+  format: "LAS" | "LAZ";
+  version: string;
+  headerDeclaredPointCount: string;
+  pointFormatId: number;
+  pointRecordAttributes: { gpsTime: boolean; rgb: boolean; nearInfrared: boolean; waveform: boolean; extraBytes: number };
+  bounds: { min: Record<"x" | "y" | "z", number | null>; max: Record<"x" | "y" | "z", number | null> };
+  coordinateScale: Record<"x" | "y" | "z", number | null>;
+  coordinateOffset: Record<"x" | "y" | "z", number | null>;
+  crsEvidence: { hasAnyCrsRecord: boolean; hasWktCrs: boolean; wktCrs: string | null; geoTiffCrsDecoded: boolean };
+  headerDeclaredPointsByReturn: Array<{ returnNumber: number; headerDeclaredPointCount: string | null }>;
+  copcInfoRecordPresent: boolean;
+  warnings: string[];
+}
+
 const MAX_PLUGIN_MODULE_BYTES = 8 * 1024 * 1024;
 const MAX_CACHED_PLUGIN_MODULES = 5;
 const PLUGIN_MODULE_TTL_MS = 15 * 60 * 1000;
@@ -389,6 +404,39 @@ function registerIpcHandlers(): void {
         }
       : undefined;
     return importFieldDataAsync(filename, content, { parseRinexEpochs });
+  });
+
+  // LAS/LAZ source inspection is read-only. The native picker owns the path;
+  // it is sent to the sidecar but never returned to the renderer or extension API.
+  ipcMain.handle("metardu:pointcloud:pickAndInspect", async () => {
+    if (!mainWindow) throw new Error("Desktop window is not available");
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Inspect a LAS or LAZ point-cloud header",
+      buttonLabel: "Inspect header",
+      properties: ["openFile"],
+      filters: [{ name: "LAS / LAZ point clouds", extensions: ["las", "laz"] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true as const };
+
+    const sourcePath = result.filePaths[0]!;
+    const extension = path.extname(sourcePath).toLowerCase();
+    if (extension !== ".las" && extension !== ".laz") {
+      throw new Error("Select a LAS or LAZ file for header inspection.");
+    }
+    const sourceMetadata = await fs.promises.stat(sourcePath);
+    if (!sourceMetadata.isFile()) throw new Error("Selected point-cloud source is not a regular file.");
+    if (sourceMetadata.size < 227) throw new Error("Selected file is too small to contain a LAS header.");
+    if (!sidecar || !sidecar.isRunning()) {
+      throw new Error("Rust sidecar is not running; point-cloud header inspection is unavailable.");
+    }
+
+    const header = await sidecar.call<PointCloudHeaderDetails>("pointcloud.inspect_header", { path: sourcePath });
+    return {
+      canceled: false as const,
+      fileName: path.basename(sourcePath),
+      fileSizeBytes: sourceMetadata.size.toString(),
+      header,
+    };
   });
 
   // ─── Digital signature + seal (Tier 1 #4) ─────────────────────────

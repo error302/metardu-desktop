@@ -3475,3 +3475,58 @@ No automated tests or full Electron interaction were run for this UI/documentati
 
 Next product gate: select and package a supported point-cloud backend; implement bounded LAS/LAZ intake and project-managed immutable source storage; then integrate one named ground classifier and derived LAS/LAZ/DTM output with the evidence and validation gates above. Do not enable professional classification output until those checks pass.
 
+---
+
+## 29 October 2026 — Read-only LAS/LAZ header inspection
+
+Changed files:
+- `metardu-v2/apps/desktop/src/main/index.ts`
+- `metardu-v2/apps/desktop/src/preload/index.ts`
+- `metardu-v2/apps/desktop/src/renderer/views/PointCloudView.tsx`
+- `metardu-v2/packages/metardu-sidecar/Cargo.toml`
+- `metardu-v2/packages/metardu-sidecar/Cargo.lock`
+- `metardu-v2/packages/metardu-sidecar/src/dispatcher.rs`
+- `metardu-v2/packages/metardu-sidecar/src/import/mod.rs`
+- `metardu-v2/packages/metardu-sidecar/src/import/point_cloud.rs`
+- `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`
+- `worklog.md`
+
+Changes:
+- Added a native file-picker flow that passes a selected LAS/LAZ path only from Electron main to the Rust sidecar. The renderer receives a basename and header data, not the source path.
+- Added bounded, read-only LAS/LAZ header inspection with declared point counts, point-format attributes, raw bounds, coordinate scales and offsets, per-return counts, CRS-record evidence, raw WKT when valid UTF-8, and a COPC-info-record indicator. VLR/EVLR metadata is capped at 32 MiB and 100,000 records; every EVLR is inspected so CRS metadata in later records is not missed.
+- Replaced the inactive Point Cloud placeholder with an actual header-inspection panel and explicit warnings. It does not report point-record validation, project storage, classification, or survey deliverables.
+- Updated the international point-cloud gate to mark header inspection as implemented and retain the next gates for record-level reading, immutable storage, classification, derived export, and validation.
+- The LinkedIn post describes a surveyor-built classification prototype but does not identify its algorithm, class scheme, test data, or accuracy. It is a workflow signal, not evidence for a specific classifier. Ground classification can support bare-earth elevation products and terrain analysis; vegetation/building and other classes can feed their own downstream tasks. The selected method and project-specific output still need review.
+
+Verification:
+~~~text
+$ cargo check --offline --locked --no-default-features --features instrument
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.36s
+Exit code: 0. The existing sidecar emits unrelated compiler warnings.
+
+$ cargo test -q --offline --locked --no-default-features --features instrument import::point_cloud::tests
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out; finished in 0.45s
+Exit code: 0.
+
+$ npm run build --workspace @metardu/desktop
+> @metardu/desktop@0.2.0 build
+> tsc -p tsconfig.json
+Exit code: 0.
+
+$ npm run build:renderer
+✓ 2455 modules transformed.
+✓ built in 10.67s
+Exit code: 0. Existing Node built-in externalization warnings for `node:zlib`, `fs`, `path`, and `util` remain.
+
+$ rustfmt --edition 2021 --check src/import/point_cloud.rs
+Exit code: 0.
+
+$ git diff --check
+Exit code: 0; Git printed only existing Windows LF-to-CRLF notices.
+~~~
+
+No full Electron launch or user-selected LAS/LAZ file run was performed. The Rust tests use generated LAS and LAZ fixtures and confirm parser behavior and read-only source handling, not professional point-cloud processing or classification accuracy.
+
+Next product gate: support durable project-managed source data and full point-record inspection, then validate one named classifier on independent fixtures and representative field datasets before exposing classified deliverables.
+
