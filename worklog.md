@@ -3433,3 +3433,45 @@ Stage Summary:
 - ABI v1 now executes a documented, locally selected Wasm example through the sidecar and visible Extensions preview, with tested import, resource, ABI, and output checks.
 - The product is not yet a complete community ecosystem or a universal survey workflow suite. The next substantive plugin gate is a read-only, chunked project-data interface for large point clouds/raster datasets, followed by derived-artifact provenance and license-aware SDK/package governance. Do not route LAS/LAZ/COPC through the current JSON ABI.
 
+## 29 October 2026 — Point-cloud prototype honesty and implementation gate
+
+Changed files:
+- `metardu-v2/apps/desktop/src/renderer/views/PointCloudView.tsx`
+- `metardu-v2/packages/engine/src/workflows/lidar-classification.ts`
+- `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`
+- `worklog.md`
+
+Changes:
+- Removed the Point Cloud screen's invented LAZ filename, 145,820-point count, random sample geometry, made-up 42% ground result, fixed elevation range, and CSF success state. The screen now clearly says point-cloud processing is unavailable in this build and distinguishes future workflow requirements from current capability.
+- Marked the in-memory TypeScript PMF routine as an unvalidated experiment and added an explicit warning to its returned results. It is not CSF, not a LAS/LAZ/COPC pipeline, and must not be presented for professional deliverables.
+- Added a staged point-cloud product gate covering source metadata and format limits, immutable originals, bounded chunk processing, genuine named classifiers, separate derived outputs, round-trip checks, independent reference data, and practitioner review.
+- Reviewed official PDAL documentation. It documents LAS and compressed LAZ reading, with exclusions/limitations for waveform point formats and some Extra Bytes; CSF and PMF are separate named filters. PDAL is a candidate backend only, not integrated here. CloudCompare's upstream project is GPL-licensed, so reuse requires a component-specific distribution review.
+
+Verification:
+~~~text
+$ npm run build --workspace @metardu/desktop
+> @metardu/desktop@0.2.0 build
+> tsc -p tsconfig.json
+Exit code: 0
+
+$ npm run build --workspace @metardu/engine-flight-planning
+> @metardu/engine-flight-planning@0.1.0 build
+> tsc -p tsconfig.json
+Exit code: 0
+
+$ npm run build:renderer
+✓ 2455 modules transformed.
+✓ built in 14.43s
+Exit code: 0. Existing Node built-in externalization warnings for `node:zlib`, `fs`, `path`, and `util` remain.
+
+$ git diff --check
+Exit code: 0; Git printed only existing Windows LF-to-CRLF notices.
+
+$ Get-Command pdal, CloudCompare, laszip
+None of the three commands are available on PATH; no point-cloud runtime is installed in this environment.
+~~~
+
+No automated tests or full Electron interaction were run for this UI/documentation correction. Successful builds do not verify LAS/LAZ parsing or classifier accuracy.
+
+Next product gate: select and package a supported point-cloud backend; implement bounded LAS/LAZ intake and project-managed immutable source storage; then integrate one named ground classifier and derived LAS/LAZ/DTM output with the evidence and validation gates above. Do not enable professional classification output until those checks pass.
+
