@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, FileInput, Layers3, Ruler, ShieldCheck } from "lucide-react";
 import type {
   PointCloudHeaderDetails,
+  PointCloudRecordInspectionJobStatus,
   PointCloudRecordInspection,
   PointCloudSourceIntegrityStatus,
   PointCloudSourceSummary,
@@ -58,6 +59,17 @@ function formatCount(value: string): string {
     return BigInt(value).toLocaleString();
   } catch {
     return value;
+  }
+}
+
+function inspectionProgressPercent(decodedPointCount: string, declaredPointCount: string): number | null {
+  try {
+    const decoded = BigInt(decodedPointCount);
+    const declared = BigInt(declaredPointCount);
+    if (declared <= 0n) return null;
+    return Math.max(0, Math.min(99, Number((decoded * 100n) / declared)));
+  } catch {
+    return null;
   }
 }
 
@@ -283,7 +295,14 @@ export const PointCloudView: React.FC = () => {
   const [verifyingSourceId, setVerifyingSourceId] = useState<string | null>(null);
   const [loadingSources, setLoadingSources] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [inspectingSourceId, setInspectingSourceId] = useState<string | null>(null);
+  const [inspectionJob, setInspectionJob] = useState<{
+    jobId: string;
+    sourceId: string;
+    status: "running" | "cancelling";
+    decodedPointCount: string;
+    declaredPointCount: string;
+  } | null>(null);
+  const inspectingSourceId = inspectionJob?.sourceId ?? null;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -306,6 +325,54 @@ export const PointCloudView: React.FC = () => {
     void refreshSources();
     return window.metardu.projects.onChanged(() => { void refreshSources(); });
   }, [refreshSources]);
+
+  useEffect(() => {
+    const jobId = inspectionJob?.jobId;
+    if (!jobId) return;
+    let stopped = false;
+    let timer: ReturnType<typeof window.setTimeout> | undefined;
+
+    const poll = async () => {
+      try {
+        const status: PointCloudRecordInspectionJobStatus =
+          await window.metardu.pointCloud.recordInspectionStatus(jobId);
+        if (stopped) return;
+        if (status.status === "running" || status.status === "cancelling") {
+          setInspectionJob((current) => current?.jobId === jobId ? {
+            ...current,
+            status: status.status,
+            decodedPointCount: status.decodedPointCount,
+            declaredPointCount: status.declaredPointCount,
+          } : current);
+          timer = window.setTimeout(() => { void poll(); }, 500);
+          return;
+        }
+        if (status.status === "completed") {
+          setSources((current) => current.map((source) => source.id === status.source.id ? status.source : source));
+          setVerificationBySourceId((current) => ({ ...current, [status.source.id]: "verified" }));
+          setNotice(
+            `Read ${formatCount(status.source.recordInspection?.decodedPointCount ?? "0")} header-declared point records from ${status.source.fileName}. Existing class codes were counted; no classifier was run.`,
+          );
+        } else if (status.status === "cancelled") {
+          setNotice("Point-record inspection was cancelled. No partial report was saved.");
+        } else {
+          setError(status.message);
+        }
+        setInspectionJob((current) => current?.jobId === jobId ? null : current);
+      } catch (cause) {
+        if (stopped) return;
+        setError(cause instanceof Error ? cause.message : String(cause));
+        setInspectionJob((current) => current?.jobId === jobId ? null : current);
+      }
+    };
+
+    void poll();
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      void window.metardu.pointCloud.cancelRecordInspection(jobId).catch(() => undefined);
+    };
+  }, [inspectionJob?.jobId]);
 
   const importSource = async () => {
     setBusy(true);
@@ -340,20 +407,34 @@ export const PointCloudView: React.FC = () => {
   };
 
   const inspectSourceRecords = async (sourceId: string) => {
-    setInspectingSourceId(sourceId);
     setError(null);
     setNotice(null);
     try {
-      const result = await window.metardu.pointCloud.inspectSourceRecords(sourceId);
-      setSources((current) => current.map((source) => source.id === sourceId ? result.source : source));
-      setVerificationBySourceId((current) => ({ ...current, [sourceId]: "verified" }));
-      setNotice(
-        `Read ${formatCount(result.source.recordInspection?.decodedPointCount ?? "0")} header-declared point records from ${result.source.fileName}. Existing class codes were counted; no classifier was run.`,
-      );
+      const job = await window.metardu.pointCloud.startRecordInspection(sourceId);
+      setInspectionJob({
+        jobId: job.jobId,
+        sourceId,
+        status: "running",
+        decodedPointCount: "0",
+        declaredPointCount: job.declaredPointCount,
+      });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setInspectingSourceId(null);
+    }
+  };
+
+  const cancelRecordInspection = async () => {
+    if (!inspectionJob || inspectionJob.status === "cancelling") return;
+    try {
+      const result = await window.metardu.pointCloud.cancelRecordInspection(inspectionJob.jobId);
+      if (result.accepted) {
+        setInspectionJob((current) => current?.jobId === inspectionJob.jobId
+          ? { ...current, status: "cancelling" }
+          : current);
+        setNotice("Cancellation requested. METARDU will finish the current bounded batch before stopping.");
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
     }
   };
 
@@ -376,9 +457,9 @@ export const PointCloudView: React.FC = () => {
       <section role="status" aria-live="polite" style={{ ...panelStyle, display: "flex", gap: 12, borderColor: "var(--status-warning, #D97706)", background: "rgba(217, 119, 6, 0.08)" }}>
         <AlertTriangle size={20} color="var(--status-warning, #D97706)" aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
         <div style={{ display: "flex", flexDirection: "column", gap: 5, color: "var(--text-primary)", fontSize: "var(--text-sm)", lineHeight: 1.55 }}>
-          <strong>Source and point-record inspection are available. Classification is not available.</strong>
+            <strong>Source inspection now reports progress and supports cancellation. Classification is not available.</strong>
           <span>
-            METARDU preserves a copied source, verifies its hash before and after an explicit scan, and can decode the point records declared by its LAS/LAZ header. It reports existing numeric class codes, return counts, and decoded bounds; it does not interpret class-code lookup tables, run a classifier, validate trailing bytes or full-file conformance, interpret CRS or units, create a portable project bundle, or generate a DTM or survey result.
+            METARDU preserves a copied source, verifies its hash before and after an explicit scan, and can decode the point records declared by its LAS/LAZ header in bounded batches with progress and cooperative cancellation. It reports existing numeric class codes, return counts, and decoded bounds; it does not interpret class-code lookup tables, run a classifier, validate all trailing bytes or full-file conformance, interpret CRS or units, create a portable project bundle, or generate a DTM or survey result.
           </span>
         </div>
       </section>
@@ -409,8 +490,23 @@ export const PointCloudView: React.FC = () => {
         )}
 
         {inspectingSourceId && (
-          <div role="status" aria-live="polite" style={{ padding: 10, border: "1px solid var(--border-default)", color: "var(--text-secondary)", fontSize: 11, lineHeight: 1.5 }}>
-            Reading the source's header-declared LAS/LAZ point records in bounded batches. Large files can take a while; progress and cancellation are not available yet. The source hash is checked before and after; no point data is sent to the renderer.
+          <div role="status" aria-live="polite" style={{ padding: 10, border: "1px solid var(--border-default)", color: "var(--text-secondary)", fontSize: 11, lineHeight: 1.5, display: "flex", flexDirection: "column", gap: 8 }}>
+            <span>
+              {inspectionJob?.status === "cancelling" ? "Stopping after the current bounded batch…" : "Reading source point records in bounded batches. The full source hash is checked before and after; point data stays out of the renderer."}
+            </span>
+            <span>
+              Decoded {formatCount(inspectionJob?.decodedPointCount ?? "0")} of {formatCount(inspectionJob?.declaredPointCount ?? "0")} header-declared points.
+            </span>
+            {inspectionJob && inspectionProgressPercent(inspectionJob.decodedPointCount, inspectionJob.declaredPointCount) !== null && (
+              <progress
+                aria-label="Point-record inspection progress against the header-declared count"
+                max={100}
+                value={inspectionProgressPercent(inspectionJob.decodedPointCount, inspectionJob.declaredPointCount) ?? 0}
+              />
+            )}
+            <button onClick={() => { void cancelRecordInspection(); }} disabled={inspectionJob?.status === "cancelling"}>
+              {inspectionJob?.status === "cancelling" ? "Cancelling…" : "Cancel inspection"}
+            </button>
           </div>
         )}
         {sources.length === 0 && !loadingSources ? (

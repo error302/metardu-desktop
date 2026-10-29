@@ -3646,3 +3646,56 @@ The focused Rust and Desktop database tests were added but not run to completion
 
 Next product gate: validate full LAS/LAZ structure, add cancellable host-managed data access for extension workflows, and evaluate a named classification implementation against independent reference data before creating classified outputs or survey deliverables.
 
+---
+Task ID: desktop-pointcloud-cancellable-inspection
+Agent: Codex, 29 October 2026
+Task: Add bounded progress and cooperative cancellation to project-linked LAS/LAZ record inspection
+
+Work Log:
+- Replaced the Desktop UI's single long-running record-inspection request with start/status/cancel job calls. The Rust sidecar runs one scan in a background blocking task, updates decoded-versus-declared point counts after bounded point batches, and checks cancellation between batches.
+- Added a dedicated main/preload job contract. Main resolves the source ID only in the active project, keeps the managed file path private, verifies the stored SHA-256 before starting and after successful completion, and persists the digest-bound inspection only after the completion and active-project checks pass.
+- Added host-issued UUID job IDs with Zod checks in preload and main, one-active-scan enforcement, bounded terminal job retention, cancellation cleanup after the screen closes or the active project changes, and no partial report on cancellation/failure.
+- Updated the Point Cloud screen with decoded point progress and a Cancel inspection action. Updated ADR-0010, the scoped implementation brief, and the international product plan. This is still inspection only: no chunk stream is exposed to plugins, no point classifier runs, and no survey deliverable is produced.
+
+Verification:
+~~~text
+$ cargo test --offline --no-default-features --features instrument import::point_cloud::tests -- --nocapture
+running 11 tests
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out
+Exit code 0. The existing sidecar emits unrelated compiler warnings.
+
+$ npm run test --workspace @metardu/ipc-schemas
+Test Files  4 passed (4)
+Tests       39 passed (39)
+Exit code 0.
+
+$ npm run build --workspace @metardu/ipc-schemas
+Exit code 0.
+
+$ npm run test --workspace @metardu/desktop -- --run
+Test Files  24 passed | 1 skipped (25)
+Tests      268 passed | 7 skipped (275)
+Exit code 0. The 7 skipped tests are the existing Electron IPC round-trip suite; this run does not exercise the new handlers in Electron.
+
+$ npm run build --workspace @metardu/desktop
+Exit code 0.
+
+$ npm run build:renderer
+✓ 2455 modules transformed.
+✓ built in 7.69s
+Exit code 0. Existing Node built-in externalization warnings remain.
+
+$ rustfmt --edition 2021 --check metardu-v2/packages/metardu-sidecar/src/import/point_cloud.rs
+Exit code 0.
+
+$ git diff --check
+Exit code 0; Git printed only Windows LF-to-CRLF notices.
+
+$ Test-Path scripts/electron-smoke.sh
+False. No Electron IPC runtime smoke or actual large-file GUI cancellation is claimed.
+~~~
+
+Evidence limits: Rust job lifecycle and cancellation are covered with generated LAS fixtures; the new Zod contract rejects malformed IDs. The Desktop route-level behavior for project scoping, full-file hash checks, persistence and UI cancellation has not been exercised in a running Electron process because `scripts/electron-smoke.sh` is absent and the repository's existing IPC round-trip suite is skipped. The default GDAL-enabled sidecar release build was not run. Cancellation remains cooperative and may wait for the active bounded batch to finish.
+
+Next product gate: exercise these IPC handlers through a real Electron test harness, then add the separate host-managed chunk API for trusted point-cloud tools. Classification remains unavailable until a named method, derived-output provenance, and independent reference-data validation are implemented.
+

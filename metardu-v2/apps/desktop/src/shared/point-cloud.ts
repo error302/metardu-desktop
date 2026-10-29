@@ -97,6 +97,22 @@ export interface PointCloudRecordInspectionResult {
   source: PointCloudSourceSummary;
 }
 
+export interface PointCloudRecordInspectionJobStart {
+  jobId: string;
+  declaredPointCount: string;
+}
+
+export type PointCloudRecordInspectionJobStatus =
+  | {
+      jobId: string;
+      status: "running" | "cancelling";
+      decodedPointCount: string;
+      declaredPointCount: string;
+    }
+  | { jobId: string; status: "completed"; source: PointCloudSourceSummary }
+  | { jobId: string; status: "cancelled" }
+  | { jobId: string; status: "failed"; message: string };
+
 export interface PointCloudProjectSourceList {
   activeProjectName: string | null;
   sources: PointCloudSourceSummary[];

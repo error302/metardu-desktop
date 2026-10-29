@@ -22,5 +22,7 @@ pub mod point_cloud;
 // `crate::import::rinex::*` from tests.
 pub use rinex::handle_rinex_epochs;
 pub use point_cloud::{
-    handle_point_cloud_header_inspection, handle_point_cloud_record_inspection,
+    handle_cancel_point_cloud_record_inspection, handle_point_cloud_header_inspection,
+    handle_point_cloud_record_inspection, handle_point_cloud_record_inspection_status,
+    handle_start_point_cloud_record_inspection,
 };

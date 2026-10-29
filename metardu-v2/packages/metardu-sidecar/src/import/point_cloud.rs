@@ -5,9 +5,13 @@
 //! or vertical reference, store source bytes, or classify points. The renderer
 //! never supplies a path: Electron main obtains it from the native file picker.
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use las::{raw, Builder, Header, PointDataBuilder, Reader, Vlr};
 use serde::Deserialize;
@@ -21,6 +25,34 @@ const MAX_EVLR_COUNT: u32 = 100_000;
 const EVLR_HEADER_BYTES: u64 = 60;
 const MAX_LAZ_CHUNK_COUNT: u32 = 1_000_000;
 const MAX_LAZ_CHUNK_TABLE_BYTES: usize = 32 * 1024 * 1024;
+const MAX_RECORD_INSPECTION_JOBS: usize = 16;
+const RECORD_INSPECTION_JOB_RETENTION: Duration = Duration::from_secs(30 * 60);
+const MAX_ACTIVE_RECORD_INSPECTIONS: usize = 1;
+
+#[derive(Clone)]
+struct RecordInspectionJob {
+    created_at: Instant,
+    cancelled: Arc<AtomicBool>,
+    state: Arc<Mutex<RecordInspectionJobState>>,
+}
+
+#[derive(Clone)]
+enum RecordInspectionJobState {
+    Running {
+        decoded_point_count: u64,
+        declared_point_count: u64,
+    },
+    Completed(Value),
+    Cancelled,
+    Failed,
+}
+
+static RECORD_INSPECTION_JOBS: OnceLock<Mutex<HashMap<String, RecordInspectionJob>>> =
+    OnceLock::new();
+
+fn record_inspection_jobs() -> &'static Mutex<HashMap<String, RecordInspectionJob>> {
+    RECORD_INSPECTION_JOBS.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 #[derive(Debug, Deserialize)]
 struct InspectParams {
@@ -56,13 +88,208 @@ pub async fn handle_point_cloud_record_inspection(params: Value) -> Result<Value
         ));
     }
 
-    tokio::task::spawn_blocking(move || inspect_point_records(&path))
-        .await
-        .map_err(|error| {
-            HandlerError::Internal(format!(
-                "Point-cloud record inspection task failed: {error}"
+    tokio::task::spawn_blocking(move || {
+        let never_cancel = AtomicBool::new(false);
+        inspect_point_records_controlled(&path, &never_cancel, |_, _| {})
+    })
+    .await
+    .map_err(|error| {
+        HandlerError::Internal(format!(
+            "Point-cloud record inspection task failed: {error}"
+        ))
+    })?
+}
+
+/// Start a project-scoped, cooperatively cancellable record scan. The host owns
+/// the path and exposes only the opaque job ID and compact progress counters.
+pub async fn handle_start_point_cloud_record_inspection(
+    params: Value,
+) -> Result<Value, HandlerError> {
+    let parsed: InspectParams = serde_json::from_value(params)
+        .map_err(|error| HandlerError::InvalidParams(error.to_string()))?;
+    let path = PathBuf::from(parsed.path);
+    if !path.is_absolute() {
+        return Err(HandlerError::InvalidParams(
+            "Point-cloud source path must be absolute.".into(),
+        ));
+    }
+
+    let job_id = uuid::Uuid::new_v4().to_string();
+    let job = RecordInspectionJob {
+        created_at: Instant::now(),
+        cancelled: Arc::new(AtomicBool::new(false)),
+        state: Arc::new(Mutex::new(RecordInspectionJobState::Running {
+            decoded_point_count: 0,
+            declared_point_count: 0,
+        })),
+    };
+    {
+        let mut jobs = record_inspection_jobs()
+            .lock()
+            .map_err(|_| HandlerError::Internal("Inspection job store is unavailable.".into()))?;
+        prune_record_inspection_jobs(&mut jobs);
+        let active_count = jobs
+            .values()
+            .filter(|candidate| {
+                candidate
+                    .state
+                    .lock()
+                    .map(|state| matches!(&*state, RecordInspectionJobState::Running { .. }))
+                    .unwrap_or(true)
+            })
+            .count();
+        if active_count >= MAX_ACTIVE_RECORD_INSPECTIONS {
+            return Err(HandlerError::InvalidParams(
+                "A point-cloud record inspection is already running.".into(),
+            ));
+        }
+        while jobs.len() >= MAX_RECORD_INSPECTION_JOBS {
+            let oldest_terminal = jobs
+                .iter()
+                .filter(|(_, candidate)| {
+                    candidate
+                        .state
+                        .lock()
+                        .map(|state| !matches!(&*state, RecordInspectionJobState::Running { .. }))
+                        .unwrap_or(false)
+                })
+                .min_by_key(|(_, candidate)| candidate.created_at)
+                .map(|(id, _)| id.clone());
+            let Some(oldest_terminal) = oldest_terminal else {
+                return Err(HandlerError::InvalidParams(
+                    "The bounded point-cloud inspection job store is full.".into(),
+                ));
+            };
+            jobs.remove(&oldest_terminal);
+        }
+        jobs.insert(job_id.clone(), job.clone());
+    }
+
+    let worker_job = job.clone();
+    tokio::spawn(async move {
+        let worker_cancelled = worker_job.cancelled.clone();
+        let worker_state = worker_job.state.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            inspect_point_records_controlled(&path, &worker_cancelled, |decoded, declared| {
+                if let Ok(mut state) = worker_state.lock() {
+                    *state = RecordInspectionJobState::Running {
+                        decoded_point_count: decoded,
+                        declared_point_count: declared,
+                    };
+                }
+            })
+        })
+        .await;
+
+        let terminal_state = match result {
+            Ok(Ok(_)) if worker_job.cancelled.load(Ordering::Acquire) => {
+                RecordInspectionJobState::Cancelled
+            }
+            Ok(Ok(report)) => RecordInspectionJobState::Completed(report),
+            Ok(Err(_)) if worker_job.cancelled.load(Ordering::Acquire) => {
+                RecordInspectionJobState::Cancelled
+            }
+            Ok(Err(error)) => {
+                tracing::warn!(error = %error, "Point-cloud record inspection job failed");
+                RecordInspectionJobState::Failed
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "Point-cloud record inspection task panicked");
+                RecordInspectionJobState::Failed
+            }
+        };
+        if let Ok(mut state) = worker_job.state.lock() {
+            *state = terminal_state;
+        }
+    });
+
+    Ok(json!({ "jobId": job_id, "status": "running" }))
+}
+
+/// Return compact progress or a compact terminal state for a sidecar-issued job.
+pub async fn handle_point_cloud_record_inspection_status(
+    params: Value,
+) -> Result<Value, HandlerError> {
+    let job_id = parse_record_inspection_job_id(&params)?;
+    let job = get_record_inspection_job(&job_id)?;
+    let state = job
+        .state
+        .lock()
+        .map_err(|_| HandlerError::Internal("Inspection job state is unavailable.".into()))?
+        .clone();
+    Ok(match state {
+        RecordInspectionJobState::Running {
+            decoded_point_count,
+            declared_point_count,
+        } => json!({
+            "jobId": job_id,
+            "status": if job.cancelled.load(Ordering::Acquire) { "cancelling" } else { "running" },
+            "decodedPointCount": decoded_point_count.to_string(),
+            "declaredPointCount": declared_point_count.to_string(),
+        }),
+        RecordInspectionJobState::Completed(report) => json!({
+            "jobId": job_id,
+            "status": "completed",
+            "report": report,
+        }),
+        RecordInspectionJobState::Cancelled => json!({ "jobId": job_id, "status": "cancelled" }),
+        RecordInspectionJobState::Failed => json!({
+            "jobId": job_id,
+            "status": "failed",
+            "message": "Point-cloud inspection failed. The source was not changed and no report was saved.",
+        }),
+    })
+}
+
+/// Request cooperative cancellation between bounded decode batches.
+pub async fn handle_cancel_point_cloud_record_inspection(
+    params: Value,
+) -> Result<Value, HandlerError> {
+    let job_id = parse_record_inspection_job_id(&params)?;
+    let job = get_record_inspection_job(&job_id)?;
+    let accepted = match job.state.lock() {
+        Ok(state) if matches!(&*state, RecordInspectionJobState::Running { .. }) => {
+            job.cancelled.store(true, Ordering::Release);
+            true
+        }
+        Ok(_) => false,
+        Err(_) => {
+            return Err(HandlerError::Internal(
+                "Inspection job state is unavailable.".into(),
             ))
-        })?
+        }
+    };
+    Ok(json!({ "jobId": job_id, "accepted": accepted }))
+}
+
+fn parse_record_inspection_job_id(params: &Value) -> Result<String, HandlerError> {
+    let job_id = params
+        .get("jobId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HandlerError::InvalidParams("Inspection job ID is required.".into()))?;
+    let parsed = uuid::Uuid::parse_str(job_id)
+        .map_err(|_| HandlerError::InvalidParams("Inspection job ID is invalid.".into()))?;
+    Ok(parsed.to_string())
+}
+
+fn get_record_inspection_job(job_id: &str) -> Result<RecordInspectionJob, HandlerError> {
+    let jobs = record_inspection_jobs()
+        .lock()
+        .map_err(|_| HandlerError::Internal("Inspection job store is unavailable.".into()))?;
+    jobs.get(job_id)
+        .cloned()
+        .ok_or_else(|| HandlerError::InvalidParams("Inspection job is unknown or expired.".into()))
+}
+
+fn prune_record_inspection_jobs(jobs: &mut HashMap<String, RecordInspectionJob>) {
+    jobs.retain(|_, job| {
+        let is_running = job
+            .state
+            .lock()
+            .map(|state| matches!(&*state, RecordInspectionJobState::Running { .. }))
+            .unwrap_or(true);
+        is_running || job.created_at.elapsed() < RECORD_INSPECTION_JOB_RETENTION
+    });
 }
 
 fn inspect_header(path: &Path) -> Result<Value, HandlerError> {
@@ -722,6 +949,18 @@ const MAX_POINT_BATCH_BYTES: usize = 16 * 1024 * 1024;
 const MAX_POINT_BATCH_COUNT: usize = 65_536;
 
 fn inspect_point_records(path: &Path) -> Result<Value, HandlerError> {
+    let never_cancel = AtomicBool::new(false);
+    inspect_point_records_controlled(path, &never_cancel, |_, _| {})
+}
+
+fn inspect_point_records_controlled(
+    path: &Path,
+    cancelled: &AtomicBool,
+    mut report_progress: impl FnMut(u64, u64),
+) -> Result<Value, HandlerError> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err(HandlerError::Internal("Inspection cancelled.".into()));
+    }
     // Keep the existing header preflight as the single bounded gate for VLR/EVLR metadata.
     let _header_evidence = inspect_header(path)?;
     let metadata = std::fs::metadata(path).map_err(internal_io_error)?;
@@ -738,6 +977,7 @@ fn inspect_point_records(path: &Path) -> Result<Value, HandlerError> {
 
     let header = reader.header();
     let declared_point_count = header.number_of_points();
+    report_progress(0, declared_point_count);
     let point_format_id = header.point_format().to_u8().map_err(|error| {
         HandlerError::InvalidParams(format!("Unsupported LAS point format: {error}"))
     })?;
@@ -771,6 +1011,9 @@ fn inspect_point_records(path: &Path) -> Result<Value, HandlerError> {
     let mut maximum = [f64::NEG_INFINITY; 3];
 
     loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Err(HandlerError::Internal("Inspection cancelled.".into()));
+        }
         let count = reader
             .fill_points(batch_count, &mut points)
             .map_err(|error| {
@@ -820,6 +1063,7 @@ fn inspect_point_records(path: &Path) -> Result<Value, HandlerError> {
             maximum[1] = maximum[1].max(y);
             maximum[2] = maximum[2].max(z);
         }
+        report_progress(decoded_point_count, declared_point_count);
     }
 
     let class_total = class_counts.iter().try_fold(0_u64, |sum, count| {
@@ -1004,12 +1248,19 @@ fn finite_json(value: f64) -> Value {
 mod tests {
     use std::fs::File;
     use std::io::Write;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
 
     use las::{Builder, Point, Vlr, Writer};
     use serde_json::json;
     use tempfile::tempdir;
 
-    use super::{inspect_header, inspect_point_records, read_bounded_raw_header};
+    use super::{
+        handle_cancel_point_cloud_record_inspection, handle_point_cloud_record_inspection_status,
+        handle_start_point_cloud_record_inspection, inspect_header, inspect_point_records,
+        inspect_point_records_controlled, read_bounded_raw_header, record_inspection_jobs,
+        RecordInspectionJob, RecordInspectionJobState,
+    };
     use crate::dispatcher::HandlerError;
 
     fn write_fixture(path: &std::path::Path, with_evlrs: bool) {
@@ -1168,6 +1419,111 @@ mod tests {
             result["fileStructure"]["unclassifiedBytesAfterKnownData"],
             "0"
         );
+    }
+
+    #[test]
+    fn cooperative_cancellation_stops_before_a_report_is_completed() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("cancelled-scan.las");
+        write_fixture(&path, false);
+        let cancelled = AtomicBool::new(false);
+        let mut progress = Vec::new();
+
+        let error = inspect_point_records_controlled(&path, &cancelled, |decoded, declared| {
+            progress.push((decoded, declared));
+            if decoded > 0 {
+                cancelled.store(true, Ordering::Release);
+            }
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("cancelled"));
+        assert_eq!(progress.first(), Some(&(0, 2)));
+        assert_eq!(progress.last(), Some(&(2, 2)));
+    }
+
+    #[tokio::test]
+    async fn background_inspection_job_reports_completion_and_rejects_late_cancel() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("job-scan.las");
+        write_fixture(&path, false);
+
+        let start = handle_start_point_cloud_record_inspection(json!({
+            "path": path.to_string_lossy().to_string()
+        }))
+        .await
+        .unwrap();
+        let job_id = start["jobId"].as_str().unwrap().to_owned();
+
+        let report = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let state = handle_point_cloud_record_inspection_status(
+                    json!({ "jobId": job_id.as_str() }),
+                )
+                .await
+                .unwrap();
+                match state["status"].as_str() {
+                    Some("completed") => break state["report"].clone(),
+                    Some("failed") => panic!("inspection job failed: {state}"),
+                    Some("cancelled") => panic!("inspection job was unexpectedly cancelled"),
+                    Some("running" | "cancelling") => {
+                        tokio::time::sleep(Duration::from_millis(5)).await
+                    }
+                    value => panic!("unexpected inspection job status: {value:?}"),
+                }
+            }
+        })
+        .await
+        .expect("job should reach a terminal state");
+
+        assert_eq!(report["decodedPointCount"], "2");
+        let late_cancel =
+            handle_cancel_point_cloud_record_inspection(json!({ "jobId": job_id.as_str() }))
+                .await
+                .unwrap();
+        assert_eq!(late_cancel["accepted"], false);
+
+        let active_job_id = uuid::Uuid::new_v4().to_string();
+        let active_job = RecordInspectionJob {
+            created_at: std::time::Instant::now(),
+            cancelled: std::sync::Arc::new(AtomicBool::new(false)),
+            state: std::sync::Arc::new(std::sync::Mutex::new(RecordInspectionJobState::Running {
+                decoded_point_count: 1,
+                declared_point_count: 2,
+            })),
+        };
+        record_inspection_jobs()
+            .lock()
+            .unwrap()
+            .insert(active_job_id.clone(), active_job.clone());
+        let duplicate_start = handle_start_point_cloud_record_inspection(json!({
+            "path": path.to_string_lossy().to_string()
+        }))
+        .await
+        .unwrap_err();
+        assert!(duplicate_start.to_string().contains("already running"));
+        assert!(handle_point_cloud_record_inspection_status(json!({
+            "jobId": "../../outside.las"
+        }))
+        .await
+        .is_err());
+        let cancellation = handle_cancel_point_cloud_record_inspection(json!({
+            "jobId": active_job_id.as_str()
+        }))
+        .await
+        .unwrap();
+        assert_eq!(cancellation["accepted"], true);
+        assert!(active_job.cancelled.load(Ordering::Acquire));
+        let cancelling = handle_point_cloud_record_inspection_status(json!({
+            "jobId": active_job_id.as_str()
+        }))
+        .await
+        .unwrap();
+        assert_eq!(cancelling["status"], "cancelling");
+        record_inspection_jobs()
+            .lock()
+            .unwrap()
+            .remove(&active_job_id);
     }
 
     #[test]

@@ -52,6 +52,10 @@ import {
 } from "./namespaces/cogo.js";
 export { MAX_COMMUNITY_PLUGIN_INPUT_BYTES, PLUGIN_RUN_INPUT_SCHEMA } from "./namespaces/plugins.js";
 export type { PluginRunInput } from "./namespaces/plugins.js";
+export {
+  POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA,
+  POINT_CLOUD_SOURCE_ID_SCHEMA,
+} from "./namespaces/point-cloud.js";
 
 // ─── Aggregate registry ────────────────────────────────────────────
 

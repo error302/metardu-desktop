@@ -290,6 +290,15 @@ impl Dispatcher {
         self.register("pointcloud.inspect_records", |params: Value| async move {
             crate::import::handle_point_cloud_record_inspection(params).await
         });
+        self.register("pointcloud.start_record_inspection", |params: Value| async move {
+            crate::import::handle_start_point_cloud_record_inspection(params).await
+        });
+        self.register("pointcloud.record_inspection_status", |params: Value| async move {
+            crate::import::handle_point_cloud_record_inspection_status(params).await
+        });
+        self.register("pointcloud.cancel_record_inspection", |params: Value| async move {
+            crate::import::handle_cancel_point_cloud_record_inspection(params).await
+        });
 
         // ---- Instrument connection — live serial, BLE, NTRIP streaming ----
         // These handlers manage instrument connections. The actual data

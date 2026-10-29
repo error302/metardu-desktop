@@ -54,12 +54,18 @@ import type {
   PointCloudImportResult,
   PointCloudProjectSourceList,
   PointCloudRecordInspection,
-  PointCloudRecordInspectionResult,
+  PointCloudRecordInspectionJobStart,
+  PointCloudRecordInspectionJobStatus,
   PointCloudSourceSummary,
   PointCloudSourceVerification,
 } from "../shared/point-cloud.js";
 import { makeProjectToWgs84 } from "./geodesy.js";
-import { PLUGIN_RUN_INPUT_SCHEMA, type PluginRunInput } from "@metardu/ipc-schemas";
+import {
+  PLUGIN_RUN_INPUT_SCHEMA,
+  POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA,
+  POINT_CLOUD_SOURCE_ID_SCHEMA,
+  type PluginRunInput,
+} from "@metardu/ipc-schemas";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -148,12 +154,124 @@ function pointCloudSourceSummary(
 const MAX_PLUGIN_MODULE_BYTES = 8 * 1024 * 1024;
 const MAX_CACHED_PLUGIN_MODULES = 5;
 const PLUGIN_MODULE_TTL_MS = 15 * 60 * 1000;
-const POINT_CLOUD_RECORD_SCAN_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+const MAX_POINT_CLOUD_INSPECTION_JOBS = 16;
+const POINT_CLOUD_INSPECTION_JOB_TTL_MS = 30 * 60 * 1000;
 interface SelectedPluginModule {
   bytes: Buffer;
   expiresAt: number;
 }
 const selectedPluginModules = new Map<string, SelectedPluginModule>();
+
+type MainPointCloudInspectionJobState =
+  | "running"
+  | "cancelling"
+  | "finalizing"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+function isTerminalPointCloudInspectionJobState(state: MainPointCloudInspectionJobState): boolean {
+  return state === "completed" || state === "cancelled" || state === "failed";
+}
+
+interface MainPointCloudInspectionJob {
+  id: string;
+  sidecarJobId: string;
+  projectId: string;
+  sourceId: string;
+  state: MainPointCloudInspectionJobState;
+  decodedPointCount: string;
+  declaredPointCount: string;
+  createdAt: number;
+  source?: PointCloudSourceSummary;
+  message?: string;
+}
+
+const pointCloudInspectionJobs = new Map<string, MainPointCloudInspectionJob>();
+let pointCloudInspectionStartInFlight = false;
+
+function requirePointCloudSourceId(value: unknown): string {
+  const parsed = POINT_CLOUD_SOURCE_ID_SCHEMA.safeParse(value);
+  if (!parsed.success) throw new Error("Point-cloud source identifier is invalid.");
+  return parsed.data.toLowerCase();
+}
+
+function requirePointCloudInspectionJobId(value: unknown): string {
+  const parsed = POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA.safeParse(value);
+  if (!parsed.success) throw new Error("Point-cloud inspection job identifier is invalid.");
+  return parsed.data.toLowerCase();
+}
+
+function prunePointCloudInspectionJobs(now = Date.now()): void {
+  for (const [id, job] of pointCloudInspectionJobs) {
+    if (job.state !== "running" && job.state !== "cancelling" && job.state !== "finalizing"
+      && now - job.createdAt >= POINT_CLOUD_INSPECTION_JOB_TTL_MS) {
+      pointCloudInspectionJobs.delete(id);
+    }
+  }
+  while (pointCloudInspectionJobs.size >= MAX_POINT_CLOUD_INSPECTION_JOBS) {
+    const oldestTerminal = [...pointCloudInspectionJobs.values()]
+      .filter((job) => job.state === "completed" || job.state === "cancelled" || job.state === "failed")
+      .sort((left, right) => left.createdAt - right.createdAt)[0];
+    if (!oldestTerminal) return;
+    pointCloudInspectionJobs.delete(oldestTerminal.id);
+  }
+}
+
+function pointCloudInspectionJobStatus(job: MainPointCloudInspectionJob): PointCloudRecordInspectionJobStatus {
+  if (job.state === "completed" && job.source) return { jobId: job.id, status: "completed", source: job.source };
+  if (job.state === "cancelled") return { jobId: job.id, status: "cancelled" };
+  if (job.state === "failed") {
+    return {
+      jobId: job.id,
+      status: "failed",
+      message: job.message ?? "Point-cloud inspection failed. No report was saved.",
+    };
+  }
+  return {
+    jobId: job.id,
+    status: job.state === "cancelling" ? "cancelling" : "running",
+    decodedPointCount: job.decodedPointCount,
+    declaredPointCount: job.declaredPointCount,
+  };
+}
+
+function monitorPointCloudCancellation(job: MainPointCloudInspectionJob): void {
+  void (async () => {
+    while (job.state === "cancelling") {
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+      if (job.state !== "cancelling") return;
+      const activeSidecar = sidecar;
+      if (!activeSidecar || !activeSidecar.isRunning()) {
+        job.state = "failed";
+        job.message = "The point-cloud inspection stopped because the Rust sidecar is unavailable. No report was saved.";
+        return;
+      }
+      try {
+        const state = await activeSidecar.call<{ status: string }>(
+          "pointcloud.record_inspection_status",
+          { jobId: job.sidecarJobId },
+        );
+        if (job.state !== "cancelling") return;
+        if (state.status === "cancelled" || state.status === "completed") {
+          // Once cancellation was accepted, never publish a report even if a
+          // worker reports completion at the same boundary.
+          job.state = "cancelled";
+          return;
+        }
+        if (state.status === "failed") {
+          job.state = "failed";
+          job.message = "Point-cloud inspection failed while stopping. No report was saved.";
+          return;
+        }
+      } catch {
+        job.state = "failed";
+        job.message = "The point-cloud inspection status could not be recovered. No report was saved.";
+        return;
+      }
+    }
+  })();
+}
 
 function pruneSelectedPluginModules(now = Date.now()): void {
   for (const [token, module] of selectedPluginModules) {
@@ -511,13 +629,11 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("metardu:pointcloud:verifyActiveProjectSource", async (_event, sourceId: unknown): Promise<PointCloudSourceVerification> => {
-    if (typeof sourceId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceId)) {
-      throw new Error("Point-cloud source identifier is invalid.");
-    }
+    const validatedSourceId = requirePointCloudSourceId(sourceId);
     const database = getDatabase();
     const projectId = getActiveProjectId(database);
     const source = projectId
-      ? listProjectPointCloudSources(database, projectId).find((candidate) => candidate.id === sourceId)
+      ? listProjectPointCloudSources(database, projectId).find((candidate) => candidate.id === validatedSourceId)
       : undefined;
     if (!source) throw new Error("Point-cloud source is not attached to the active project.");
 
@@ -528,7 +644,7 @@ function registerIpcHandlers(): void {
       source.fileSizeBytes,
     );
     return {
-      sourceId,
+      sourceId: validatedSourceId,
       status: verification.status,
       recordedSha256: source.contentSha256,
       actualSha256: verification.actualSha256,
@@ -537,23 +653,29 @@ function registerIpcHandlers(): void {
     };
   });
 
-  ipcMain.handle("metardu:pointcloud:inspectActiveProjectSourceRecords", async (_event, sourceId: unknown): Promise<PointCloudRecordInspectionResult> => {
-    if (typeof sourceId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceId)) {
-      throw new Error("Point-cloud source identifier is invalid.");
-    }
+  ipcMain.handle("metardu:pointcloud:startActiveProjectRecordInspection", async (_event, sourceId: unknown): Promise<PointCloudRecordInspectionJobStart> => {
+    const validatedSourceId = requirePointCloudSourceId(sourceId);
     const database = getDatabase();
     const projectId = getActiveProjectId(database);
     const project = projectId ? getProject(database, projectId) : null;
     const source = projectId
-      ? listProjectPointCloudSources(database, projectId).find((candidate) => candidate.id === sourceId)
+      ? listProjectPointCloudSources(database, projectId).find((candidate) => candidate.id === validatedSourceId)
       : undefined;
     if (!project || !source) throw new Error("Point-cloud source is not attached to the active project.");
     if (!sidecar || !sidecar.isRunning()) {
       throw new Error("Rust sidecar is not running; point-record inspection is unavailable.");
     }
 
-    const userDataPath = app.getPath("userData");
-    const verifyStoredBytes = async () => {
+    prunePointCloudInspectionJobs();
+    const hasActiveJob = [...pointCloudInspectionJobs.values()].some((job) =>
+      job.state === "running" || job.state === "cancelling" || job.state === "finalizing");
+    if (pointCloudInspectionStartInFlight || hasActiveJob) {
+      throw new Error("A point-cloud record inspection is already running.");
+    }
+
+    pointCloudInspectionStartInFlight = true;
+    try {
+      const userDataPath = app.getPath("userData");
       const integrity = await verifyPointCloudObject(
         userDataPath,
         source.storageKey,
@@ -563,37 +685,184 @@ function registerIpcHandlers(): void {
       if (integrity.status !== "verified") {
         throw new Error(`Point-record inspection stopped because the stored source is ${integrity.status}.`);
       }
-    };
 
-    await verifyStoredBytes();
-    const scan = await sidecar.call<Omit<PointCloudRecordInspection, "id" | "sourceSha256" | "inspectedAt">>(
-      "pointcloud.inspect_records",
-      { path: pointCloudObjectPath(userDataPath, source.storageKey) },
-      { timeoutMs: POINT_CLOUD_RECORD_SCAN_TIMEOUT_MS },
-    );
-    await verifyStoredBytes();
-    if (getActiveProjectId(database) !== project.id) {
-      throw new Error("The active project changed during point-record inspection; no report was saved.");
+      const sidecarStart = await sidecar.call<{ jobId: string }>("pointcloud.start_record_inspection", {
+        path: pointCloudObjectPath(userDataPath, source.storageKey),
+      });
+      const sidecarJobId = requirePointCloudInspectionJobId(sidecarStart.jobId);
+      if (getActiveProjectId(database) !== project.id) {
+        await sidecar.call("pointcloud.cancel_record_inspection", { jobId: sidecarJobId }).catch(() => undefined);
+        throw new Error("The active project changed before point-record inspection started.");
+      }
+
+      const job: MainPointCloudInspectionJob = {
+        id: randomUUID(),
+        sidecarJobId,
+        projectId: project.id,
+        sourceId: source.id,
+        state: "running",
+        decodedPointCount: "0",
+        declaredPointCount: pointCloudSourceSummary(source).header.headerDeclaredPointCount,
+        createdAt: Date.now(),
+      };
+      prunePointCloudInspectionJobs();
+      pointCloudInspectionJobs.set(job.id, job);
+      return { jobId: job.id, declaredPointCount: job.declaredPointCount };
+    } finally {
+      pointCloudInspectionStartInFlight = false;
+    }
+  });
+
+  ipcMain.handle("metardu:pointcloud:activeProjectRecordInspectionStatus", async (_event, jobId: unknown): Promise<PointCloudRecordInspectionJobStatus> => {
+    const validatedJobId = requirePointCloudInspectionJobId(jobId);
+    const job = pointCloudInspectionJobs.get(validatedJobId);
+    if (!job) throw new Error("Point-cloud inspection job is unknown or expired.");
+    if (job.state === "completed" || job.state === "cancelled" || job.state === "failed") {
+      return pointCloudInspectionJobStatus(job);
+    }
+    if (!sidecar || !sidecar.isRunning()) {
+      job.state = "failed";
+      job.message = "The point-cloud inspection stopped because the Rust sidecar is unavailable. No report was saved.";
+      return pointCloudInspectionJobStatus(job);
     }
 
-    const storedInspection = createPointCloudInspection(database, {
-      sourceId: source.id,
-      sourceSha256: source.contentSha256,
-      readerVersion: scan.readerVersion,
-      inspectionJson: JSON.stringify(scan),
-    });
-    const refreshedSource = listProjectPointCloudSources(database, project.id)
-      .find((candidate) => candidate.id === source.id);
-    if (!refreshedSource) throw new Error("The inspected source is no longer attached to the active project.");
-    const recordInspection: PointCloudRecordInspection = {
-      ...scan,
-      id: storedInspection.id,
-      sourceSha256: storedInspection.sourceSha256,
-      inspectedAt: storedInspection.inspectedAt,
+    if (getActiveProjectId(getDatabase()) !== job.projectId && job.state === "running") {
+      try {
+        const cancellation = await sidecar.call<{ accepted: boolean }>("pointcloud.cancel_record_inspection", {
+          jobId: job.sidecarJobId,
+        });
+        if (cancellation.accepted) {
+          job.state = "cancelling";
+          monitorPointCloudCancellation(job);
+        }
+      } catch {
+        job.state = "failed";
+        job.message = "The point-cloud inspection stopped after the active project changed. No report was saved.";
+        return pointCloudInspectionJobStatus(job);
+      }
+    }
+
+    let sidecarState: {
+      status: string;
+      decodedPointCount?: string;
+      declaredPointCount?: string;
+      report?: Omit<PointCloudRecordInspection, "id" | "sourceSha256" | "inspectedAt">;
+      message?: string;
     };
-    return {
-      source: pointCloudSourceSummary(refreshedSource, "verified", recordInspection),
-    };
+    try {
+      sidecarState = await sidecar.call("pointcloud.record_inspection_status", { jobId: job.sidecarJobId });
+    } catch {
+      job.state = "failed";
+      job.message = "The point-cloud inspection status could not be recovered. No report was saved.";
+      return pointCloudInspectionJobStatus(job);
+    }
+    if (job.state === "finalizing" || isTerminalPointCloudInspectionJobState(job.state)) {
+      return pointCloudInspectionJobStatus(job);
+    }
+    if (job.state === "cancelling" && sidecarState.status !== "running" && sidecarState.status !== "cancelling") {
+      job.state = sidecarState.status === "failed" ? "failed" : "cancelled";
+      if (job.state === "failed") job.message = "Point-cloud inspection failed while stopping. No report was saved.";
+      return pointCloudInspectionJobStatus(job);
+    }
+
+    if (sidecarState.status === "running" || sidecarState.status === "cancelling") {
+      if (job.state !== "cancelling") job.state = sidecarState.status;
+      if (typeof sidecarState.decodedPointCount === "string") job.decodedPointCount = sidecarState.decodedPointCount;
+      if (typeof sidecarState.declaredPointCount === "string" && sidecarState.declaredPointCount !== "0") {
+        job.declaredPointCount = sidecarState.declaredPointCount;
+      }
+      return pointCloudInspectionJobStatus(job);
+    }
+    if (sidecarState.status === "cancelled") {
+      job.state = "cancelled";
+      return pointCloudInspectionJobStatus(job);
+    }
+    if (sidecarState.status === "failed") {
+      job.state = "failed";
+      job.message = sidecarState.message ?? "Point-cloud inspection failed. No report was saved.";
+      return pointCloudInspectionJobStatus(job);
+    }
+    if (sidecarState.status !== "completed" || !sidecarState.report) {
+      job.state = "failed";
+      job.message = "The point-cloud inspection returned an invalid job state. No report was saved.";
+      return pointCloudInspectionJobStatus(job);
+    }
+
+    job.state = "finalizing";
+    try {
+      const database = getDatabase();
+      if (getActiveProjectId(database) !== job.projectId || !getProject(database, job.projectId)) {
+        throw new Error("The active project changed during point-record inspection.");
+      }
+      const source = listProjectPointCloudSources(database, job.projectId)
+        .find((candidate) => candidate.id === job.sourceId);
+      if (!source) throw new Error("The inspected source is no longer attached to its project.");
+      const integrity = await verifyPointCloudObject(
+        app.getPath("userData"),
+        source.storageKey,
+        source.contentSha256,
+        source.fileSizeBytes,
+      );
+      if (integrity.status !== "verified") {
+        throw new Error("The retained source digest no longer matches its project record.");
+      }
+      if (getActiveProjectId(database) !== job.projectId) {
+        throw new Error("The active project changed while the retained source was being rechecked.");
+      }
+      if (typeof sidecarState.report.readerVersion !== "string"
+        || typeof sidecarState.report.decodedPointCount !== "string") {
+        throw new Error("The sidecar inspection report is incomplete.");
+      }
+
+      const storedInspection = createPointCloudInspection(database, {
+        sourceId: source.id,
+        sourceSha256: source.contentSha256,
+        readerVersion: sidecarState.report.readerVersion,
+        inspectionJson: JSON.stringify(sidecarState.report),
+      });
+      const refreshedSource = listProjectPointCloudSources(database, job.projectId)
+        .find((candidate) => candidate.id === source.id);
+      if (!refreshedSource) throw new Error("The inspected source is no longer attached to its project.");
+      const recordInspection: PointCloudRecordInspection = {
+        ...sidecarState.report,
+        id: storedInspection.id,
+        sourceSha256: storedInspection.sourceSha256,
+        inspectedAt: storedInspection.inspectedAt,
+      };
+      job.source = pointCloudSourceSummary(refreshedSource, "verified", recordInspection);
+      job.state = "completed";
+    } catch (error) {
+      job.state = "failed";
+      job.message = `${error instanceof Error ? error.message : String(error)} No report was saved.`;
+    }
+    return pointCloudInspectionJobStatus(job);
+  });
+
+  ipcMain.handle("metardu:pointcloud:cancelActiveProjectRecordInspection", async (_event, jobId: unknown): Promise<{ accepted: boolean }> => {
+    const validatedJobId = requirePointCloudInspectionJobId(jobId);
+    const job = pointCloudInspectionJobs.get(validatedJobId);
+    if (!job) throw new Error("Point-cloud inspection job is unknown or expired.");
+    if (job.state === "cancelling") return { accepted: true };
+    if (job.state !== "running") return { accepted: false };
+    if (!sidecar || !sidecar.isRunning()) {
+      job.state = "failed";
+      job.message = "The point-cloud inspection stopped because the Rust sidecar is unavailable. No report was saved.";
+      return { accepted: false };
+    }
+    try {
+      const result = await sidecar.call<{ accepted: boolean }>("pointcloud.cancel_record_inspection", {
+        jobId: job.sidecarJobId,
+      });
+      if (result.accepted) {
+        job.state = "cancelling";
+        monitorPointCloudCancellation(job);
+      }
+      return { accepted: result.accepted };
+    } catch {
+      job.state = "failed";
+      job.message = "The point-cloud inspection could not be cancelled because the sidecar is unavailable. No report was saved.";
+      return { accepted: false };
+    }
   });
 
   // ─── Digital signature + seal (Tier 1 #4) ─────────────────────────

@@ -20,10 +20,28 @@ import type { StoredProject, ProjectStoreState, CreateProjectInput, UpdateProjec
 import type {
   PointCloudImportResult,
   PointCloudProjectSourceList,
-  PointCloudRecordInspectionResult,
+  PointCloudRecordInspectionJobStart,
+  PointCloudRecordInspectionJobStatus,
   PointCloudSourceVerification,
 } from "../shared/point-cloud.js";
-import { PLUGIN_RUN_INPUT_SCHEMA, validateSidecarParams } from "@metardu/ipc-schemas";
+import {
+  PLUGIN_RUN_INPUT_SCHEMA,
+  POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA,
+  POINT_CLOUD_SOURCE_ID_SCHEMA,
+  validateSidecarParams,
+} from "@metardu/ipc-schemas";
+
+function requirePointCloudSourceId(value: string): string {
+  const parsed = POINT_CLOUD_SOURCE_ID_SCHEMA.safeParse(value);
+  if (!parsed.success) throw new Error("Point-cloud source identifier must be a UUID.");
+  return parsed.data;
+}
+
+function requirePointCloudInspectionJobId(value: string): string {
+  const parsed = POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA.safeParse(value);
+  if (!parsed.success) throw new Error("Point-cloud inspection job identifier must be a UUID.");
+  return parsed.data;
+}
 
 /** Result of any statutory DRAFT renderer — PDF plus verification status. */
 interface StatutoryResult {
@@ -187,9 +205,13 @@ const metarduApi = {
     listActiveProjectSources: (): Promise<PointCloudProjectSourceList> =>
       ipcRenderer.invoke("metardu:pointcloud:listActiveProjectSources"),
     verifySource: (sourceId: string): Promise<PointCloudSourceVerification> =>
-      ipcRenderer.invoke("metardu:pointcloud:verifyActiveProjectSource", sourceId),
-    inspectSourceRecords: (sourceId: string): Promise<PointCloudRecordInspectionResult> =>
-      ipcRenderer.invoke("metardu:pointcloud:inspectActiveProjectSourceRecords", sourceId),
+      ipcRenderer.invoke("metardu:pointcloud:verifyActiveProjectSource", requirePointCloudSourceId(sourceId)),
+    startRecordInspection: (sourceId: string): Promise<PointCloudRecordInspectionJobStart> =>
+      ipcRenderer.invoke("metardu:pointcloud:startActiveProjectRecordInspection", requirePointCloudSourceId(sourceId)),
+    recordInspectionStatus: (jobId: string): Promise<PointCloudRecordInspectionJobStatus> =>
+      ipcRenderer.invoke("metardu:pointcloud:activeProjectRecordInspectionStatus", requirePointCloudInspectionJobId(jobId)),
+    cancelRecordInspection: (jobId: string): Promise<{ accepted: boolean }> =>
+      ipcRenderer.invoke("metardu:pointcloud:cancelActiveProjectRecordInspection", requirePointCloudInspectionJobId(jobId)),
   },
   /** Digital signature + seal (Tier 1 #4). */
   signing: {
