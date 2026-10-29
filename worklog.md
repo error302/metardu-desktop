@@ -3929,3 +3929,17 @@ Stage Summary:
 - Artifacts: `metardu-v2/packages/metardu-sidecar/src/import/point_cloud.rs`, `metardu-v2/apps/desktop/src/shared/point-cloud.ts`, `metardu-v2/apps/desktop/src/renderer/views/PointCloudView.tsx`, `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`, and this task brief/worklog.
 - Next: verify the explicit stage allowlist, commit, push to the Desktop repository only, and verify the remote branch SHA.
 
+---
+Task ID: pointwise-laz-block-boundary — delivery addendum
+Agent: Codex — 2026-10-29
+Task: Record the verified Desktop commit and remote branch state.
+
+Work Log:
+- Reviewed the staged task paths before committing. The task commit used an explicit path allowlist, so the pre-existing staged deletion of `metardu-v2/frontend/main.tsx` was excluded.
+- Commit `212e285a34b0487c4b8e42aeda857c77cca4fdf1` (`fix(point-cloud): report pointwise LAZ block boundary`) was pushed to `origin` at `https://github.com/error302/metardu-desktop.git`, branch `codex/international-desktop-product-plan`.
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `212e285a34b0487c4b8e42aeda857c77cca4fdf1`, matching local `HEAD` at verification time.
+- Existing staged deletion and unrelated untracked work remain outside this task commit.
+
+Stage Summary:
+- The verified pointwise-LAZ boundary change is committed and available on the METARDU Desktop feature branch. This delivery record is appended after the verification above.
+

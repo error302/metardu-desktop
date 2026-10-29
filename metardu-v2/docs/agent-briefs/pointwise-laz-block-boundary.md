@@ -36,7 +36,7 @@ pointwise-laz-block-boundary
 - [x] A non-default LASzip special-EVLR reference remains incomplete and does not receive a guessed boundary.
 - [x] A fixture derived from a single valid chunk decodes the declared points as compressor type 1 and covers both EOF and first-EVLR boundaries.
 - [x] Focused Rust tests, release sidecar build/tests without unavailable native GDAL, Desktop TypeScript/tests, and renderer build are run; actual output and any environment limitation are appended verbatim to `worklog.md`.
-- [ ] The change is committed and pushed only to `https://github.com/error302/metardu-desktop.git` after verifying the exact staged paths.
+- [x] The change is committed and pushed only to `https://github.com/error302/metardu-desktop.git` after verifying the exact staged paths.
 
 ## Anti-hallucination clause
 
