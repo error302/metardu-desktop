@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use las::{raw, Builder, Header, Vlr};
+use las::{raw, Builder, Header, PointDataBuilder, Reader, Vlr};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -40,6 +40,26 @@ pub async fn handle_point_cloud_header_inspection(params: Value) -> Result<Value
         .await
         .map_err(|error| {
             HandlerError::Internal(format!("Point-cloud inspection task failed: {error}"))
+        })?
+}
+
+/// Decode the header-declared LAS/LAZ point range in bounded batches and report source evidence.
+pub async fn handle_point_cloud_record_inspection(params: Value) -> Result<Value, HandlerError> {
+    let parsed: InspectParams = serde_json::from_value(params)
+        .map_err(|error| HandlerError::InvalidParams(error.to_string()))?;
+    let path = PathBuf::from(parsed.path);
+    if !path.is_absolute() {
+        return Err(HandlerError::InvalidParams(
+            "Point-cloud source path must be absolute.".into(),
+        ));
+    }
+
+    tokio::task::spawn_blocking(move || inspect_point_records(&path))
+        .await
+        .map_err(|error| {
+            HandlerError::Internal(format!(
+                "Point-cloud record inspection task failed: {error}"
+            ))
         })?
 }
 
@@ -307,6 +327,271 @@ fn internal_io_error(error: std::io::Error) -> HandlerError {
     HandlerError::Internal(format!("Point-cloud source I/O failed: {error}"))
 }
 
+const MAX_POINT_BATCH_BYTES: usize = 16 * 1024 * 1024;
+const MAX_POINT_BATCH_COUNT: usize = 65_536;
+
+fn inspect_point_records(path: &Path) -> Result<Value, HandlerError> {
+    // Keep the existing header preflight as the single bounded gate for VLR/EVLR metadata.
+    let _header_evidence = inspect_header(path)?;
+    let mut reader = Reader::from_path(path).map_err(|error| {
+        HandlerError::InvalidParams(format!("LAS/LAZ point reader could not be opened: {error}"))
+    })?;
+
+    let header = reader.header();
+    let declared_point_count = header.number_of_points();
+    let point_format_id = header.point_format().to_u8().map_err(|error| {
+        HandlerError::InvalidParams(format!("Unsupported LAS point format: {error}"))
+    })?;
+    let format = if header.point_format().is_compressed {
+        "LAZ"
+    } else {
+        "LAS"
+    };
+    let version = header.version().to_string();
+    let record_length = PointDataBuilder::new()
+        .for_header(header)
+        .build()
+        .record_len();
+    if record_length == 0 {
+        return Err(HandlerError::InvalidParams(
+            "LAS/LAZ point record length is zero.".into(),
+        ));
+    }
+    let batch_count = (MAX_POINT_BATCH_BYTES / record_length)
+        .max(1)
+        .min(MAX_POINT_BATCH_COUNT) as u64;
+    let mut points = PointDataBuilder::new().for_header(reader.header()).build();
+
+    let mut decoded_point_count = 0_u64;
+    let mut class_counts = [0_u64; 256];
+    let mut return_counts = [0_u64; 16];
+    let mut number_of_returns_counts = [0_u64; 16];
+    let mut invalid_return_metadata_count = 0_u64;
+    let mut non_finite_coordinate_count = 0_u64;
+    let mut minimum = [f64::INFINITY; 3];
+    let mut maximum = [f64::NEG_INFINITY; 3];
+
+    loop {
+        let count = reader
+            .fill_points(batch_count, &mut points)
+            .map_err(|error| {
+                HandlerError::InvalidParams(format!(
+                    "LAS/LAZ point decoding failed after {decoded_point_count} records: {error}"
+                ))
+            })?;
+        if count == 0 {
+            break;
+        }
+        decoded_point_count = decoded_point_count.checked_add(count).ok_or_else(|| {
+            HandlerError::Internal("Decoded point count overflowed its 64-bit range.".into())
+        })?;
+
+        for class_code in points.classification() {
+            checked_increment(&mut class_counts[class_code as usize], "classification")?;
+        }
+        for return_number in points.return_number() {
+            checked_increment(&mut return_counts[return_number as usize], "return number")?;
+        }
+        for number_of_returns in points.number_of_returns() {
+            checked_increment(
+                &mut number_of_returns_counts[number_of_returns as usize],
+                "number of returns",
+            )?;
+        }
+        for (return_number, number_of_returns) in
+            points.return_number().zip(points.number_of_returns())
+        {
+            if return_number == 0 || number_of_returns == 0 || return_number > number_of_returns {
+                checked_increment(
+                    &mut invalid_return_metadata_count,
+                    "invalid return metadata",
+                )?;
+            }
+        }
+
+        for ((x, y), z) in points.x().zip(points.y()).zip(points.z()) {
+            if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+                checked_increment(&mut non_finite_coordinate_count, "non-finite coordinate")?;
+                continue;
+            }
+            minimum[0] = minimum[0].min(x);
+            minimum[1] = minimum[1].min(y);
+            minimum[2] = minimum[2].min(z);
+            maximum[0] = maximum[0].max(x);
+            maximum[1] = maximum[1].max(y);
+            maximum[2] = maximum[2].max(z);
+        }
+    }
+
+    let class_total = class_counts.iter().try_fold(0_u64, |sum, count| {
+        sum.checked_add(*count)
+            .ok_or_else(|| HandlerError::Internal("Class count total overflowed.".into()))
+    })?;
+    if class_total != decoded_point_count {
+        return Err(HandlerError::Internal(format!(
+            "Point reader returned {decoded_point_count} records but class columns contain {class_total}."
+        )));
+    }
+
+    let header_count_matches = decoded_point_count == declared_point_count;
+    let header = reader.header();
+    let header_bounds = header.bounds();
+    let has_finite_bounds = decoded_point_count > non_finite_coordinate_count;
+    let decoded_bounds = if has_finite_bounds {
+        json!({
+            "min": { "x": finite_json(minimum[0]), "y": finite_json(minimum[1]), "z": finite_json(minimum[2]) },
+            "max": { "x": finite_json(maximum[0]), "y": finite_json(maximum[1]), "z": finite_json(maximum[2]) },
+        })
+    } else {
+        json!({
+            "min": { "x": null, "y": null, "z": null },
+            "max": { "x": null, "y": null, "z": null },
+        })
+    };
+    let bounds_within_header = if has_finite_bounds
+        && [
+            header_bounds.min.x,
+            header_bounds.min.y,
+            header_bounds.min.z,
+            header_bounds.max.x,
+            header_bounds.max.y,
+            header_bounds.max.z,
+        ]
+        .iter()
+        .all(|value| value.is_finite())
+    {
+        Some(
+            minimum[0] >= header_bounds.min.x
+                && minimum[1] >= header_bounds.min.y
+                && minimum[2] >= header_bounds.min.z
+                && maximum[0] <= header_bounds.max.x
+                && maximum[1] <= header_bounds.max.y
+                && maximum[2] <= header_bounds.max.z,
+        )
+    } else {
+        None
+    };
+
+    let classification_counts: Vec<Value> = class_counts
+        .iter()
+        .enumerate()
+        .filter(|(_, count)| **count > 0)
+        .map(|(code, count)| {
+            json!({
+                "code": code,
+                "count": count.to_string(),
+            })
+        })
+        .collect();
+    let return_count_comparison: Vec<Value> = (1_u8..=15)
+        .map(|return_number| {
+            let declared = header.number_of_points_by_return(return_number);
+            let decoded = return_counts[return_number as usize];
+            json!({
+                "returnNumber": return_number,
+                "headerDeclaredCount": declared.map(|count| count.to_string()),
+                "decodedCount": decoded.to_string(),
+                "matchesHeader": declared.map(|count| count == decoded),
+            })
+        })
+        .collect();
+    let returns_match_header = return_count_comparison
+        .iter()
+        .all(|entry| entry["matchesHeader"].as_bool().unwrap_or(true));
+    let decoded_return_counts: Vec<Value> = (0_u8..=15)
+        .filter(|return_number| return_counts[*return_number as usize] > 0)
+        .map(|return_number| {
+            json!({
+                "returnNumber": return_number,
+                "count": return_counts[return_number as usize].to_string(),
+            })
+        })
+        .collect();
+    let decoded_number_of_returns_counts: Vec<Value> = (0_u8..=15)
+        .filter(|count| number_of_returns_counts[*count as usize] > 0)
+        .map(|count| {
+            json!({
+                "numberOfReturns": count,
+                "count": number_of_returns_counts[count as usize].to_string(),
+            })
+        })
+        .collect();
+
+    let mut warnings = vec![
+        "This scan decodes the point range declared by the LAS/LAZ header; it does not validate trailing bytes or prove whole-file format conformance.".to_string(),
+        "Coordinates are decoded with the source header scale and offset only. CRS, units, epoch, vertical reference, and project compatibility remain unresolved.".to_string(),
+        "Classification counts are labels already stored in the source; no classification algorithm was run.".to_string(),
+    ];
+    if !header_count_matches {
+        warnings.push(format!(
+            "Decoded point count ({decoded_point_count}) differs from the header-declared count ({declared_point_count})."
+        ));
+    }
+    if !returns_match_header {
+        warnings.push(
+            "One or more decoded return-number counts differ from the header-declared per-return counts.".into(),
+        );
+    }
+    if invalid_return_metadata_count > 0 {
+        warnings.push(format!(
+            "{invalid_return_metadata_count} decoded point records have zero or inconsistent return metadata."
+        ));
+    }
+    if non_finite_coordinate_count > 0 {
+        warnings.push(format!(
+            "{non_finite_coordinate_count} decoded point records have non-finite coordinates and were excluded from the reported bounds."
+        ));
+    }
+    if bounds_within_header == Some(false) {
+        warnings.push(
+            "One or more decoded coordinates fall outside the header-declared bounds.".into(),
+        );
+    }
+    if !header.point_format().is_extended && class_counts[12] > 0 {
+        warnings.push(
+            "Legacy point formats may use class code 12 for overlap points; the code is reported as stored and is not reinterpreted.".into(),
+        );
+    }
+
+    Ok(json!({
+        "format": format,
+        "version": version,
+        "pointFormatId": point_format_id,
+        "readerVersion": "las-rs 0.11.2",
+        "headerDeclaredPointCount": declared_point_count.to_string(),
+        "decodedPointCount": decoded_point_count.to_string(),
+        "headerCountMatchesDecoded": header_count_matches,
+        "classificationCounts": classification_counts,
+        "returnCounts": decoded_return_counts,
+        "numberOfReturnsCounts": decoded_number_of_returns_counts,
+        "headerReturnCountComparison": return_count_comparison,
+        "returnCountsMatchHeader": returns_match_header,
+        "invalidReturnMetadataPointCount": invalid_return_metadata_count.to_string(),
+        "nonFiniteCoordinatePointCount": non_finite_coordinate_count.to_string(),
+        "decodedBounds": decoded_bounds,
+        "headerBoundsContainDecodedPoints": bounds_within_header,
+        "coordinateInterpretation": "source coordinates after LAS scale/offset; CRS, units, epoch, and vertical reference not interpreted",
+        "warnings": warnings,
+    }))
+}
+
+fn checked_increment(count: &mut u64, label: &str) -> Result<(), HandlerError> {
+    *count = count.checked_add(1).ok_or_else(|| {
+        HandlerError::Internal(format!(
+            "Point-cloud {label} count overflowed its 64-bit range."
+        ))
+    })?;
+    Ok(())
+}
+
+fn finite_json(value: f64) -> Value {
+    if value.is_finite() {
+        json!(value)
+    } else {
+        Value::Null
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::File;
@@ -316,7 +601,7 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
 
-    use super::{inspect_header, read_bounded_raw_header};
+    use super::{inspect_header, inspect_point_records, read_bounded_raw_header};
     use crate::dispatcher::HandlerError;
 
     fn write_fixture(path: &std::path::Path, with_evlrs: bool) {
@@ -358,6 +643,9 @@ mod tests {
                 x: 500_001.25,
                 y: 6_000_002.5,
                 z: 101.0,
+                return_number: 1,
+                number_of_returns: 2,
+                classification: las::point::Classification::Ground,
                 gps_time: Some(1.0),
                 color: Some(las::Color::new(100, 200, 300)),
                 ..Default::default()
@@ -368,6 +656,9 @@ mod tests {
                 x: 500_003.75,
                 y: 6_000_005.0,
                 z: 102.0,
+                return_number: 2,
+                number_of_returns: 2,
+                classification: las::point::Classification::Building,
                 gps_time: Some(2.0),
                 color: Some(las::Color::new(400, 500, 600)),
                 ..Default::default()
@@ -424,6 +715,83 @@ mod tests {
         let raw = las::raw::Header::read_from(&mut file).unwrap();
         let evlr_count = raw.evlr.unwrap().number_of_evlrs;
         assert_eq!(evlr_count, 2);
+    }
+
+    #[test]
+    fn scans_las_records_and_reports_classes_returns_and_decoded_bounds() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("survey.las");
+        write_fixture(&path, false);
+        let before = std::fs::read(&path).unwrap();
+
+        let result = inspect_point_records(&path).unwrap();
+
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "inspection must not modify the source file"
+        );
+        assert_eq!(result["format"], "LAS");
+        assert_eq!(result["version"], "1.4");
+        assert_eq!(result["headerDeclaredPointCount"], "2");
+        assert_eq!(result["decodedPointCount"], "2");
+        assert_eq!(result["headerCountMatchesDecoded"], true);
+        assert_eq!(result["classificationCounts"][0]["code"], 2);
+        assert_eq!(result["classificationCounts"][0]["count"], "1");
+        assert_eq!(result["classificationCounts"][1]["code"], 6);
+        assert_eq!(result["classificationCounts"][1]["count"], "1");
+        assert_eq!(
+            result["headerReturnCountComparison"][0]["decodedCount"],
+            "1"
+        );
+        assert_eq!(
+            result["headerReturnCountComparison"][1]["decodedCount"],
+            "1"
+        );
+        assert_eq!(result["returnCountsMatchHeader"], true);
+        assert_eq!(result["decodedBounds"]["min"]["x"], 500_001.25);
+        assert_eq!(result["decodedBounds"]["max"]["z"], 102.0);
+        assert_eq!(result["headerBoundsContainDecodedPoints"], true);
+        assert_eq!(result["invalidReturnMetadataPointCount"], "0");
+        assert_eq!(result["nonFiniteCoordinatePointCount"], "0");
+    }
+
+    #[test]
+    fn scans_compressed_laz_records_and_reports_their_existing_class_labels() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("survey.laz");
+        write_fixture(&path, true);
+
+        let result = inspect_point_records(&path).unwrap();
+
+        assert_eq!(result["format"], "LAZ");
+        assert_eq!(result["decodedPointCount"], "2");
+        assert_eq!(result["classificationCounts"][0]["code"], 2);
+        assert_eq!(result["classificationCounts"][1]["code"], 6);
+        assert_eq!(result["returnCountsMatchHeader"], true);
+        assert_eq!(result["headerBoundsContainDecodedPoints"], true);
+    }
+
+    #[test]
+    fn rejects_truncated_las_point_records_after_reporting_the_read_position() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("truncated.las");
+        write_fixture(&path, false);
+        let raw_header = las::raw::Header::read_from(File::open(&path).unwrap()).unwrap();
+        let one_point_end = u64::from(raw_header.offset_to_point_data)
+            + u64::from(raw_header.point_data_record_length);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(one_point_end)
+            .unwrap();
+
+        let error = inspect_point_records(&path).unwrap_err().to_string();
+        assert!(
+            error.contains("point decoding failed after 1 records"),
+            "{error}"
+        );
     }
 
     #[test]

@@ -105,6 +105,11 @@ export interface StoredPointCloudSource {
   format: "LAS" | "LAZ";
   headerJson: string;
   importedAt: string;
+  latestRecordInspectionJson?: string | null;
+  latestRecordInspectionId?: string | null;
+  latestRecordInspectionSha256?: string | null;
+  latestRecordInspectionReaderVersion?: string | null;
+  latestRecordInspectionAt?: string | null;
 }
 
 export interface CreatePointCloudSourceInput {
@@ -118,9 +123,25 @@ export interface CreatePointCloudSourceInput {
   headerJson: string;
 }
 
+export interface CreatePointCloudInspectionInput {
+  sourceId: string;
+  sourceSha256: string;
+  readerVersion: string;
+  inspectionJson: string;
+}
+
+export interface StoredPointCloudInspection {
+  id: string;
+  sourceId: string;
+  sourceSha256: string;
+  readerVersion: string;
+  inspectionJson: string;
+  inspectedAt: string;
+}
+
 // ─── Schema ──────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const POINT_CLOUD_SOURCE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS point_cloud_sources (
@@ -139,6 +160,20 @@ const POINT_CLOUD_SOURCE_SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_point_cloud_sources_project
     ON point_cloud_sources(projectId, importedAt DESC);
+`;
+
+const POINT_CLOUD_INSPECTION_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS point_cloud_inspections (
+    id             TEXT PRIMARY KEY,
+    sourceId       TEXT NOT NULL,
+    sourceSha256   TEXT NOT NULL CHECK (length(sourceSha256) = 64),
+    readerVersion  TEXT NOT NULL,
+    inspectionJson TEXT NOT NULL,
+    inspectedAt    TEXT NOT NULL,
+    FOREIGN KEY (sourceId) REFERENCES point_cloud_sources(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_point_cloud_inspections_source
+    ON point_cloud_inspections(sourceId, inspectedAt DESC, id DESC);
 `;
 
 const SCHEMA_SQL = `
@@ -187,6 +222,7 @@ const SCHEMA_SQL = `
   );
 
   ${POINT_CLOUD_SOURCE_SCHEMA_SQL}
+  ${POINT_CLOUD_INSPECTION_SCHEMA_SQL}
 `;
 
 // ─── Database singleton ──────────────────────────────────────────
@@ -274,6 +310,13 @@ export function migrateDatabase(database: BetterSqlite3.Database): void {
       database.prepare("UPDATE schema_version SET version = ?").run(3);
     })();
   }
+
+  if (current < 4) {
+    database.transaction(() => {
+      database.exec(POINT_CLOUD_INSPECTION_SCHEMA_SQL);
+      database.prepare("UPDATE schema_version SET version = ?").run(4);
+    })();
+  }
 }
 
 // ─── Project CRUD ────────────────────────────────────────────────
@@ -356,8 +399,83 @@ export function listProjectPointCloudSources(
   projectId: string,
 ): StoredPointCloudSource[] {
   return database
-    .prepare("SELECT * FROM point_cloud_sources WHERE projectId = ? ORDER BY importedAt DESC, id ASC")
+    .prepare(
+      `SELECT source.*,
+         (SELECT inspection.inspectionJson
+          FROM point_cloud_inspections AS inspection
+          WHERE inspection.sourceId = source.id
+          ORDER BY inspection.inspectedAt DESC, inspection.id DESC
+          LIMIT 1) AS latestRecordInspectionJson,
+         (SELECT inspection.id
+          FROM point_cloud_inspections AS inspection
+          WHERE inspection.sourceId = source.id
+          ORDER BY inspection.inspectedAt DESC, inspection.id DESC
+          LIMIT 1) AS latestRecordInspectionId,
+         (SELECT inspection.sourceSha256
+          FROM point_cloud_inspections AS inspection
+          WHERE inspection.sourceId = source.id
+          ORDER BY inspection.inspectedAt DESC, inspection.id DESC
+          LIMIT 1) AS latestRecordInspectionSha256,
+         (SELECT inspection.readerVersion
+          FROM point_cloud_inspections AS inspection
+          WHERE inspection.sourceId = source.id
+          ORDER BY inspection.inspectedAt DESC, inspection.id DESC
+          LIMIT 1) AS latestRecordInspectionReaderVersion,
+         (SELECT inspection.inspectedAt
+          FROM point_cloud_inspections AS inspection
+          WHERE inspection.sourceId = source.id
+          ORDER BY inspection.inspectedAt DESC, inspection.id DESC
+          LIMIT 1) AS latestRecordInspectionAt
+       FROM point_cloud_sources AS source
+       WHERE source.projectId = ?
+       ORDER BY source.importedAt DESC, source.id ASC`,
+    )
     .all(projectId) as StoredPointCloudSource[];
+}
+
+export function createPointCloudInspection(
+  database: BetterSqlite3.Database,
+  input: CreatePointCloudInspectionInput,
+): StoredPointCloudInspection {
+  const digest = input.sourceSha256.toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error("Point-cloud inspection SHA-256 is invalid.");
+  if (!input.readerVersion.trim()) throw new Error("Point-cloud inspection reader version is required.");
+  const inspection = JSON.parse(input.inspectionJson) as Record<string, unknown>;
+  if (inspection.readerVersion !== input.readerVersion) {
+    throw new Error("Point-cloud inspection reader version does not match its report.");
+  }
+
+  const source = database
+    .prepare("SELECT contentSha256 FROM point_cloud_sources WHERE id = ?")
+    .get(input.sourceId) as { contentSha256: string } | undefined;
+  if (!source) throw new Error("Point-cloud inspection source does not exist.");
+  if (source.contentSha256 !== digest) {
+    throw new Error("Point-cloud inspection digest does not match its retained source.");
+  }
+
+  const stored: StoredPointCloudInspection = {
+    id: crypto.randomUUID(),
+    sourceId: input.sourceId,
+    sourceSha256: digest,
+    readerVersion: input.readerVersion,
+    inspectionJson: input.inspectionJson,
+    inspectedAt: new Date().toISOString(),
+  };
+  database
+    .prepare(
+      `INSERT INTO point_cloud_inspections
+        (id, sourceId, sourceSha256, readerVersion, inspectionJson, inspectedAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      stored.id,
+      stored.sourceId,
+      stored.sourceSha256,
+      stored.readerVersion,
+      stored.inspectionJson,
+      stored.inspectedAt,
+    );
+  return stored;
 }
 
 export function createProjectInDb(

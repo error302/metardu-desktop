@@ -4,6 +4,7 @@ import type BetterSqlite3 from "better-sqlite3";
 import {
   closeDatabase,
   configureDatabasePath,
+  createPointCloudInspection,
   createPointCloudSource,
   createProjectInDb,
   deleteProjectFromDb,
@@ -41,8 +42,9 @@ describe("point-cloud project source records", () => {
 
       migrateDatabase(database);
 
-      expect((database.prepare("SELECT version FROM schema_version").get() as { version: number }).version).toBe(3);
+      expect((database.prepare("SELECT version FROM schema_version").get() as { version: number }).version).toBe(4);
       expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'point_cloud_sources'").get()).toBeTruthy();
+      expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'point_cloud_inspections'").get()).toBeTruthy();
       expect((database.prepare("SELECT name, version FROM projects WHERE id = ?").get("existing-project") as { name: string; version: number })).toEqual({ name: "Existing project", version: 7 });
     } finally {
       database.close();
@@ -72,7 +74,18 @@ describe("point-cloud project source records", () => {
     const first = createPointCloudSource(database, input);
     const duplicate = createPointCloudSource(database, { ...input, fileName: "renamed-copy.laz" });
     expect(duplicate.id).toBe(first.id);
-    expect(listProjectPointCloudSources(database, project.id)).toEqual([first]);
+
+    const report = { readerVersion: "las-rs 0.11.2", decodedPointCount: "2" };
+    const inspection = createPointCloudInspection(database, {
+      sourceId: first.id,
+      sourceSha256: first.contentSha256,
+      readerVersion: "las-rs 0.11.2",
+      inspectionJson: JSON.stringify(report),
+    });
+    expect(JSON.parse(inspection.inspectionJson)).toEqual(report);
+    expect(listProjectPointCloudSources(database, project.id)[0]?.latestRecordInspectionJson).toBe(JSON.stringify(report));
+    expect(listProjectPointCloudSources(database, project.id)).toHaveLength(1);
+    expect(listProjectPointCloudSources(database, project.id)[0]).toMatchObject(first);
 
     expect(deleteProjectFromDb(database, project.id).ok).toBe(true);
     expect(listProjectPointCloudSources(database, project.id)).toEqual([]);
@@ -80,6 +93,40 @@ describe("point-cloud project source records", () => {
       projectId: null,
       storageKey: input.storageKey,
     });
+    expect(database.prepare("SELECT sourceId, sourceSha256 FROM point_cloud_inspections WHERE id = ?").get(inspection.id)).toEqual({
+      sourceId: first.id,
+      sourceSha256: first.contentSha256,
+    });
+  });
+
+  it("rejects an inspection digest that does not match the retained source", () => {
+    configureDatabasePath(":memory:");
+    const database = getDatabase();
+    const project = createProjectInDb(database, {
+      name: "Inspection digest project",
+      countryCode: "",
+      surveyType: "topographic",
+      sourceView: "PointCloudView",
+    });
+    const digest = "c".repeat(64);
+    const source = createPointCloudSource(database, {
+      projectId: project.id,
+      fileName: "source.las",
+      storageKey: `${digest}.las`,
+      contentSha256: digest,
+      fileSizeBytes: "512",
+      sourceExtension: "las",
+      format: "LAS",
+      headerJson: "{}",
+    });
+
+    expect(() => createPointCloudInspection(database, {
+      sourceId: source.id,
+      sourceSha256: "d".repeat(64),
+      readerVersion: "las-rs 0.11.2",
+      inspectionJson: JSON.stringify({ readerVersion: "las-rs 0.11.2" }),
+    })).toThrow(/does not match its retained source/);
+    expect(database.prepare("SELECT COUNT(*) AS count FROM point_cloud_inspections").get()).toEqual({ count: 0 });
   });
 
   it("rejects inconsistent content keys before writing a project source row", () => {

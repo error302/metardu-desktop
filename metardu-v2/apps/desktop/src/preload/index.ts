@@ -17,7 +17,12 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Form3Input, SyncConfig, SyncProject, SyncStatus, SyncConflict, Form4Input, Lra27Input, BeaconCertificateInput, AuPlanOfSurveyInput, ZaSgDiagramInput, GbMeasuredSurveyReportInput, DeGrenzfeststellungInput } from "@metardu/engine-flight-planning";
 import type { StoredProject, ProjectStoreState, CreateProjectInput, UpdateProjectInput } from "../main/project-store-core.js";
-import type { PointCloudImportResult, PointCloudProjectSourceList, PointCloudSourceVerification } from "../shared/point-cloud.js";
+import type {
+  PointCloudImportResult,
+  PointCloudProjectSourceList,
+  PointCloudRecordInspectionResult,
+  PointCloudSourceVerification,
+} from "../shared/point-cloud.js";
 import { PLUGIN_RUN_INPUT_SCHEMA, validateSidecarParams } from "@metardu/ipc-schemas";
 
 /** Result of any statutory DRAFT renderer — PDF plus verification status. */
@@ -183,6 +188,8 @@ const metarduApi = {
       ipcRenderer.invoke("metardu:pointcloud:listActiveProjectSources"),
     verifySource: (sourceId: string): Promise<PointCloudSourceVerification> =>
       ipcRenderer.invoke("metardu:pointcloud:verifyActiveProjectSource", sourceId),
+    inspectSourceRecords: (sourceId: string): Promise<PointCloudRecordInspectionResult> =>
+      ipcRenderer.invoke("metardu:pointcloud:inspectActiveProjectSourceRecords", sourceId),
   },
   /** Digital signature + seal (Tier 1 #4). */
   signing: {

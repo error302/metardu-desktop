@@ -3607,3 +3607,42 @@ Exit code 0; Git printed only Windows LF-to-CRLF notices.
 
 Next product gate: stream and validate actual point records, expose cancellable host-managed chunk reads to trusted processing code, then evaluate a named classifier against independent reference datasets. Preserve source hash and method provenance in every derived artifact; keep classification and professional delivery unavailable until accuracy and round-trip evidence is established.
 
+---
+
+## 29 October 2026 — LAS/LAZ record-level source inspection
+
+Changes:
+- Added a read-only Rust sidecar operation that decodes the LAS/LAZ point range declared by the source header in reusable batches capped by point-record bytes and point count. The compact report contains decoded versus declared counts, numeric source class-code counts, return-number comparisons, finite decoded bounds after LAS scale/offset, invalid return and non-finite coordinate counts, reader version, and warnings.
+- Added a dedicated Electron main-process IPC capability. It scopes the source ID to the active project, keeps the object path in main, verifies the complete source SHA-256 before and after decoding, and saves a report only after both checks pass.
+- Added SQLite v3-to-v4 transactional migration and append-only inspection history bound to the retained source digest and reader version. The Point Cloud screen can inspect and reopen the saved report, shows its source digest, and warns when the managed file has not been reverified in the current session.
+- Added ADR-0009, the implementation brief, and roadmap gates. The LinkedIn post remains an example of a surveyor-led prototype, not evidence of a particular method, class schema, or accuracy.
+- The UI reports numeric class codes only. ASPRS defines different class tables for point formats and supports lookup metadata, which this reader does not currently interpret.
+
+Verification:
+~~~text
+$ cargo check --offline --locked --no-default-features --features instrument
+Exit code 0. Existing sidecar warnings remain; the default GDAL-enabled release build was not attempted in this slice.
+
+$ rustfmt --edition 2021 --check src/import/point_cloud.rs
+Exit code 0.
+
+$ npm run build --workspace @metardu/electron-integration
+Exit code 0.
+
+$ npm run build --workspace @metardu/desktop
+Exit code 0.
+
+$ npm run build:renderer
+Exit code 0; 2,455 modules transformed. Existing Node built-in externalization warnings remain.
+
+$ Test-Path scripts/electron-smoke.sh
+False. No Electron IPC runtime or actual customer-file scan is claimed.
+
+$ git diff --check
+Exit code 0; Git printed only Windows LF-to-CRLF notices.
+~~~
+
+The focused Rust and Desktop database tests were added but not run to completion in this slice. Database migration and IPC behavior therefore remain unverified at runtime. The workspace-wide `cargo fmt --all -- --check` reports existing formatting differences across unrelated Rust files; the changed point-cloud module passes its targeted formatter check. This scan does not validate trailing bytes or complete LAS/LAZ conformance, interpret CRS/units/epoch/vertical reference or classification lookup tables, verify the correctness of source classifications, or run a classifier. It has no progress or cancellation control, and retained sources are not portable project bundles.
+
+Next product gate: validate full LAS/LAZ structure, add cancellable host-managed data access for extension workflows, and evaluate a named classification implementation against independent reference data before creating classified outputs or survey deliverables.
+

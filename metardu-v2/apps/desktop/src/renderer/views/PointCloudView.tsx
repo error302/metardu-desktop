@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, FileInput, Layers3, Ruler, ShieldCheck } from "lucide-react";
 import type {
   PointCloudHeaderDetails,
+  PointCloudRecordInspection,
   PointCloudSourceIntegrityStatus,
   PointCloudSourceSummary,
 } from "../../shared/point-cloud.js";
@@ -16,8 +17,8 @@ const panelStyle: React.CSSProperties = {
 const roadmap = [
   {
     icon: FileInput,
-    title: "Inspect every point record",
-    description: "Stream actual LAS/LAZ dimensions and class counts, compare them with the header, and report malformed or unsupported records.",
+    title: "Validate complete LAS/LAZ structure",
+    description: "Check record boundaries, compression chunks, EVLRs, and trailing data beyond the header-declared point range.",
   },
   {
     icon: Layers3,
@@ -64,7 +65,16 @@ function formatHeaderValue(value: number | null): string {
   return value === null ? "Unknown" : value.toLocaleString(undefined, { maximumFractionDigits: 8 });
 }
 
-function HeaderDetails({ header }: { header: PointCloudHeaderDetails }): React.ReactElement {
+function HeaderDetails({
+  header,
+  recordInspection,
+}: {
+  header: PointCloudHeaderDetails;
+  recordInspection: PointCloudRecordInspection | null;
+}): React.ReactElement {
+  const warnings = recordInspection
+    ? header.warnings.filter((warning) => !warning.includes("point records and whole-file integrity were not checked"))
+    : header.warnings;
   return (
     <>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
@@ -109,12 +119,72 @@ function HeaderDetails({ header }: { header: PointCloudHeaderDetails }): React.R
         )}
       </div>
 
-      {header.warnings.map((warning, index) => (
+      {warnings.map((warning, index) => (
         <div key={`${index}-${warning}`} style={{ padding: 8, borderLeft: "2px solid var(--status-warning, #D97706)", color: "var(--text-secondary)", fontSize: 11, lineHeight: 1.5 }}>
           {warning}
         </div>
       ))}
     </>
+  );
+}
+
+function RecordInspectionDetails({ inspection }: { inspection: PointCloudRecordInspection }): React.ReactElement {
+  const countStatus = inspection.headerCountMatchesDecoded
+    ? "Decoded count matches the header-declared count"
+    : "Decoded count differs from the header-declared count";
+  const returnStatus = inspection.returnCountsMatchHeader
+    ? "Decoded return counts match the header"
+    : "Decoded return counts differ from the header";
+  const statusColor = inspection.headerCountMatchesDecoded && inspection.returnCountsMatchHeader
+    ? "var(--status-success, #22C55E)"
+    : "var(--status-warning, #D97706)";
+
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 9, padding: 12, border: "1px solid var(--border-default)", borderRadius: 4 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "baseline" }}>
+        <strong style={{ color: statusColor, fontSize: 12 }}>Record inspection: {countStatus}</strong>
+        <span style={{ color: "var(--text-tertiary)", fontSize: 10 }}>{inspection.readerVersion} · {new Date(inspection.inspectedAt).toLocaleString()}</span>
+      </div>
+      <div style={{ overflowWrap: "anywhere", color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+        Report source SHA-256: {inspection.sourceSha256}
+      </div>
+      <div style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+        Decoded {formatCount(inspection.decodedPointCount)} of {formatCount(inspection.headerDeclaredPointCount)} header-declared records · {returnStatus}.
+      </div>
+      <div style={{ color: "var(--text-primary)", fontSize: 11, lineHeight: 1.6 }}>
+        <strong>Existing source classification codes</strong>
+        {inspection.classificationCounts.length === 0 ? (
+          <div style={{ color: "var(--text-tertiary)" }}>No point records were decoded.</div>
+        ) : (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+            {inspection.classificationCounts.map(({ code, count }) => (
+              <span key={code} style={{ padding: "2px 6px", border: "1px solid var(--border-subtle)", borderRadius: 3 }}>
+                Class {code}: {formatCount(count)}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+        Returns: {inspection.returnCounts.length === 0
+          ? "none recorded"
+          : inspection.returnCounts.map(({ returnNumber, count }) => `R${returnNumber}: ${formatCount(count)}`).join(" · ")}
+      </div>
+      <div style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+        Decoded coordinates after source scale/offset: X {formatHeaderValue(inspection.decodedBounds.min.x)} to {formatHeaderValue(inspection.decodedBounds.max.x)}, Y {formatHeaderValue(inspection.decodedBounds.min.y)} to {formatHeaderValue(inspection.decodedBounds.max.y)}, Z {formatHeaderValue(inspection.decodedBounds.min.z)} to {formatHeaderValue(inspection.decodedBounds.max.z)}.
+        {" "}CRS, units, epoch, and vertical reference are not interpreted.
+      </div>
+      {(BigInt(inspection.invalidReturnMetadataPointCount) > 0n || BigInt(inspection.nonFiniteCoordinatePointCount) > 0n) && (
+        <div style={{ color: "var(--status-warning, #D97706)", fontSize: 11 }}>
+          Invalid return metadata: {formatCount(inspection.invalidReturnMetadataPointCount)} · Non-finite coordinate records: {formatCount(inspection.nonFiniteCoordinatePointCount)}.
+        </div>
+      )}
+      {inspection.warnings.map((warning, index) => (
+        <div key={`${index}-${warning}`} style={{ padding: 7, borderLeft: "2px solid var(--status-warning, #D97706)", color: "var(--text-secondary)", fontSize: 10, lineHeight: 1.5 }}>
+          {warning}
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -134,11 +204,17 @@ function SourceCard({
   storageStatus,
   verifying,
   onVerify,
+  inspecting,
+  scanBusy,
+  onInspect,
 }: {
   source: PointCloudSourceSummary;
   storageStatus: PointCloudSourceIntegrityStatus;
   verifying: boolean;
   onVerify: () => void;
+  inspecting: boolean;
+  scanBusy: boolean;
+  onInspect: () => void;
 }): React.ReactElement {
   return (
     <article style={{ display: "flex", flexDirection: "column", gap: 11, padding: 12, background: "var(--bg-primary)", border: "1px solid var(--border-subtle)", borderRadius: 4 }}>
@@ -151,17 +227,30 @@ function SourceCard({
         <span role="status" style={{ color: storageStatus === "verified" ? "var(--status-success, #22C55E)" : "var(--status-warning, #D97706)", fontSize: 11 }}>
           Integrity: {integrityStatusLabel(storageStatus)}
         </span>
-        <button onClick={onVerify} disabled={verifying}>
+        <button onClick={onVerify} disabled={verifying || scanBusy}>
           {verifying ? "Verifying full file…" : "Verify stored copy"}
         </button>
+        <button onClick={onInspect} disabled={scanBusy}>
+          {inspecting ? "Reading point records…" : source.recordInspection ? "Inspect records again" : "Inspect point records"}
+        </button>
       </div>
+      {source.recordInspection && (
+        <>
+          {storageStatus !== "verified" && (
+            <div role="status" style={{ padding: 8, borderLeft: "2px solid var(--status-warning, #D97706)", color: "var(--text-secondary)", fontSize: 11, lineHeight: 1.5 }}>
+              This saved report is bound to its recorded source SHA-256. The current managed file has not been verified in this session; verify it before relying on this report. An integrity mismatch means the report describes the imported bytes, not the current file.
+            </div>
+          )}
+          <RecordInspectionDetails inspection={source.recordInspection} />
+        </>
+      )}
       <details>
         <summary style={{ cursor: "pointer", color: "var(--accent-primary)", fontSize: 11 }}>Header evidence and full source hash</summary>
         <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingTop: 12 }}>
           <div style={{ overflowWrap: "anywhere", color: "var(--text-secondary)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
             SHA-256 recorded during import: {source.contentSha256}
           </div>
-          <HeaderDetails header={source.header} />
+          <HeaderDetails header={source.header} recordInspection={source.recordInspection} />
         </div>
       </details>
     </article>
@@ -175,6 +264,7 @@ export const PointCloudView: React.FC = () => {
   const [verifyingSourceId, setVerifyingSourceId] = useState<string | null>(null);
   const [loadingSources, setLoadingSources] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [inspectingSourceId, setInspectingSourceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -230,6 +320,24 @@ export const PointCloudView: React.FC = () => {
     }
   };
 
+  const inspectSourceRecords = async (sourceId: string) => {
+    setInspectingSourceId(sourceId);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await window.metardu.pointCloud.inspectSourceRecords(sourceId);
+      setSources((current) => current.map((source) => source.id === sourceId ? result.source : source));
+      setVerificationBySourceId((current) => ({ ...current, [sourceId]: "verified" }));
+      setNotice(
+        `Read ${formatCount(result.source.recordInspection?.decodedPointCount ?? "0")} header-declared point records from ${result.source.fileName}. Existing class codes were counted; no classifier was run.`,
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setInspectingSourceId(null);
+    }
+  };
+
   const hasActiveProject = activeProjectName !== null;
 
   return (
@@ -249,9 +357,9 @@ export const PointCloudView: React.FC = () => {
       <section role="status" aria-live="polite" style={{ ...panelStyle, display: "flex", gap: 12, borderColor: "var(--status-warning, #D97706)", background: "rgba(217, 119, 6, 0.08)" }}>
         <AlertTriangle size={20} color="var(--status-warning, #D97706)" aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
         <div style={{ display: "flex", flexDirection: "column", gap: 5, color: "var(--text-primary)", fontSize: "var(--text-sm)", lineHeight: 1.55 }}>
-          <strong>Stored source and header inspection only. Classification is not available.</strong>
+          <strong>Source and point-record inspection are available. Classification is not available.</strong>
           <span>
-            METARDU preserves a copied source and its hash, then reads the file header. It does not yet read or validate every point record, verify whole-file LAS/LAZ integrity, interpret coordinate systems or units, save a portable project bundle, or run a classifier. No DTM or survey result is generated.
+            METARDU preserves a copied source, verifies its hash before and after an explicit scan, and can decode the point records declared by its LAS/LAZ header. It reports existing numeric class codes, return counts, and decoded bounds; it does not interpret class-code lookup tables, run a classifier, validate trailing bytes or full-file conformance, interpret CRS or units, create a portable project bundle, or generate a DTM or survey result.
           </span>
         </div>
       </section>
@@ -264,8 +372,8 @@ export const PointCloudView: React.FC = () => {
               Active project: <strong>{loadingSources ? "Loading…" : activeProjectName ?? "None"}</strong>. METARDU copies the selected file into this Desktop installation; your original is not changed. The copy is linked to this project but is not yet part of a portable project bundle.
             </p>
           </div>
-          <button className="primary" onClick={importSource} disabled={busy || loadingSources || !hasActiveProject}>
-            {busy ? "Copying and inspecting…" : "Import LAS / LAZ source"}
+          <button className="primary" onClick={importSource} disabled={busy || loadingSources || !hasActiveProject || inspectingSourceId !== null}>
+              {busy ? "Copying and inspecting header…" : "Import LAS / LAZ source"}
           </button>
         </div>
 
@@ -281,6 +389,11 @@ export const PointCloudView: React.FC = () => {
           </div>
         )}
 
+        {inspectingSourceId && (
+          <div role="status" aria-live="polite" style={{ padding: 10, border: "1px solid var(--border-default)", color: "var(--text-secondary)", fontSize: 11, lineHeight: 1.5 }}>
+            Reading the source's header-declared LAS/LAZ point records in bounded batches. Large files can take a while; progress and cancellation are not available yet. The source hash is checked before and after; no point data is sent to the renderer.
+          </div>
+        )}
         {sources.length === 0 && !loadingSources ? (
           <div style={{ padding: 18, border: "1px dashed var(--border-default)", color: "var(--text-tertiary)", textAlign: "center", fontSize: 12 }}>
             No LAS/LAZ source files are attached to this project.
@@ -294,6 +407,9 @@ export const PointCloudView: React.FC = () => {
                 storageStatus={verificationBySourceId[source.id] ?? source.storageStatus}
                 verifying={verifyingSourceId === source.id}
                 onVerify={() => { void verifySource(source.id); }}
+                inspecting={inspectingSourceId === source.id}
+                scanBusy={inspectingSourceId !== null}
+                onInspect={() => { void inspectSourceRecords(source.id); }}
               />
             ))}
           </div>

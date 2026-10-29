@@ -34,6 +34,7 @@ import { registerSyncIpcHandlers } from "./sync.js";
 import { registerProjectIpcHandlers } from "./projects.js";
 import { registerInstrumentIpcHandlers } from "./instrument.js";
 import {
+  createPointCloudInspection,
   createPointCloudSource,
   getActiveProjectId,
   getDatabase,
@@ -42,6 +43,7 @@ import {
   type StoredPointCloudSource,
 } from "./database.js";
 import {
+  pointCloudObjectPath,
   publishPointCloudObject,
   removeStagedPointCloudSource,
   stagePointCloudSource,
@@ -51,6 +53,8 @@ import type {
   PointCloudHeaderDetails,
   PointCloudImportResult,
   PointCloudProjectSourceList,
+  PointCloudRecordInspection,
+  PointCloudRecordInspectionResult,
   PointCloudSourceSummary,
   PointCloudSourceVerification,
 } from "../shared/point-cloud.js";
@@ -111,7 +115,23 @@ let sidecar: SidecarClient | null = null;
 function pointCloudSourceSummary(
   source: StoredPointCloudSource,
   storageStatus: PointCloudSourceSummary["storageStatus"] = "notChecked",
+  recordInspection?: PointCloudRecordInspection | null,
 ): PointCloudSourceSummary {
+  const persistedInspection = source.latestRecordInspectionJson
+    ? JSON.parse(source.latestRecordInspectionJson) as Omit<PointCloudRecordInspection, "id" | "sourceSha256" | "inspectedAt">
+    : null;
+  const latestRecordInspection = recordInspection === undefined
+    ? persistedInspection && source.latestRecordInspectionId && source.latestRecordInspectionSha256
+      && source.latestRecordInspectionReaderVersion && source.latestRecordInspectionAt
+      ? {
+          ...persistedInspection,
+          id: source.latestRecordInspectionId,
+          sourceSha256: source.latestRecordInspectionSha256,
+          readerVersion: source.latestRecordInspectionReaderVersion,
+          inspectedAt: source.latestRecordInspectionAt,
+        }
+      : null
+    : recordInspection;
   return {
     id: source.id,
     fileName: path.basename(source.fileName),
@@ -121,12 +141,14 @@ function pointCloudSourceSummary(
     importedAt: source.importedAt,
     storageStatus,
     header: JSON.parse(source.headerJson) as PointCloudHeaderDetails,
+    recordInspection: latestRecordInspection,
   };
 }
 
 const MAX_PLUGIN_MODULE_BYTES = 8 * 1024 * 1024;
 const MAX_CACHED_PLUGIN_MODULES = 5;
 const PLUGIN_MODULE_TTL_MS = 15 * 60 * 1000;
+const POINT_CLOUD_RECORD_SCAN_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 interface SelectedPluginModule {
   bytes: Buffer;
   expiresAt: number;
@@ -512,6 +534,65 @@ function registerIpcHandlers(): void {
       actualSha256: verification.actualSha256,
       recordedSizeBytes: source.fileSizeBytes,
       actualSizeBytes: verification.actualSizeBytes,
+    };
+  });
+
+  ipcMain.handle("metardu:pointcloud:inspectActiveProjectSourceRecords", async (_event, sourceId: unknown): Promise<PointCloudRecordInspectionResult> => {
+    if (typeof sourceId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceId)) {
+      throw new Error("Point-cloud source identifier is invalid.");
+    }
+    const database = getDatabase();
+    const projectId = getActiveProjectId(database);
+    const project = projectId ? getProject(database, projectId) : null;
+    const source = projectId
+      ? listProjectPointCloudSources(database, projectId).find((candidate) => candidate.id === sourceId)
+      : undefined;
+    if (!project || !source) throw new Error("Point-cloud source is not attached to the active project.");
+    if (!sidecar || !sidecar.isRunning()) {
+      throw new Error("Rust sidecar is not running; point-record inspection is unavailable.");
+    }
+
+    const userDataPath = app.getPath("userData");
+    const verifyStoredBytes = async () => {
+      const integrity = await verifyPointCloudObject(
+        userDataPath,
+        source.storageKey,
+        source.contentSha256,
+        source.fileSizeBytes,
+      );
+      if (integrity.status !== "verified") {
+        throw new Error(`Point-record inspection stopped because the stored source is ${integrity.status}.`);
+      }
+    };
+
+    await verifyStoredBytes();
+    const scan = await sidecar.call<Omit<PointCloudRecordInspection, "id" | "sourceSha256" | "inspectedAt">>(
+      "pointcloud.inspect_records",
+      { path: pointCloudObjectPath(userDataPath, source.storageKey) },
+      { timeoutMs: POINT_CLOUD_RECORD_SCAN_TIMEOUT_MS },
+    );
+    await verifyStoredBytes();
+    if (getActiveProjectId(database) !== project.id) {
+      throw new Error("The active project changed during point-record inspection; no report was saved.");
+    }
+
+    const storedInspection = createPointCloudInspection(database, {
+      sourceId: source.id,
+      sourceSha256: source.contentSha256,
+      readerVersion: scan.readerVersion,
+      inspectionJson: JSON.stringify(scan),
+    });
+    const refreshedSource = listProjectPointCloudSources(database, project.id)
+      .find((candidate) => candidate.id === source.id);
+    if (!refreshedSource) throw new Error("The inspected source is no longer attached to the active project.");
+    const recordInspection: PointCloudRecordInspection = {
+      ...scan,
+      id: storedInspection.id,
+      sourceSha256: storedInspection.sourceSha256,
+      inspectedAt: storedInspection.inspectedAt,
+    };
+    return {
+      source: pointCloudSourceSummary(refreshedSource, "verified", recordInspection),
     };
   });
 

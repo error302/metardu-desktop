@@ -21,4 +21,6 @@ pub mod point_cloud;
 // Only the handler is needed by the dispatcher; types are reachable via
 // `crate::import::rinex::*` from tests.
 pub use rinex::handle_rinex_epochs;
-pub use point_cloud::handle_point_cloud_header_inspection;
+pub use point_cloud::{
+    handle_point_cloud_header_inspection, handle_point_cloud_record_inspection,
+};
