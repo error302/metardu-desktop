@@ -73,6 +73,9 @@ export interface PointCloudFileStructureInspection {
   pointDataStartByte: string;
   pointDataEndByte: string | null;
   pointDataByteCount: string | null;
+  pointDataRegionEndByte?: string | null;
+  pointDataRegionByteCount?: string | null;
+  pointDataRegionBoundary?: "first_evlr" | "end_of_file" | null;
   chunkTableStartByte: string | null;
   chunkTableEndByte: string | null;
   chunkTablePointerStorage: string;

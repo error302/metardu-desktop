@@ -3872,3 +3872,60 @@ windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_
 Exit code 1
 ~~~
 
+---
+Task ID: pointwise-laz-block-boundary
+Agent: Codex — 2026-10-29
+Task: Report the enclosing point-data region for pointwise LAZ without inventing an exact compressed-stream end.
+
+Work Log:
+- Checked the pinned LAS/LAZ reader and OGC LAZ 1.4 Community Standard clauses 6.5, 7.1, 9.5, and 11.2. Pointwise LAZ is one chunk without a chunk table, and the arithmetic stream has no end marker. The file-level enclosing region is bounded by the first ordinary EVLR or EOF; this is distinct from the exact final byte consumed by a decoder.
+- Pointwise reports now expose `pointDataRegionEndByte`, `pointDataRegionByteCount`, and the boundary source when LASzip special-EVLR fields are the required `(-1, -1)` pair. `pointDataEndByte` and `pointDataByteCount` remain null. Special-EVLR references outside that pair remain incomplete and do not receive a guessed boundary.
+- The Point Cloud view labels the enclosing region and explains that its boundary is not the exact stream end. The international product plan and scoped task brief record this capability and its remaining limitations.
+- Tests derive valid compressor-1 fixtures from a single chunk written by the existing LAS/LAZ writer, removing the chunk pointer/table and adjusting EVLR offsets. The pinned reader decodes both points for EOF and first-EVLR cases. A separate case confirms non-default special-EVLR references remain unresolved. These generated fixtures validate the implementation path; they do not establish third-party producer interoperability or full LAZ conformance.
+- `rustfmt --edition 2021 --check src/import/point_cloud.rs` passed. A repository-wide `cargo fmt --all -- --check` reported existing formatting differences in unrelated sidecar modules; no broad formatting was applied.
+- An initial release-test filter used `--exact` without the module-qualified test name and matched zero tests. It was not counted as verification; the corrected `pointwise_laz` filter executed both new tests.
+- `git diff --check` passed with only Git's existing LF-to-CRLF notices. Existing staged deletion `metardu-v2/frontend/main.tsx` and unrelated untracked files were preserved and excluded.
+
+Stage Summary:
+- `cargo test --release --no-default-features --features instrument pointwise_laz -- --nocapture`:
+  ~~~text
+  running 2 tests
+  test import::point_cloud::tests::does_not_claim_pointwise_laz_boundary_with_special_evlr_references ... ok
+  test import::point_cloud::tests::reports_pointwise_laz_region_boundary_without_inventing_stream_end ... ok
+
+  test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 195 filtered out; finished in 0.09s
+  Exit code 0
+  ~~~
+- `cargo test --release --no-default-features --features instrument`:
+  ~~~text
+  test result: ok. 197 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+  Exit code 0
+  ~~~
+- `cargo build --release --no-default-features --features instrument`:
+  ~~~text
+  warning: `metardu-sidecar` (bin "metardu-sidecar") generated 61 warnings (run `cargo fix --bin "metardu-sidecar"` to apply 38 suggestions)
+  Finished `release` profile [optimized] target(s) in 7m 26s
+  Exit code 0
+  ~~~
+- `npx tsc --noEmit` in `apps/desktop/`: Exit code 0; no output.
+- `npm test` in `apps/desktop/`:
+  ~~~text
+  Test Files  25 passed | 1 skipped (26)
+       Tests  277 passed | 7 skipped (284)
+  Exit code 0
+  ~~~
+- `npm run build:renderer`:
+  ~~~text
+  ✓ 2455 modules transformed.
+  ✓ built in 33.90s
+  Exit code 0
+  ~~~
+- Default `cargo build --release` and `cargo test --release` both fail before compiling the sidecar because this Windows host lacks `gdal_i.lib`:
+  ~~~text
+  windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+  Exit code 1
+  ~~~
+- No Electron runtime or real third-party point-cloud producer was exercised. The renderer build confirms compilation, not live UI behavior. Whole-file LAS/LAZ conformance, exact stream-end detection, waveform extents, and special-EVLR interpretation remain unproven.
+- Artifacts: `metardu-v2/packages/metardu-sidecar/src/import/point_cloud.rs`, `metardu-v2/apps/desktop/src/shared/point-cloud.ts`, `metardu-v2/apps/desktop/src/renderer/views/PointCloudView.tsx`, `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`, and this task brief/worklog.
+- Next: verify the explicit stage allowlist, commit, push to the Desktop repository only, and verify the remote branch SHA.
+

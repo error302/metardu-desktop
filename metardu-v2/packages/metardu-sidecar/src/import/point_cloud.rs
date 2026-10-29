@@ -764,20 +764,43 @@ fn point_cloud_structure(
         );
     }
 
-    // LAZ compressor 1 is pointwise and has no chunk table. The decoder can
-    // still inspect its declared records, but this reader cannot establish the
-    // compressed byte end without a chunk table.
+    // LAZ pointwise streams have no chunk table or arithmetic end marker. The
+    // enclosing point-data block still ends at the first ordinary EVLR (or
+    // EOF when there are no EVLRs); do not present that block boundary as the
+    // exact final byte consumed by the decoder.
     if compressor == 1 {
+        let special_evlr_refs_present = (special_evlr_count, special_evlr_offset) != (-1, -1);
+        let pointwise_region = if special_evlr_refs_present {
+            None
+        } else {
+            let byte_count = boundary_before_evlrs
+                .checked_sub(point_start)
+                .ok_or_else(|| {
+                    HandlerError::InvalidParams(
+                        "Pointwise LAZ block boundary precedes point data.".into(),
+                    )
+                })?;
+            Some((boundary_before_evlrs, byte_count))
+        };
         warnings.push(
-            "Pointwise LAZ has no chunk table; compressed-data end and trailing content were not structurally bounded.".to_string(),
+            "Pointwise LAZ has no chunk table or arithmetic-stream end marker. The enclosing block ends at the first EVLR or end of file; its exact decoder end and any residual bytes inside that block cannot be separated.".to_string(),
         );
         return Ok(json!({
-            "layoutStatus": "incomplete",
-            "validationScope": "declared VLR and EVLR extents; pointwise compressed-data end is unknown",
+            "layoutStatus": if pointwise_region.is_some() { "bounded" } else { "incomplete" },
+            "validationScope": "declared VLR and EVLR extents and the enclosing pointwise LAZ block boundary; the arithmetic-stream end is not marked",
             "variableLengthRecords": vlr_extent_json(&vlr_extent),
             "pointDataStartByte": point_start.to_string(),
             "pointDataEndByte": null,
             "pointDataByteCount": null,
+            "pointDataRegionEndByte": pointwise_region.map(|region| region.0.to_string()),
+            "pointDataRegionByteCount": pointwise_region.map(|region| region.1.to_string()),
+            "pointDataRegionBoundary": pointwise_region.map(|_| {
+                if evlr_extent.is_some() {
+                    "first_evlr"
+                } else {
+                    "end_of_file"
+                }
+            }),
             "chunkTableStartByte": null,
             "chunkTableEndByte": null,
             "chunkTablePointerStorage": "not_applicable",
@@ -1404,14 +1427,14 @@ mod tests {
     use std::time::Duration;
 
     use las::{Builder, Point, Vlr, Writer};
-    use serde_json::json;
+    use serde_json::{json, Value};
     use tempfile::tempdir;
 
     use super::{
         handle_cancel_point_cloud_record_inspection, handle_point_cloud_record_inspection_status,
         handle_start_point_cloud_record_inspection, inspect_header, inspect_point_records,
         inspect_point_records_controlled, read_bounded_raw_header, record_inspection_jobs,
-        RecordInspectionJob, RecordInspectionJobState,
+        RecordInspectionJob, RecordInspectionJobState, VLR_HEADER_BYTES,
     };
     use crate::dispatcher::HandlerError;
 
@@ -1475,6 +1498,80 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
+    }
+
+    fn laz_vlr_data_offset(bytes: &[u8]) -> usize {
+        let header_size = u16::from_le_bytes(bytes[94..96].try_into().unwrap()) as usize;
+        let vlr_count = u32::from_le_bytes(bytes[100..104].try_into().unwrap());
+        let mut cursor = header_size;
+        for _ in 0..vlr_count {
+            let record_header = &bytes[cursor..cursor + VLR_HEADER_BYTES as usize];
+            let user_id = String::from_utf8_lossy(&record_header[2..18])
+                .trim_end_matches('\0')
+                .trim()
+                .to_owned();
+            let record_id = u16::from_le_bytes(record_header[18..20].try_into().unwrap());
+            let data_len = u16::from_le_bytes(record_header[20..22].try_into().unwrap()) as usize;
+            if user_id == "laszip encoded" && record_id == 22_204 {
+                return cursor + VLR_HEADER_BYTES as usize;
+            }
+            cursor += VLR_HEADER_BYTES as usize + data_len;
+        }
+        panic!("generated LAZ fixture has no LASzip VLR");
+    }
+
+    fn rewrite_single_chunk_as_pointwise_laz(path: &std::path::Path, with_evlrs: bool) {
+        write_fixture(path, with_evlrs);
+        let chunked_report = inspect_point_records(path).unwrap();
+        let structure = &chunked_report["fileStructure"];
+        assert_eq!(structure["layoutStatus"], "bounded");
+        let point_start = structure["pointDataStartByte"]
+            .as_str()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+        let table_start = structure["chunkTableStartByte"]
+            .as_str()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+        let table_end = structure["chunkTableEndByte"]
+            .as_str()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+        assert!(table_start >= point_start + 8);
+        assert!(table_end >= table_start);
+        if with_evlrs {
+            assert_eq!(structure["unclassifiedBytesBeforeEvlrs"], "0");
+        } else {
+            assert_eq!(structure["unclassifiedBytesAfterKnownData"], "0");
+        }
+
+        let chunked = std::fs::read(path).unwrap();
+        let eof_pointer_bytes = if structure["chunkTablePointerStorage"] == "end_of_file" {
+            8
+        } else {
+            0
+        };
+        let retained_end = chunked.len() - eof_pointer_bytes;
+        assert!(table_end <= retained_end);
+        let mut pointwise = Vec::with_capacity(chunked.len());
+        pointwise.extend_from_slice(&chunked[..point_start]);
+        pointwise.extend_from_slice(&chunked[point_start + 8..table_start]);
+        pointwise.extend_from_slice(&chunked[table_end..retained_end]);
+
+        let removed_before_evlr = 8 + table_end - table_start;
+        if let Some(old_evlr_start) = structure["firstEvlrStartByte"].as_str() {
+            let old_evlr_start = old_evlr_start.parse::<u64>().unwrap();
+            assert!(old_evlr_start >= table_end as u64);
+            let new_evlr_start = old_evlr_start - removed_before_evlr as u64;
+            pointwise[235..243].copy_from_slice(&new_evlr_start.to_le_bytes());
+        }
+
+        let laz_vlr_data = laz_vlr_data_offset(&pointwise);
+        pointwise[laz_vlr_data..laz_vlr_data + 2].copy_from_slice(&1_u16.to_le_bytes());
+        std::fs::write(path, pointwise).unwrap();
     }
 
     fn insert_bytes_before_point_data(path: &std::path::Path, inserted: &[u8]) {
@@ -1815,6 +1912,90 @@ mod tests {
             result["fileStructure"]["unclassifiedBytesAfterKnownData"],
             "0"
         );
+    }
+
+    #[test]
+    fn reports_pointwise_laz_region_boundary_without_inventing_stream_end() {
+        for with_evlrs in [false, true] {
+            let temp = tempdir().unwrap();
+            let path = temp.path().join("pointwise.laz");
+            rewrite_single_chunk_as_pointwise_laz(&path, with_evlrs);
+
+            let result = inspect_point_records(&path).unwrap();
+            let structure = &result["fileStructure"];
+            let point_start = structure["pointDataStartByte"]
+                .as_str()
+                .unwrap()
+                .parse::<u64>()
+                .unwrap();
+            let region_end = if with_evlrs {
+                assert_eq!(structure["pointDataRegionBoundary"], "first_evlr");
+                assert_eq!(
+                    structure["pointDataRegionEndByte"],
+                    structure["firstEvlrStartByte"]
+                );
+                structure["firstEvlrStartByte"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap()
+            } else {
+                assert_eq!(structure["pointDataRegionBoundary"], "end_of_file");
+                assert_eq!(
+                    structure["pointDataRegionEndByte"],
+                    std::fs::metadata(&path).unwrap().len().to_string()
+                );
+                std::fs::metadata(&path).unwrap().len()
+            };
+
+            assert_eq!(result["format"], "LAZ");
+            assert_eq!(result["decodedPointCount"], "2");
+            assert_eq!(structure["layoutStatus"], "bounded");
+            assert_eq!(structure["pointDataEndByte"], Value::Null);
+            assert_eq!(structure["pointDataByteCount"], Value::Null);
+            assert_eq!(
+                structure["pointDataRegionByteCount"],
+                (region_end - point_start).to_string()
+            );
+            assert_eq!(structure["unclassifiedBytesBeforeEvlrs"], Value::Null);
+            assert_eq!(structure["unclassifiedBytesAfterKnownData"], Value::Null);
+            assert!(structure["warnings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|warning| warning
+                    .as_str()
+                    .unwrap()
+                    .contains("no chunk table or arithmetic-stream end marker")));
+        }
+    }
+
+    #[test]
+    fn does_not_claim_pointwise_laz_boundary_with_special_evlr_references() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("special-evlr.laz");
+        rewrite_single_chunk_as_pointwise_laz(&path, false);
+        let mut bytes = std::fs::read(&path).unwrap();
+        let laz_vlr_data = laz_vlr_data_offset(&bytes);
+        bytes[laz_vlr_data + 16..laz_vlr_data + 24].copy_from_slice(&0_i64.to_le_bytes());
+        bytes[laz_vlr_data + 24..laz_vlr_data + 32].copy_from_slice(&0_i64.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+
+        let result = inspect_point_records(&path).unwrap();
+        let structure = &result["fileStructure"];
+        assert_eq!(result["decodedPointCount"], "2");
+        assert_eq!(structure["layoutStatus"], "incomplete");
+        assert_eq!(structure["pointDataRegionEndByte"], Value::Null);
+        assert_eq!(structure["pointDataRegionByteCount"], Value::Null);
+        assert_eq!(structure["pointDataRegionBoundary"], Value::Null);
+        assert!(structure["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning
+                .as_str()
+                .unwrap()
+                .contains("special EVLR references are present")));
     }
 
     #[test]

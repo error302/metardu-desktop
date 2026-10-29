@@ -188,6 +188,11 @@ function RecordInspectionDetails({ inspection }: { inspection: PointCloudRecordI
             {inspection.fileStructure.chunkTableStartByte && ` · Chunk table: ${inspection.fileStructure.chunkTableStartByte} to ${inspection.fileStructure.chunkTableEndByte ?? "unknown"}`}
             {inspection.fileStructure.firstEvlrStartByte && ` · EVLRs: ${inspection.fileStructure.firstEvlrStartByte} to ${inspection.fileStructure.evlrSequenceEndByte ?? "unknown"}`}
           </div>
+          {inspection.fileStructure.pointDataRegionEndByte && inspection.fileStructure.pointDataRegionByteCount && (
+            <div>
+              Enclosing point-data region: byte {inspection.fileStructure.pointDataStartByte} to {inspection.fileStructure.pointDataRegionEndByte} ({formatCount(inspection.fileStructure.pointDataRegionByteCount)} bytes; boundary at {inspection.fileStructure.pointDataRegionBoundary === "first_evlr" ? "first EVLR" : "end of file"}). Pointwise LAZ has no stream end marker, so this is not the exact decoder end.
+            </div>
+          )}
           {inspection.fileStructure.unclassifiedBytesBeforeEvlrs !== null && BigInt(inspection.fileStructure.unclassifiedBytesBeforeEvlrs) > 0n && (
             <div>Unclassified bytes before EVLRs: {formatCount(inspection.fileStructure.unclassifiedBytesBeforeEvlrs)}</div>
           )}
