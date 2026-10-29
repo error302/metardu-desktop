@@ -1,12 +1,12 @@
-//! Bounded, read-only inspection of LAS and LAZ file headers.
+//! Bounded, read-only inspection of LAS/LAZ headers and declared point records.
 //!
-//! This module deliberately does not read point records, verify a whole file,
-//! store the source in a project, or classify points. The renderer never
-//! supplies a path: the Electron main process obtains it from the native file
-//! picker and invokes this handler directly.
+//! Record inspection checks declared point and EVLR extents and, for chunked
+//! LAZ, its chunk table. It does not prove whole-file conformance, interpret CRS
+//! or vertical reference, store source bytes, or classify points. The renderer
+//! never supplies a path: Electron main obtains it from the native file picker.
 
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use las::{raw, Builder, Header, PointDataBuilder, Reader, Vlr};
@@ -19,6 +19,8 @@ const MAX_HEADER_METADATA_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_VLR_COUNT: u32 = 100_000;
 const MAX_EVLR_COUNT: u32 = 100_000;
 const EVLR_HEADER_BYTES: u64 = 60;
+const MAX_LAZ_CHUNK_COUNT: u32 = 1_000_000;
+const MAX_LAZ_CHUNK_TABLE_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 struct InspectParams {
@@ -327,12 +329,409 @@ fn internal_io_error(error: std::io::Error) -> HandlerError {
     HandlerError::Internal(format!("Point-cloud source I/O failed: {error}"))
 }
 
+fn point_cloud_structure(
+    path: &Path,
+    raw_header: &raw::Header,
+    header: &Header,
+    file_size: u64,
+) -> Result<Value, HandlerError> {
+    let point_start = u64::from(raw_header.offset_to_point_data);
+    let evlr_extent = read_evlr_extent(path, raw_header, file_size)?;
+    let boundary_before_evlrs = evlr_extent.map(|extent| extent.0).unwrap_or(file_size);
+
+    if !header.point_format().is_compressed {
+        let point_bytes = header
+            .number_of_points()
+            .checked_mul(u64::from(raw_header.point_data_record_length))
+            .ok_or_else(|| {
+                HandlerError::InvalidParams("LAS point-data extent overflows.".into())
+            })?;
+        let point_end = point_start.checked_add(point_bytes).ok_or_else(|| {
+            HandlerError::InvalidParams("LAS point-data end offset overflows.".into())
+        })?;
+        if point_end > boundary_before_evlrs {
+            return Err(HandlerError::InvalidParams(
+                "LAS declared point records extend beyond the file or overlap the first EVLR."
+                    .into(),
+            ));
+        }
+        let evlr_start = evlr_extent.map(|extent| extent.0);
+        let evlr_end = evlr_extent.map(|extent| extent.1);
+        let tail_start = evlr_end.unwrap_or(point_end);
+        let tail_bytes = file_size.saturating_sub(tail_start);
+        let mut structure_warnings = Vec::new();
+        if point_end < boundary_before_evlrs {
+            structure_warnings.push("Bytes occur after the declared LAS point records and before the EVLR boundary (or end of file); waveform and application-specific payloads are not interpreted.".to_string());
+        }
+        if tail_bytes > 0 {
+            structure_warnings.push(
+                "Unclassified bytes remain after the declared EVLR sequence or known LAS point data."
+                    .to_string(),
+            );
+        }
+        return Ok(json!({
+            "layoutStatus": "bounded",
+            "validationScope": "uncompressed point-record extent and declared EVLR sequence only",
+            "pointDataStartByte": point_start.to_string(),
+            "pointDataEndByte": point_end.to_string(),
+            "pointDataByteCount": point_bytes.to_string(),
+            "chunkTableStartByte": null,
+            "chunkTableEndByte": null,
+            "chunkTablePointerStorage": "not_applicable",
+            "firstEvlrStartByte": evlr_start.map(|value| value.to_string()),
+            "evlrSequenceEndByte": evlr_end.map(|value| value.to_string()),
+            "unclassifiedBytesBeforeEvlrs": evlr_start.map(|start| (start - point_end).to_string()),
+            "unclassifiedBytesAfterKnownData": tail_bytes.to_string(),
+            "warnings": structure_warnings,
+        }));
+    }
+
+    let laz_vlr = header
+        .vlrs()
+        .iter()
+        .find(|vlr| las::laz::is_laszip_vlr(vlr))
+        .ok_or_else(|| {
+            HandlerError::InvalidParams("Compressed point format has no LASzip VLR.".into())
+        })?;
+    let laz_vlr_data = &laz_vlr.data;
+    if laz_vlr_data.len() < 32 {
+        return Err(HandlerError::InvalidParams(
+            "LASzip VLR is shorter than its required fields.".into(),
+        ));
+    }
+    let compressor = u16::from_le_bytes([laz_vlr_data[0], laz_vlr_data[1]]);
+    let special_evlr_count = i64::from_le_bytes(
+        laz_vlr_data[16..24]
+            .try_into()
+            .expect("fixed LASzip VLR field slice"),
+    );
+    let special_evlr_offset = i64::from_le_bytes(
+        laz_vlr_data[24..32]
+            .try_into()
+            .expect("fixed LASzip VLR field slice"),
+    );
+    let mut warnings = Vec::new();
+    if (special_evlr_count, special_evlr_offset) != (-1, -1) {
+        warnings.push(
+            "LASzip special EVLR references are present; their layout is outside this inspection scope.".to_string(),
+        );
+    }
+
+    // LAZ compressor 1 is pointwise and has no chunk table. The decoder can
+    // still inspect its declared records, but this reader cannot establish the
+    // compressed byte end without a chunk table.
+    if compressor == 1 {
+        warnings.push(
+            "Pointwise LAZ has no chunk table; compressed-data end and trailing content were not structurally bounded.".to_string(),
+        );
+        return Ok(json!({
+            "layoutStatus": "incomplete",
+            "validationScope": "EVLR byte extents; pointwise compressed-data end is unknown",
+            "pointDataStartByte": point_start.to_string(),
+            "pointDataEndByte": null,
+            "pointDataByteCount": null,
+            "chunkTableStartByte": null,
+            "chunkTableEndByte": null,
+            "chunkTablePointerStorage": "not_applicable",
+            "firstEvlrStartByte": evlr_extent.map(|extent| extent.0.to_string()),
+            "evlrSequenceEndByte": evlr_extent.map(|extent| extent.1.to_string()),
+            "unclassifiedBytesBeforeEvlrs": null,
+            "unclassifiedBytesAfterKnownData": null,
+            "warnings": warnings,
+        }));
+    }
+    if compressor != 2 && compressor != 3 {
+        return Err(HandlerError::InvalidParams(format!(
+            "Unsupported LASzip compressor type {compressor}."
+        )));
+    }
+
+    let laz_vlr = laz::LazVlr::read_from(laz_vlr_data.as_slice()).map_err(|error| {
+        HandlerError::InvalidParams(format!("LASzip VLR could not be decoded: {error}"))
+    })?;
+    let pointer_end = point_start
+        .checked_add(8)
+        .ok_or_else(|| HandlerError::InvalidParams("LAZ chunk pointer offset overflows.".into()))?;
+    if pointer_end > file_size {
+        return Err(HandlerError::InvalidParams(
+            "LAZ chunk-table pointer extends beyond the file.".into(),
+        ));
+    }
+
+    let mut file = File::open(path).map_err(internal_io_error)?;
+    file.seek(SeekFrom::Start(point_start))
+        .map_err(internal_io_error)?;
+    let mut pointer_bytes = [0_u8; 8];
+    file.read_exact(&mut pointer_bytes).map_err(|error| {
+        HandlerError::InvalidParams(format!("LAZ chunk-table pointer is truncated: {error}"))
+    })?;
+    let point_data_pointer = i64::from_le_bytes(pointer_bytes);
+    let (chunk_table_start, pointer_storage) = if point_data_pointer == -1 {
+        if file_size < 8 {
+            return Err(HandlerError::InvalidParams(
+                "LAZ EOF chunk-table pointer is missing.".into(),
+            ));
+        }
+        file.seek(SeekFrom::End(-8)).map_err(internal_io_error)?;
+        file.read_exact(&mut pointer_bytes)
+            .map_err(internal_io_error)?;
+        let eof_pointer = i64::from_le_bytes(pointer_bytes);
+        let table_start = u64::try_from(eof_pointer).map_err(|_| {
+            HandlerError::InvalidParams("LAZ EOF chunk-table pointer is negative.".into())
+        })?;
+        (table_start, "end_of_file")
+    } else {
+        let table_start = u64::try_from(point_data_pointer).map_err(|_| {
+            HandlerError::InvalidParams("LAZ chunk-table pointer is negative.".into())
+        })?;
+        (table_start, "point_data")
+    };
+    if chunk_table_start < pointer_end || chunk_table_start >= file_size {
+        return Err(HandlerError::InvalidParams(
+            "LAZ chunk-table offset is outside the compressed point-data extent.".into(),
+        ));
+    }
+
+    let table_region_end = if pointer_storage == "end_of_file" {
+        file_size.saturating_sub(8).min(boundary_before_evlrs)
+    } else {
+        boundary_before_evlrs
+    };
+    if chunk_table_start >= table_region_end {
+        return Err(HandlerError::InvalidParams(
+            "LAZ chunk table starts outside the point-data/metadata boundary.".into(),
+        ));
+    }
+    let available_table_bytes = table_region_end - chunk_table_start;
+    let table_read_len = available_table_bytes.min(MAX_LAZ_CHUNK_TABLE_BYTES as u64) as usize;
+    let mut table_bytes = vec![0_u8; table_read_len];
+    file.seek(SeekFrom::Start(chunk_table_start))
+        .map_err(internal_io_error)?;
+    file.read_exact(&mut table_bytes).map_err(|error| {
+        HandlerError::InvalidParams(format!("LAZ chunk table could not be read: {error}"))
+    })?;
+    if table_bytes.len() < 8 {
+        return Err(HandlerError::InvalidParams(
+            "LAZ chunk table header is truncated.".into(),
+        ));
+    }
+    let table_header = &table_bytes[..8];
+    let table_version = u32::from_le_bytes(table_header[..4].try_into().unwrap());
+    let chunk_count = u32::from_le_bytes(table_header[4..].try_into().unwrap());
+    if table_version != 0 {
+        return Err(HandlerError::InvalidParams(format!(
+            "Unsupported LAZ chunk-table version {table_version}."
+        )));
+    }
+    if chunk_count > MAX_LAZ_CHUNK_COUNT {
+        return Err(HandlerError::InvalidParams(format!(
+            "LAZ chunk table exceeds the {MAX_LAZ_CHUNK_COUNT}-chunk inspection limit."
+        )));
+    }
+    let mut table_cursor = Cursor::new(table_bytes);
+    let declared_points = header.number_of_points();
+    if laz_vlr.uses_variable_size_chunks() {
+        if u64::from(chunk_count) > declared_points
+            || (declared_points == 0 && chunk_count != 0)
+            || (declared_points > 0 && chunk_count == 0)
+        {
+            return Err(HandlerError::InvalidParams(
+                "LAZ chunk count is inconsistent with the header-declared point count.".into(),
+            ));
+        }
+    } else {
+        let chunk_size = u64::from(laz_vlr.chunk_size());
+        if chunk_size == 0 {
+            return Err(HandlerError::InvalidParams(
+                "LAZ chunk size is zero.".into(),
+            ));
+        }
+        let expected_chunks = declared_points.div_ceil(chunk_size);
+        if expected_chunks != u64::from(chunk_count) {
+            return Err(HandlerError::InvalidParams(
+                "LAZ fixed-size chunk count is inconsistent with the declared points and chunk size.".into(),
+            ));
+        }
+    }
+
+    table_cursor
+        .seek(SeekFrom::Start(0))
+        .map_err(internal_io_error)?;
+    let chunk_table =
+        laz::laszip::ChunkTable::read(&mut table_cursor, laz_vlr.uses_variable_size_chunks())
+            .map_err(|error| {
+                HandlerError::InvalidParams(format!(
+                    "LAZ chunk table could not be decoded: {error}"
+                ))
+            })?;
+    if chunk_table.len() != chunk_count as usize {
+        return Err(HandlerError::InvalidParams(
+            "Decoded LAZ chunk count differs from the chunk-table header.".into(),
+        ));
+    }
+    let table_end = chunk_table_start
+        .checked_add(table_cursor.position())
+        .ok_or_else(|| HandlerError::InvalidParams("LAZ chunk-table end overflows.".into()))?;
+    let mut compressed_bytes = 0_u64;
+    let mut chunk_points = 0_u64;
+    for entry in &chunk_table {
+        compressed_bytes = compressed_bytes
+            .checked_add(entry.byte_count)
+            .ok_or_else(|| HandlerError::InvalidParams("LAZ chunk byte total overflows.".into()))?;
+        if laz_vlr.uses_variable_size_chunks() {
+            chunk_points = chunk_points.checked_add(entry.point_count).ok_or_else(|| {
+                HandlerError::InvalidParams("LAZ chunk point total overflows.".into())
+            })?;
+        }
+        if entry.byte_count == 0 && entry.point_count > 0 {
+            return Err(HandlerError::InvalidParams(
+                "LAZ chunk contains points but declares no compressed bytes.".into(),
+            ));
+        }
+    }
+    if laz_vlr.uses_variable_size_chunks() && chunk_points != declared_points {
+        return Err(HandlerError::InvalidParams(
+            "LAZ chunk point totals differ from the header-declared point count.".into(),
+        ));
+    }
+    if declared_points > 0 && compressed_bytes == 0 {
+        return Err(HandlerError::InvalidParams(
+            "LAZ declares points but its chunk table contains no compressed bytes.".into(),
+        ));
+    }
+    let compressed_start = pointer_end;
+    let compressed_end = compressed_start
+        .checked_add(compressed_bytes)
+        .ok_or_else(|| HandlerError::InvalidParams("LAZ point-data end overflows.".into()))?;
+    if compressed_end != chunk_table_start {
+        return Err(HandlerError::InvalidParams(
+            "LAZ chunks do not end exactly at the declared chunk-table offset.".into(),
+        ));
+    }
+    if table_end > boundary_before_evlrs {
+        return Err(HandlerError::InvalidParams(
+            "LAZ chunk table overlaps the first EVLR or extends beyond the file.".into(),
+        ));
+    }
+    if (special_evlr_count, special_evlr_offset) != (-1, -1) {
+        return Ok(json!({
+            "layoutStatus": "incomplete",
+            "validationScope": "chunk sequence, chunk table, and ordinary EVLR boundaries; LASzip special EVLR references are not validated",
+            "pointDataStartByte": point_start.to_string(),
+            "pointDataEndByte": compressed_end.to_string(),
+            "pointDataByteCount": (compressed_end - point_start).to_string(),
+            "chunkTableStartByte": chunk_table_start.to_string(),
+            "chunkTableEndByte": table_end.to_string(),
+            "chunkTablePointerStorage": pointer_storage,
+            "firstEvlrStartByte": evlr_extent.map(|extent| extent.0.to_string()),
+            "evlrSequenceEndByte": evlr_extent.map(|extent| extent.1.to_string()),
+            "unclassifiedBytesBeforeEvlrs": evlr_extent.map(|extent| (extent.0 - table_end).to_string()),
+            "unclassifiedBytesAfterKnownData": null,
+            "warnings": warnings,
+        }));
+    }
+
+    let evlr_start = evlr_extent.map(|extent| extent.0);
+    let evlr_end = evlr_extent.map(|extent| extent.1);
+    let tail_start = evlr_end.unwrap_or(table_end);
+    let recognized_eof_pointer_bytes = if pointer_storage == "end_of_file" {
+        8
+    } else {
+        0
+    };
+    if file_size.saturating_sub(tail_start) < recognized_eof_pointer_bytes {
+        return Err(HandlerError::InvalidParams(
+            "LAZ EOF chunk-table pointer overlaps the EVLR sequence.".into(),
+        ));
+    }
+    if table_end < table_region_end {
+        warnings.push(
+            "Bytes occur between the LAZ chunk table and EVLR boundary (or end of file); their record types are not interpreted.".into(),
+        );
+    }
+    let unclassified_tail_bytes = file_size
+        .saturating_sub(tail_start)
+        .saturating_sub(recognized_eof_pointer_bytes);
+    if unclassified_tail_bytes > 0 {
+        warnings.push(
+            "Unclassified bytes remain after the declared EVLR sequence (or known LAZ data)."
+                .into(),
+        );
+    }
+    Ok(json!({
+        "layoutStatus": "bounded",
+        "validationScope": "chunked LAZ point-data extent, chunk-table entries, and declared EVLR sequence only",
+        "pointDataStartByte": point_start.to_string(),
+        "pointDataEndByte": compressed_end.to_string(),
+        "pointDataByteCount": (compressed_end - point_start).to_string(),
+        "chunkTableStartByte": chunk_table_start.to_string(),
+        "chunkTableEndByte": table_end.to_string(),
+        "chunkTablePointerStorage": pointer_storage,
+        "firstEvlrStartByte": evlr_start.map(|value| value.to_string()),
+        "evlrSequenceEndByte": evlr_end.map(|value| value.to_string()),
+        "unclassifiedBytesBeforeEvlrs": evlr_start.map(|start| (start - table_end).to_string()),
+        "unclassifiedBytesAfterKnownData": unclassified_tail_bytes.to_string(),
+        "warnings": warnings,
+    }))
+}
+
+fn read_evlr_extent(
+    path: &Path,
+    raw_header: &raw::Header,
+    file_size: u64,
+) -> Result<Option<(u64, u64)>, HandlerError> {
+    let Some(evlr) = raw_header.evlr else {
+        return Ok(None);
+    };
+    if evlr.number_of_evlrs == 0 {
+        return Ok(None);
+    }
+    let mut file = File::open(path).map_err(internal_io_error)?;
+    let start = evlr.start_of_first_evlr;
+    let mut next_record = start;
+    for _ in 0..evlr.number_of_evlrs {
+        if next_record
+            .checked_add(EVLR_HEADER_BYTES)
+            .is_none_or(|end| end > file_size)
+        {
+            return Err(HandlerError::InvalidParams(
+                "EVLR sequence extends beyond the file.".into(),
+            ));
+        }
+        file.seek(SeekFrom::Start(next_record))
+            .map_err(internal_io_error)?;
+        let mut record_header = [0_u8; EVLR_HEADER_BYTES as usize];
+        file.read_exact(&mut record_header).map_err(|error| {
+            HandlerError::InvalidParams(format!("EVLR header is truncated: {error}"))
+        })?;
+        let data_len = u64::from_le_bytes(record_header[20..28].try_into().unwrap());
+        next_record = next_record
+            .checked_add(EVLR_HEADER_BYTES)
+            .and_then(|offset| offset.checked_add(data_len))
+            .ok_or_else(|| HandlerError::InvalidParams("EVLR sequence end overflows.".into()))?;
+        if next_record > file_size {
+            return Err(HandlerError::InvalidParams(
+                "EVLR payload extends beyond the file.".into(),
+            ));
+        }
+    }
+    Ok(Some((start, next_record)))
+}
+
 const MAX_POINT_BATCH_BYTES: usize = 16 * 1024 * 1024;
 const MAX_POINT_BATCH_COUNT: usize = 65_536;
 
 fn inspect_point_records(path: &Path) -> Result<Value, HandlerError> {
     // Keep the existing header preflight as the single bounded gate for VLR/EVLR metadata.
     let _header_evidence = inspect_header(path)?;
+    let metadata = std::fs::metadata(path).map_err(internal_io_error)?;
+    let raw_header = read_bounded_raw_header(path, metadata.len())?;
+    let structure_header =
+        Header::new(File::open(path).map_err(internal_io_error)?).map_err(|error| {
+            HandlerError::InvalidParams(format!("LAS/LAZ header could not be read: {error}"))
+        })?;
+    let file_structure =
+        point_cloud_structure(path, &raw_header, &structure_header, metadata.len())?;
     let mut reader = Reader::from_path(path).map_err(|error| {
         HandlerError::InvalidParams(format!("LAS/LAZ point reader could not be opened: {error}"))
     })?;
@@ -518,10 +917,18 @@ fn inspect_point_records(path: &Path) -> Result<Value, HandlerError> {
         .collect();
 
     let mut warnings = vec![
-        "This scan decodes the point range declared by the LAS/LAZ header; it does not validate trailing bytes or prove whole-file format conformance.".to_string(),
+        "This scan decodes the point range declared by the LAS/LAZ header. The byte-layout report checks declared point and EVLR boundaries and, for chunked LAZ, chunk-table entries; it does not prove whole-file format conformance.".to_string(),
         "Coordinates are decoded with the source header scale and offset only. CRS, units, epoch, vertical reference, and project compatibility remain unresolved.".to_string(),
         "Classification counts are labels already stored in the source; no classification algorithm was run.".to_string(),
     ];
+    if let Some(structure_warnings) = file_structure["warnings"].as_array() {
+        warnings.extend(
+            structure_warnings
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned),
+        );
+    }
     if !header_count_matches {
         warnings.push(format!(
             "Decoded point count ({decoded_point_count}) differs from the header-declared count ({declared_point_count})."
@@ -570,6 +977,7 @@ fn inspect_point_records(path: &Path) -> Result<Value, HandlerError> {
         "nonFiniteCoordinatePointCount": non_finite_coordinate_count.to_string(),
         "decodedBounds": decoded_bounds,
         "headerBoundsContainDecodedPoints": bounds_within_header,
+        "fileStructure": file_structure,
         "coordinateInterpretation": "source coordinates after LAS scale/offset; CRS, units, epoch, and vertical reference not interpreted",
         "warnings": warnings,
     }))
@@ -754,6 +1162,12 @@ mod tests {
         assert_eq!(result["headerBoundsContainDecodedPoints"], true);
         assert_eq!(result["invalidReturnMetadataPointCount"], "0");
         assert_eq!(result["nonFiniteCoordinatePointCount"], "0");
+        assert_eq!(result["fileStructure"]["layoutStatus"], "bounded");
+        assert_eq!(result["fileStructure"]["pointDataByteCount"], "68");
+        assert_eq!(
+            result["fileStructure"]["unclassifiedBytesAfterKnownData"],
+            "0"
+        );
     }
 
     #[test]
@@ -770,10 +1184,23 @@ mod tests {
         assert_eq!(result["classificationCounts"][1]["code"], 6);
         assert_eq!(result["returnCountsMatchHeader"], true);
         assert_eq!(result["headerBoundsContainDecodedPoints"], true);
+        assert_eq!(result["fileStructure"]["layoutStatus"], "bounded");
+        assert_eq!(
+            result["fileStructure"]["pointDataEndByte"],
+            result["fileStructure"]["chunkTableStartByte"]
+        );
+        assert_eq!(
+            result["fileStructure"]["firstEvlrStartByte"],
+            result["fileStructure"]["chunkTableEndByte"]
+        );
+        assert_eq!(
+            result["fileStructure"]["unclassifiedBytesAfterKnownData"],
+            "0"
+        );
     }
 
     #[test]
-    fn rejects_truncated_las_point_records_after_reporting_the_read_position() {
+    fn rejects_truncated_las_point_extent_before_record_decoding() {
         let temp = tempdir().unwrap();
         let path = temp.path().join("truncated.las");
         write_fixture(&path, false);
@@ -789,9 +1216,63 @@ mod tests {
 
         let error = inspect_point_records(&path).unwrap_err().to_string();
         assert!(
-            error.contains("point decoding failed after 1 records"),
+            error.contains("declared point records extend beyond the file"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn reports_unclassified_las_tail_bytes_without_calling_them_point_records() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("tail.las");
+        write_fixture(&path, false);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"TAIL").unwrap();
+
+        let result = inspect_point_records(&path).unwrap();
+
+        assert_eq!(result["decodedPointCount"], "2");
+        assert_eq!(result["fileStructure"]["layoutStatus"], "bounded");
+        assert_eq!(
+            result["fileStructure"]["unclassifiedBytesAfterKnownData"],
+            "4"
+        );
+        assert!(result["fileStructure"]["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning
+                .as_str()
+                .unwrap()
+                .contains("Bytes occur after the declared LAS point records")));
+    }
+
+    #[test]
+    fn rejects_laz_chunk_tables_over_the_bounded_entry_limit_before_reader_open() {
+        use std::io::{Read, Seek, SeekFrom};
+
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("too_many_chunks.laz");
+        write_fixture(&path, false);
+        let raw = las::raw::Header::read_from(File::open(&path).unwrap()).unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        file.seek(SeekFrom::Start(u64::from(raw.offset_to_point_data)))
+            .unwrap();
+        let mut pointer = [0_u8; 8];
+        file.read_exact(&mut pointer).unwrap();
+        let table_start = u64::from_le_bytes(pointer);
+        file.seek(SeekFrom::Start(table_start + 4)).unwrap();
+        file.write_all(&u32::MAX.to_le_bytes()).unwrap();
+
+        let error = inspect_point_records(&path).unwrap_err().to_string();
+        assert!(error.contains("inspection limit"), "{error}");
     }
 
     #[test]

@@ -54,7 +54,25 @@ export interface PointCloudRecordInspection {
     max: Record<"x" | "y" | "z", number | null>;
   };
   headerBoundsContainDecodedPoints: boolean | null;
+  /** Optional because persisted reports from earlier versions predate byte-layout checks. */
+  fileStructure?: PointCloudFileStructureInspection;
   coordinateInterpretation: string;
+  warnings: string[];
+}
+
+export interface PointCloudFileStructureInspection {
+  layoutStatus: "bounded" | "incomplete";
+  validationScope: string;
+  pointDataStartByte: string;
+  pointDataEndByte: string | null;
+  pointDataByteCount: string | null;
+  chunkTableStartByte: string | null;
+  chunkTableEndByte: string | null;
+  chunkTablePointerStorage: string;
+  firstEvlrStartByte: string | null;
+  evlrSequenceEndByte: string | null;
+  unclassifiedBytesBeforeEvlrs: string | null;
+  unclassifiedBytesAfterKnownData: string | null;
   warnings: string[];
 }
 

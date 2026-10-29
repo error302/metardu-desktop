@@ -1351,6 +1351,7 @@ dependencies = [
  "gdal",
  "geojson",
  "las",
+ "laz",
  "lazy_static",
  "serde",
  "serde_json",

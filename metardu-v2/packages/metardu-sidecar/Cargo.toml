@@ -55,6 +55,8 @@ url = "2.5"
 spade = "2.15.1"
 # Bounded LAS/LAZ header and record inspection for local point-cloud workflows.
 las = { version = "=0.11.2", features = ["laz"] }
+# Inspect LAZ chunk-table extents before accepting a decoded record report.
+laz = "=0.13.0"
 # Community code runs as Wasm with no WASI and no host imports.
 wasmtime = { version = "=43.0.0", default-features = false, features = ["cranelift", "runtime", "std"] }
 

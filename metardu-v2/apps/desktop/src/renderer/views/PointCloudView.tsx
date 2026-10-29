@@ -151,6 +151,25 @@ function RecordInspectionDetails({ inspection }: { inspection: PointCloudRecordI
       <div style={{ color: "var(--text-secondary)", fontSize: 11 }}>
         Decoded {formatCount(inspection.decodedPointCount)} of {formatCount(inspection.headerDeclaredPointCount)} header-declared records · {returnStatus}.
       </div>
+      {inspection.fileStructure && (
+        <div style={{ padding: 9, border: "1px solid var(--border-subtle)", borderRadius: 3, color: "var(--text-secondary)", fontSize: 10, lineHeight: 1.5 }}>
+          <strong style={{ color: inspection.fileStructure.layoutStatus === "bounded" ? "var(--status-success, #22C55E)" : "var(--status-warning, #D97706)" }}>
+            File layout: {inspection.fileStructure.layoutStatus === "bounded" ? "declared extents bounded" : "partially checked"}
+          </strong>
+          <div>{inspection.fileStructure.validationScope}</div>
+          <div style={{ fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
+            Points: byte {inspection.fileStructure.pointDataStartByte} to {inspection.fileStructure.pointDataEndByte ?? "unknown"}
+            {inspection.fileStructure.chunkTableStartByte && ` · Chunk table: ${inspection.fileStructure.chunkTableStartByte} to ${inspection.fileStructure.chunkTableEndByte ?? "unknown"}`}
+            {inspection.fileStructure.firstEvlrStartByte && ` · EVLRs: ${inspection.fileStructure.firstEvlrStartByte} to ${inspection.fileStructure.evlrSequenceEndByte ?? "unknown"}`}
+          </div>
+          {inspection.fileStructure.unclassifiedBytesBeforeEvlrs !== null && BigInt(inspection.fileStructure.unclassifiedBytesBeforeEvlrs) > 0n && (
+            <div>Unclassified bytes before EVLRs: {formatCount(inspection.fileStructure.unclassifiedBytesBeforeEvlrs)}</div>
+          )}
+          {inspection.fileStructure.unclassifiedBytesAfterKnownData !== null && BigInt(inspection.fileStructure.unclassifiedBytesAfterKnownData) > 0n && (
+            <div>Unclassified bytes after known data: {formatCount(inspection.fileStructure.unclassifiedBytesAfterKnownData)}</div>
+          )}
+        </div>
+      )}
       <div style={{ color: "var(--text-primary)", fontSize: 11, lineHeight: 1.6 }}>
         <strong>Existing source classification codes</strong>
         {inspection.classificationCounts.length === 0 ? (
