@@ -18,6 +18,7 @@ mod mavsdk;
 mod ml;
 mod odm;
 mod protocol;
+mod plugins;
 mod topographic;
 
 use anyhow::Result;

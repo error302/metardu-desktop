@@ -87,6 +87,7 @@ const GnssPostProcessingView = lazy(() => import("./views/GnssPostProcessingView
 const DatumTransformationView = lazy(() => import("./views/DatumTransformationView.js").then(m => ({ default: m.DatumTransformationView })));
 const VerticalAlignmentView = lazy(() => import("./views/VerticalAlignmentView.js").then(m => ({ default: m.VerticalAlignmentView })));
 const DeformationMonitoringView = lazy(() => import("./views/DeformationMonitoringView.js").then(m => ({ default: m.DeformationMonitoringView })));
+const ExtensionsView = lazy(() => import("./views/ExtensionsView.js").then(m => ({ default: m.ExtensionsView })));
 
 // Loading fallback for lazy views — small spinner, not a full-screen blocker.
 const ViewLoading: React.FC = () => (
@@ -141,6 +142,7 @@ root.render(
               case "datumtransform": return <DatumTransformationView />;
               case "verticalalignment": return <VerticalAlignmentView />;
               case "deformation":   return <DeformationMonitoringView />;
+              case "extensions":    return <ExtensionsView />;
               default:             return null;
             }
           })();

@@ -25,6 +25,7 @@
 import { app, BrowserWindow, ipcMain, dialog, BrowserWindowConstructorOptions } from "electron";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { SidecarClient } from "@metardu/electron-integration";
 import { findExporter, listExportFormats, importFieldDataAsync, signPdf, verifyPdf, importPrivateKeyBase64, generateForm3Pdf, type RinexEpochResult, type SurveyorIdentity, type DigitalSignature, type VerificationResult, type Form3Input, generateForm4Pdf, generateLra27Pdf, generateBeaconCertificatePdf, generateAuPlanOfSurveyPdf, generateZaSgDiagramPdf, generateGbMeasuredSurveyReportPdf, generateDeGrenzfeststellungPdf, type Form4Input, type Lra27Input, type BeaconCertificateInput, type AuPlanOfSurveyInput, type ZaSgDiagramInput, type GbMeasuredSurveyReportInput, type DeGrenzfeststellungInput } from "@metardu/engine-flight-planning";
@@ -33,6 +34,7 @@ import { registerSyncIpcHandlers } from "./sync.js";
 import { registerProjectIpcHandlers } from "./projects.js";
 import { registerInstrumentIpcHandlers } from "./instrument.js";
 import { makeProjectToWgs84 } from "./geodesy.js";
+import { PLUGIN_RUN_INPUT_SCHEMA, type PluginRunInput } from "@metardu/ipc-schemas";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -84,6 +86,21 @@ function resolveSidecarBinary(): string | null {
 // ─── Window state ─────────────────────────────────────────────────
 let mainWindow: BrowserWindow | null = null;
 let sidecar: SidecarClient | null = null;
+
+const MAX_PLUGIN_MODULE_BYTES = 8 * 1024 * 1024;
+const MAX_CACHED_PLUGIN_MODULES = 5;
+const PLUGIN_MODULE_TTL_MS = 15 * 60 * 1000;
+interface SelectedPluginModule {
+  bytes: Buffer;
+  expiresAt: number;
+}
+const selectedPluginModules = new Map<string, SelectedPluginModule>();
+
+function pruneSelectedPluginModules(now = Date.now()): void {
+  for (const [token, module] of selectedPluginModules) {
+    if (module.expiresAt <= now) selectedPluginModules.delete(token);
+  }
+}
 
 function createWindow(): BrowserWindow {
   const logoPath = path.resolve(__dirname, "..", "..", "src", "renderer", "assets", "metardu-logo.jpeg");
@@ -195,6 +212,86 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("metardu:app:version", () => {
     return app.getVersion();
+  });
+
+  // Community tools can run only against JSON explicitly supplied in the
+  // UI. The selected Wasm bytes stay in a bounded, expiring main-process
+  // cache; no project path or file handle is forwarded to the extension.
+  ipcMain.handle("metardu:plugins:pickModule", async () => {
+    if (!mainWindow) throw new Error("Desktop window is not available");
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Select a community WebAssembly module",
+      buttonLabel: "Select module",
+      properties: ["openFile"],
+      filters: [{ name: "WebAssembly modules", extensions: ["wasm"] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+
+    const filename = path.basename(result.filePaths[0]!);
+    const file = await fs.promises.open(result.filePaths[0]!, "r");
+    let bytes: Buffer;
+    try {
+      const stat = await file.stat();
+      if (!stat.isFile() || stat.size < 8 || stat.size > MAX_PLUGIN_MODULE_BYTES) {
+        throw new Error(`WebAssembly module must be a regular file between 8 bytes and ${MAX_PLUGIN_MODULE_BYTES} bytes.`);
+      }
+      const boundedRead = Buffer.allocUnsafe(MAX_PLUGIN_MODULE_BYTES + 1);
+      let bytesReadTotal = 0;
+      while (bytesReadTotal < boundedRead.length) {
+        const { bytesRead } = await file.read(boundedRead, bytesReadTotal, boundedRead.length - bytesReadTotal, bytesReadTotal);
+        if (bytesRead === 0) break;
+        bytesReadTotal += bytesRead;
+      }
+      if (bytesReadTotal > MAX_PLUGIN_MODULE_BYTES) {
+        throw new Error(`WebAssembly module exceeds the ${MAX_PLUGIN_MODULE_BYTES}-byte limit.`);
+      }
+      bytes = Buffer.from(boundedRead.subarray(0, bytesReadTotal));
+    } finally {
+      await file.close();
+    }
+    if (bytes.length < 8 || bytes.length > MAX_PLUGIN_MODULE_BYTES || bytes.subarray(0, 4).toString("hex") !== "0061736d") {
+      throw new Error("Selected file is not a valid-sized WebAssembly module.");
+    }
+
+    pruneSelectedPluginModules();
+    let evictedPreviousSelection = false;
+    if (selectedPluginModules.size >= MAX_CACHED_PLUGIN_MODULES) {
+      const oldest = [...selectedPluginModules.entries()].sort((a, b) => a[1].expiresAt - b[1].expiresAt)[0];
+      if (oldest) {
+        selectedPluginModules.delete(oldest[0]);
+        evictedPreviousSelection = true;
+      }
+    }
+
+    const token = randomUUID();
+    const expiresAt = Date.now() + PLUGIN_MODULE_TTL_MS;
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    selectedPluginModules.set(token, { bytes, expiresAt });
+    const expiryTimer = setTimeout(() => {
+      const cached = selectedPluginModules.get(token);
+      if (cached && cached.expiresAt <= Date.now()) selectedPluginModules.delete(token);
+    }, PLUGIN_MODULE_TTL_MS);
+    expiryTimer.unref();
+    return { canceled: false, token, filename, sizeBytes: bytes.length, sha256, expiresAt, evictedPreviousSelection };
+  });
+
+  ipcMain.handle("metardu:plugins:run", async (_event, input: unknown) => {
+    const parsed = PLUGIN_RUN_INPUT_SCHEMA.safeParse(input);
+    if (!parsed.success) {
+      throw new Error(`Invalid community plugin request: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+    }
+    const request: PluginRunInput = parsed.data;
+    pruneSelectedPluginModules();
+    const selected = selectedPluginModules.get(request.moduleToken);
+    if (!selected) throw new Error("Selected module is no longer available. Select it again and retry.");
+    if (!sidecar || !sidecar.isRunning()) throw new Error("Rust sidecar is not running; plugin execution is unavailable.");
+
+    return sidecar.call("plugin.run", {
+      plugin_id: request.pluginId,
+      plugin_version: request.version,
+      module_base64: selected.bytes.toString("base64"),
+      input: request.input,
+    });
   });
 
   // ─── Integration & Export handlers (ADR-0005) ───────────────────

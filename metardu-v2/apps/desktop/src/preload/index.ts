@@ -17,7 +17,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Form3Input, SyncConfig, SyncProject, SyncStatus, SyncConflict, Form4Input, Lra27Input, BeaconCertificateInput, AuPlanOfSurveyInput, ZaSgDiagramInput, GbMeasuredSurveyReportInput, DeGrenzfeststellungInput } from "@metardu/engine-flight-planning";
 import type { StoredProject, ProjectStoreState, CreateProjectInput, UpdateProjectInput } from "../main/project-store-core.js";
-import { validateSidecarParams } from "@metardu/ipc-schemas";
+import { PLUGIN_RUN_INPUT_SCHEMA, validateSidecarParams } from "@metardu/ipc-schemas";
 
 /** Result of any statutory DRAFT renderer — PDF plus verification status. */
 interface StatutoryResult {
@@ -107,6 +107,20 @@ const metarduApi = {
       const listener = (_event: unknown, state: string): void => callback(state);
       ipcRenderer.on("metardu:sidecar:state", listener);
       return () => ipcRenderer.off("metardu:sidecar:state", listener);
+    },
+  },
+  /** Restricted community WebAssembly preview; selected module bytes never enter the renderer. */
+  plugins: {
+    pickModule: (): Promise<
+      | { canceled: true }
+      | { canceled: false; token: string; filename: string; sizeBytes: number; sha256: string; expiresAt: number; evictedPreviousSelection: boolean }
+    > => ipcRenderer.invoke("metardu:plugins:pickModule"),
+    run: async (request: { moduleToken: string; pluginId: string; version: string; input: unknown }): Promise<unknown> => {
+      const parsed = PLUGIN_RUN_INPUT_SCHEMA.safeParse(request);
+      if (!parsed.success) {
+        throw new Error(`Invalid community plugin request: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+      }
+      return ipcRenderer.invoke("metardu:plugins:run", parsed.data);
     },
   },
   /** App metadata. */

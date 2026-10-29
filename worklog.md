@@ -3356,3 +3356,80 @@ Stage Summary:
 - The accepted architecture direction gives the community a path to extend survey workflows without loading arbitrary scripts into Electron or letting an extension promote its own results to verified survey outputs.
 - Next gate: prototype and threat-model the component host and prove resource limits, cancellation, package validation, reproducibility, and Windows/macOS/Linux packaging before enabling third-party code execution.
 
+---
+Task ID: desktop-community-plugin-runtime-v1
+Agent: Codex 2026-10-29
+Task: Add a restricted WebAssembly community-tool execution preview to METARDU Desktop
+
+Work Log:
+- Rechecked the Electron main/preload boundary, Rust sidecar dispatcher, UI navigation, IPC schema package, ADR-0007, product plan, and worklog. The controlling `upload/METARDU-DESKTOP-MASTER-PLAN.md` is absent; this scoped task did not recreate it.
+- Added Wasmtime 43.0.0 ABI v1 for WebAssembly core modules with no imports/WASI, a 100M fuel limit, 64 MiB memory cap, 10,000 table-element cap, 8 MiB module cap, 4 MiB JSON input/output caps, JSON validation, and a host-authored Community / Draft result with claimed ID and SHA-256 digests.
+- Added a typed IPC path that lets the user choose a local `.wasm` file. Main-process bytes are read with a bounded buffer, held in memory only, capped at five selected modules, and deleted by an expiry timer after 15 minutes. The plugin receives only explicit JSON; no project path, file, instrument, network, or store capability is exposed.
+- Added an Extensions preview screen, ABI v1 documentation and WAT sample, IPC validation tests, Rust runtime/handler tests, a task brief, and updates to ADR-0007 and the international product plan.
+- Inspected the opened LinkedIn post: it describes a surveyor prototyping a point-cloud classification tool with Claude and asking about CloudCompare functions. The post does not disclose the algorithm, input formats, class list, or accuracy. The product plan now records large point-cloud processing as a future chunked host API and notes that CloudCompare licensing must be reviewed before code reuse.
+- This preview does not install or persist modules, provide a catalog/SDK/signature system, connect plugins to project data, process LAS/LAZ/COPC, call CloudCompare, write derived project artifacts, or make a survey accuracy claim.
+
+Verification:
+~~~text
+$ npm test --workspace @metardu/ipc-schemas
+Test Files  3 passed (3)
+     Tests  37 passed (37)
+Exit code: 0
+
+$ npm run build --workspace @metardu/ipc-schemas
+> tsc -p tsconfig.json
+Exit code: 0
+
+$ npm run build --workspace @metardu/desktop
+> tsc -p tsconfig.json
+Exit code: 0
+
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No diagnostics; exit code 0.
+
+$ npm run build:renderer
+✓ built in 7.66s
+Exit code: 0. The build printed externalization warnings for existing `node:zlib`/Node built-ins in engine and `better-sqlite3` imports.
+
+$ cargo test --offline --locked --no-default-features --features instrument plugins::tests
+running 11 tests
+test plugins::tests::rejects_invalid_plugin_identity ... ok
+test plugins::tests::rejects_any_host_or_system_import ... ok
+test plugins::tests::rejects_memory_declared_above_the_runtime_limit ... ok
+test plugins::tests::rejects_tables_declared_above_the_runtime_limit ... ok
+test plugins::tests::rejects_output_outside_guest_memory ... ok
+test plugins::tests::sidecar_handler_accepts_the_documented_json_request_shape ... ok
+test plugins::tests::rejects_non_json_output ... ok
+test plugins::tests::documented_hello_surveyor_example_runs_under_abi_v1 ... ok
+test plugins::tests::rejects_wrong_abi_version ... ok
+test plugins::tests::runs_closed_abi_module_and_host_marks_output_as_community_draft ... ok
+test plugins::tests::fuel_budget_traps_an_infinite_plugin_loop ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 169 filtered out; finished in 0.16s
+Exit code: 0
+
+$ cargo build --offline --locked --release --no-default-features --features instrument
+warning: `metardu-sidecar` (bin "metardu-sidecar") generated 60 warnings
+Finished `release` profile [optimized] target(s) in 9m 50s
+Exit code: 0.
+
+$ cargo build --offline --locked --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code: 101. The default GDAL-enabled release build remains blocked by the machine's missing GDAL development library.
+
+$ rustfmt --edition 2021 --check packages/metardu-sidecar/src/plugins.rs
+Exit code: 0.
+
+$ git diff --check
+Exit code: 0; only Git LF-to-CRLF notices for existing Windows checkout settings.
+
+$ Test-Path scripts/electron-smoke.sh
+False. The repository smoke script is absent, so no full Electron IPC smoke run is claimed.
+~~~
+
+The release-mode focused test compilation was stopped after prolonged Cranelift test-profile compilation; no release-mode test result is claimed. Debug focused tests passed as shown above.
+
+Stage Summary:
+- ABI v1 now executes a documented, locally selected Wasm example through the sidecar and visible Extensions preview, with tested import, resource, ABI, and output checks.
+- The product is not yet a complete community ecosystem or a universal survey workflow suite. The next substantive plugin gate is a read-only, chunked project-data interface for large point clouds/raster datasets, followed by derived-artifact provenance and license-aware SDK/package governance. Do not route LAS/LAZ/COPC through the current JSON ABI.
+

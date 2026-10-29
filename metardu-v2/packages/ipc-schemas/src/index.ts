@@ -50,6 +50,8 @@ import {
   validateCogoSidecarParams,
   validateSidecarParams,
 } from "./namespaces/cogo.js";
+export { MAX_COMMUNITY_PLUGIN_INPUT_BYTES, PLUGIN_RUN_INPUT_SCHEMA } from "./namespaces/plugins.js";
+export type { PluginRunInput } from "./namespaces/plugins.js";
 
 // ─── Aggregate registry ────────────────────────────────────────────
 

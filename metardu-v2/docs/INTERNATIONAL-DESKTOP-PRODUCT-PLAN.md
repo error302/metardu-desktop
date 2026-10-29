@@ -30,9 +30,11 @@ METARDU Desktop should support a QGIS-like community ecosystem for survey work: 
 
 The extension API must be versioned, capability-scoped, and project-aware. Community code must not run with direct Electron, filesystem, network, or database privileges. It must consume explicitly selected project data and return derived artifacts with the plugin identity, exact version and digest, declared method, coordinate context, inputs, warnings, and output provenance recorded. Community output remains visibly unreviewed or draft until METARDU's own review evidence qualifies the specific method and use.
 
+The developer experience should support surveyors who can describe and prototype a tool but are not software engineers: provide starter projects, example data, typed survey inputs, local test fixtures, and a path to share a reviewed package. A surveyor-built LiDAR classification tool is a concrete target. Large point clouds must use a separate host-managed, chunked data API; they must not be serialized into the ABI v1 JSON preview. Classification must produce a separate derived dataset while preserving the original, class scheme, CRS/epoch context, tool/model version, warnings, and validation evidence. CloudCompare is a possible integration or algorithm reference, but its project is GPL-licensed; review the exact component and licence before bundling or linking any code. [CloudCompare repository](https://github.com/CloudCompare/CloudCompare)
+
 Packages and their dependencies must be installable and pinned for offline work. Catalog browsing and updates may use the network, but survey computation must not depend on the catalog. Country and legal packs require source provenance and jurisdiction-specific review; installing a community pack alone does not make it an official or accepted survey convention.
 
-The architecture decision and rollout gates are recorded in `docs/decisions/0007-community-extension-ecosystem.md`. The runtime, developer SDK, installer, and catalog are future implementation work; this product plan does not claim they exist today.
+The architecture decision and rollout gates are recorded in `docs/decisions/0007-community-extension-ecosystem.md`. This build now includes an ABI v1 execution preview for an explicitly selected WebAssembly module and JSON input. It does not yet provide the developer SDK, project-data capabilities, package installer, signature verification, or catalog, and it is not yet a full community ecosystem.
 
 ## Shared METARDU account and subscription
 

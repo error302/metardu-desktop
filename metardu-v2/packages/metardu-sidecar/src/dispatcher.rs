@@ -22,6 +22,9 @@ pub enum HandlerError {
 
     #[error("Not implemented yet: {0}")]
     NotImplemented(String),
+
+    #[error("Plugin execution failed: {0}")]
+    PluginExecution(String),
 }
 
 impl HandlerError {
@@ -31,6 +34,7 @@ impl HandlerError {
             HandlerError::InvalidParams(_) => "INVALID_PARAMS",
             HandlerError::Internal(_) => "INTERNAL_ERROR",
             HandlerError::NotImplemented(_) => "NOT_IMPLEMENTED",
+            HandlerError::PluginExecution(_) => "PLUGIN_EXECUTION_FAILED",
         }
     }
 }
@@ -264,6 +268,11 @@ impl Dispatcher {
         // the geometry while TypeScript preserves original point metadata.
         self.register("topographic.build_tin", |params: Value| async move {
             crate::topographic::handle_build_tin(params).await
+        });
+
+        // Community WebAssembly tools execute without WASI or host imports.
+        self.register("plugin.run", |params: Value| async move {
+            crate::plugins::handle_run(params)
         });
 
         // ---- Phase 1 #4: Statutory PDF signing (dispatched via

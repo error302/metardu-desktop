@@ -40,6 +40,7 @@ import {
   BarChart3,
   Maximize2,
   Camera,
+  Puzzle,
   type LucideProps,
 } from "lucide-react";
 import "../styles/metardu-theme.css";
@@ -58,7 +59,7 @@ type ViewId =
   | "dwgcad" | "photogrammetry" | "ntripcaster" | "landportal" | "volumechange"
   | "gnssppk" | "datumtransform"
   | "verticalalignment" | "deformation"
-  | "topo" | "engineering" | "sectional" | "export" | "import" | "signing" | "sync" | "history";
+  | "topo" | "engineering" | "sectional" | "export" | "import" | "signing" | "sync" | "history" | "extensions";
 
 interface NavItem {
   id: ViewId;
@@ -115,8 +116,10 @@ const NAV: NavItem[] = [
   { id: "history", label: "Version History", icon: Clock, category: "Office", shortcut: "g h" },
   // Export
   { id: "export", label: "Export", icon: Download, category: "Export", shortcut: "g x" },
+  // Community
+  { id: "extensions", label: "Extensions (Preview)", icon: Puzzle, category: "Extensions", shortcut: "g 0" },
 ];
-const CATS = ["Projects", "Field Work", "Drone", "Surveying", "Engineering", "Office", "Export"];
+const CATS = ["Projects", "Field Work", "Drone", "Surveying", "Engineering", "Office", "Export", "Extensions"];
 
 export interface WorkflowStage {
   id: string;

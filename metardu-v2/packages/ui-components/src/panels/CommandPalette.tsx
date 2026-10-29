@@ -23,7 +23,7 @@ export type CommandPaletteViewId =
   | "traverse" | "cogo" | "deedplan" | "subdivision" | "fieldbook" | "lsa" | "roaddesign" | "officemgmt"
   | "pointcloud" | "raster" | "archive" | "licensing" | "hardware" | "dwgcad" | "photogrammetry" | "ntripcaster" | "landportal"
   | "gnssppk" | "datumtransform" | "volumechange" | "verticalalignment" | "deformation"
-  | "topo" | "engineering" | "sectional" | "export" | "import" | "signing" | "sync" | "history";
+  | "topo" | "engineering" | "sectional" | "export" | "import" | "signing" | "sync" | "history" | "extensions";
 
 export interface CommandPaletteNavItem {
   id: CommandPaletteViewId;

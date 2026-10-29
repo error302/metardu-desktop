@@ -1,6 +1,6 @@
 # ADR-0007: A community extension ecosystem for survey workflows
 
-**Status:** Accepted product and security direction; runtime implementation pending
+**Status:** Accepted product and security direction; ABI v1 execution preview implemented
 **Date:** 29 October 2026
 **Supersedes:** The blanket rejection of an in-app plugin ecosystem in ADR-0005; ADR-0005's survey-compute-first scope and GIS integration decisions remain in force.
 
@@ -14,9 +14,11 @@ The existing desktop security model is a hard constraint: renderer code is sandb
 
 ## Decision
 
-METARDU Desktop will grow a versioned, capability-scoped extension API. The architecture is ABI-first and will support portable WebAssembly components through a host-controlled interface. Wasmtime is the runtime candidate for a prototype; the runtime version and exact Component Model/WASI profile must be pinned only after cross-platform packaging, quotas, and threat-model checks pass.
+METARDU Desktop will grow a versioned, capability-scoped extension API. The first executable ABI is a portable WebAssembly core module with JSON input/output over a fixed linear-memory contract. Wasmtime runs the module in the Rust sidecar. WASI is disabled and ABI v1 accepts no module imports, so plugins receive no ambient filesystem, environment, process, network, database, or device access. The app passes only the input selected by the user and wraps every output with host-generated identity, digest, and trust metadata. The runtime version and ABI are pinned in the sidecar dependencies and documented for plugin authors.
 
-The app will not load community JavaScript, Python, native libraries, Electron extensions, or arbitrary `import()` modules into the renderer or main process. Extensions do not receive `ipcRenderer`, database handles, unrestricted filesystem paths, process access, or ambient network access.
+The app will not load community JavaScript, Python, native libraries, Electron extensions, or arbitrary `import()` modules into the renderer or main process. Extensions do not receive `ipcRenderer`, database handles, unrestricted filesystem paths, process access, or ambient network access. ABI v1 labels the caller-supplied plugin ID as a **claimed** ID; it does not authenticate its publisher.
+
+ABI v1's preview contract exports `memory`, `metardu_plugin_abi_version() -> i32`, `metardu_plugin_alloc(i32) -> i32`, and `metardu_plugin_run(i32, i32) -> i64`. The last return value packs an unsigned output pointer in its high 32 bits and output byte length in its low 32 bits. Input and output are UTF-8 JSON. Exact limits and a minimal example are documented in `docs/community-extensions/ABI-v1.md`.
 
 ### Extension contributions
 
@@ -32,9 +34,9 @@ The contribution interface stays inside surveying and project delivery. It does 
 
 ### Execution and permission model
 
-- Each executable extension is a WebAssembly component with a versioned WIT contract and a manifest declaring its identity, publisher, version, compatible SDK, entry points, licence, required capabilities, and checksums.
+- The current execution preview accepts a user-selected WebAssembly core module with ABI v1. The future installable extension package will add a manifest declaring publisher, version, compatible SDK, entry points, licence, required capabilities, and checksums.
 - The host gives a component no filesystem, environment, process, or network access by default. Data access is limited to the selected inputs passed through the SDK. Additional capabilities require a user-visible grant, have a narrow scope, and can be revoked.
-- Components receive bounded execution time, memory, and input/output sizes. The app can cancel or terminate a component that exceeds its budget.
+- ABI v1 modules receive bounded execution fuel, linear memory, table size, module size, and JSON input/output sizes. The sidecar traps a module that exceeds its execution or memory budget. Limits are defense in depth and are not a formal security audit or OS process isolation.
 - The extension host validates each input and output against versioned schemas. It writes results only as new project artifacts through the project engine; it cannot mutate source observations or bypass project history.
 - UI contributions are declarative in the first SDK. No extension-provided script executes in the privileged Electron renderer.
 
@@ -70,13 +72,13 @@ Country packs follow `docs/invariants.md`: statutory content requires current pr
 ## Delivery sequence
 
 1. Define the SDK schemas, manifest, output/provenance contract, trust labels, threat model, and extension package format.
-2. Prototype the component host with a harmless example tool; prove isolation, quotas, cancellation, package validation, and Windows/macOS/Linux packaging before enabling third-party execution.
+2. ABI v1 now has a Wasmtime core-module execution preview, a typed renderer-to-main-to-sidecar path, and a local `.wasm` picker. It passes only user-entered JSON, has no project-store integration or package installer, and marks output Community / Draft. Focused runtime tests exercise imports, fuel, and output validation; memory-limit and cross-platform packaging evidence remain release gates.
 3. Ship declarative project tools, forms, import/export adapters, and visualization contributions behind the stable SDK.
 4. Add selected-data analysis components with no ambient capabilities and durable project provenance.
 5. Add separately permissioned instrument and reference-data capabilities after their platform and evidence contracts are complete.
 6. Publish the developer kit, sample extensions, contribution guide, compatibility policy, security reporting path, and optional catalog governance.
 
-No runtime, package catalog, automatic update, or third-party code execution is claimed by this ADR. Each implementation step requires a scoped task brief and evidence that its security, offline, provenance, and cross-platform requirements work.
+The `plugin.run` sidecar method and Desktop preview execute one explicitly selected module; module bytes are held in memory with expiry and are not installed or persisted. The preview does not expose project-store writes, provide a catalog, or auto-update packages. Each further implementation step requires a scoped task brief and evidence that its security, offline, provenance, and cross-platform requirements work.
 
 ## Alternatives considered
 
@@ -90,6 +92,6 @@ No runtime, package catalog, automatic update, or third-party code execution is 
 
 - `docs/invariants.md` sections A1, A4, A5, B1-B3, C1-C3, D3.
 - ADR-0001, ADR-0003, ADR-0005.
-- [WebAssembly Component Model](https://component-model.bytecodealliance.org/).
-- [Running components with Wasmtime](https://component-model.bytecodealliance.org/running-components/wasmtime.html).
-- [Wasmtime WASI filesystem capability documentation](https://docs.wasmtime.dev/c-api/wasi_8h.html).
+- [Wasmtime `Module` API](https://docs.wasmtime.dev/api/wasmtime/struct.Module.html) (core-module imports).
+- [Wasmtime `Store` API](https://docs.wasmtime.dev/api/wasmtime/struct.Store.html) (fuel-limited execution).
+- [Wasmtime `StoreLimitsBuilder` API](https://docs.wasmtime.dev/api/wasmtime/struct.StoreLimitsBuilder.html) (memory and table limits).
