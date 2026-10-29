@@ -3780,3 +3780,95 @@ Exit code 0. Existing unrelated sidecar compiler warnings remain.
 
 This confirms the current sidecar unit suite passes on the Windows development host with these platform-neutral fixtures. It is not packaged-app, device, or field-workflow evidence.
 
+---
+Task ID: desktop-pointcloud-vlr-sequence-bounds
+Agent: Codex, 29 October 2026
+Task: Bound LAS/LAZ VLR extents before parsing and surface pre-point gaps
+
+Work Log:
+- Added a bounded VLR preflight before `las-rs` header parsing. It walks the declared 54-byte record headers and 16-bit payload sizes and rejects any VLR header or payload extending beyond the declared point-data offset or file size.
+- The record-inspection structure report now includes the VLR count, byte range, gap size, and whether the gap is all zero. Gaps remain explicitly unclassified; the code does not call them valid padding or infer a record type.
+- Added malformed-payload, zero-gap, and nonzero-gap LAS fixtures. Both gap fixtures still decode the two header-declared points, while the malformed VLR is rejected before header decoding and the source remains unchanged during inspection.
+- Extended the Point Cloud view with the optional VLR summary and gap disclosure. Previously saved reports without this field remain supported; no IPC or database migration was added.
+- Updated ADR-0012, the scoped task brief, and the international point-cloud gate. This work does not validate reserved-field semantics, record schemas, special LASzip EVLRs, waveform extents, pointwise LAZ, producer interoperability, or full LAS 1.4 Revision 16 conformance.
+
+Verification:
+~~~text
+$ cargo test --offline --no-default-features --features instrument import::point_cloud::tests -- --nocapture
+running 15 tests
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out
+Exit code 0
+
+$ cargo test --offline --release --no-default-features --features instrument
+running 195 tests
+test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+Exit code 0. The sidecar reports existing unrelated compiler warnings.
+
+$ cargo build --offline --release --no-default-features --features instrument
+warning: `metardu-sidecar` (bin "metardu-sidecar") generated 61 warnings
+Finished `release` profile [optimized] target(s) in 8m 00s
+Exit code 0
+
+$ cargo build --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+thread 'main' panicked: windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code 1
+
+$ cargo test --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+thread 'main' panicked: windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code 1
+
+$ npx tsc --noEmit (packages/engine)
+Exit code 0. No output.
+
+$ npx tsc --noEmit (apps/desktop)
+Exit code 0. No output.
+
+$ npm test -- --run (apps/desktop)
+Test Files  25 passed | 1 skipped (26)
+Tests       277 passed | 7 skipped (284)
+Exit code 0. The seven skipped cases are the existing Electron IPC round-trip suite.
+
+$ npm test (packages/engine; sandboxed)
+Test Files  1 failed | 44 passed (45)
+Tests       15 failed | 853 passed (868)
+Cause: connect EACCES to the suite's local mock server at 127.0.0.1:55040.
+Exit code 1
+
+$ npm test (packages/engine; rerun with approved loopback access)
+Test Files  45 passed (45)
+Tests       868 passed (868)
+Exit code 0
+
+$ npm run build:renderer
+✓ 2455 modules transformed.
+✓ built in 16.60s
+Exit code 0. Existing Node built-in externalization warnings remain.
+
+$ rustfmt --edition 2021 --check src/import/point_cloud.rs
+Exit code 0.
+
+$ git diff --check
+Exit code 0; Git printed only Windows LF-to-CRLF notices.
+~~~
+
+Evidence limits: the optimized Rust sidecar build and full 195-test suite pass with GDAL disabled. The default GDAL-enabled build and test remain unverified on this Windows host because `gdal_i.lib` is unavailable. The app renderer built and its types/tests passed, but no live Electron UI screenshot or point-cloud producer matrix was run. Full LAS/LAZ conformance remains unproven.
+
+Next product gate: validate supported LAS 1.4 variants and the reader against independent producer/known-answer fixtures, then cover pointwise LAZ, special EVLR and waveform boundaries before exposing chunk data to analysis extensions.
+
+Verification detail addendum (exact default-feature GDAL failure excerpts):
+~~~text
+$ cargo build --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+thread 'main' (20820) panicked at C:\Users\user\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gdal-sys-0.10.0\build.rs:204:9:
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code 1
+
+$ cargo test --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+thread 'main' (20508) panicked at C:\Users\user\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gdal-sys-0.10.0\build.rs:204:9:
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code 1
+~~~
+

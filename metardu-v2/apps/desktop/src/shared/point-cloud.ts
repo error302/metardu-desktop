@@ -63,6 +63,13 @@ export interface PointCloudRecordInspection {
 export interface PointCloudFileStructureInspection {
   layoutStatus: "bounded" | "incomplete";
   validationScope: string;
+  variableLengthRecords?: {
+    declaredCount: number;
+    sequenceStartByte: string;
+    sequenceEndByte: string;
+    unclassifiedBytesBeforePointData: string;
+    gapBytesAllZero: boolean | null;
+  };
   pointDataStartByte: string;
   pointDataEndByte: string | null;
   pointDataByteCount: string | null;

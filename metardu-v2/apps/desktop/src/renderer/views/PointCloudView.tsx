@@ -169,6 +169,20 @@ function RecordInspectionDetails({ inspection }: { inspection: PointCloudRecordI
             File layout: {inspection.fileStructure.layoutStatus === "bounded" ? "declared extents bounded" : "partially checked"}
           </strong>
           <div>{inspection.fileStructure.validationScope}</div>
+          {inspection.fileStructure.variableLengthRecords && (
+            <>
+              <div style={{ fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
+                VLRs: {formatCount(String(inspection.fileStructure.variableLengthRecords.declaredCount))} · bytes {inspection.fileStructure.variableLengthRecords.sequenceStartByte} to {inspection.fileStructure.variableLengthRecords.sequenceEndByte}
+              </div>
+              {BigInt(inspection.fileStructure.variableLengthRecords.unclassifiedBytesBeforePointData) > 0n ? (
+                <div>
+                  Unclassified bytes between VLRs and points: {formatCount(inspection.fileStructure.variableLengthRecords.unclassifiedBytesBeforePointData)} ({inspection.fileStructure.variableLengthRecords.gapBytesAllZero === true ? "all zero; meaning not validated" : "contains nonzero bytes; contents not interpreted"}).
+                </div>
+              ) : (
+                <div>No unclassified gap bytes occur between the declared VLR sequence and point data.</div>
+              )}
+            </>
+          )}
           <div style={{ fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
             Points: byte {inspection.fileStructure.pointDataStartByte} to {inspection.fileStructure.pointDataEndByte ?? "unknown"}
             {inspection.fileStructure.chunkTableStartByte && ` · Chunk table: ${inspection.fileStructure.chunkTableStartByte} to ${inspection.fileStructure.chunkTableEndByte ?? "unknown"}`}

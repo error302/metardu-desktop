@@ -1,9 +1,10 @@
 //! Bounded, read-only inspection of LAS/LAZ headers and declared point records.
 //!
-//! Record inspection checks declared point and EVLR extents and, for chunked
-//! LAZ, its chunk table. It does not prove whole-file conformance, interpret CRS
-//! or vertical reference, store source bytes, or classify points. The renderer
-//! never supplies a path: Electron main obtains it from the native file picker.
+//! Record inspection checks the declared VLR sequence, point and EVLR extents,
+//! and, for chunked LAZ, its chunk table. It does not prove whole-file
+//! conformance, interpret CRS or vertical reference, store source bytes, or
+//! classify points. The renderer never supplies a path: Electron main obtains
+//! it from the native file picker.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -22,12 +23,27 @@ use crate::dispatcher::HandlerError;
 const MAX_HEADER_METADATA_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_VLR_COUNT: u32 = 100_000;
 const MAX_EVLR_COUNT: u32 = 100_000;
+const VLR_HEADER_BYTES: u64 = 54;
 const EVLR_HEADER_BYTES: u64 = 60;
 const MAX_LAZ_CHUNK_COUNT: u32 = 1_000_000;
 const MAX_LAZ_CHUNK_TABLE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_RECORD_INSPECTION_JOBS: usize = 16;
 const RECORD_INSPECTION_JOB_RETENTION: Duration = Duration::from_secs(30 * 60);
 const MAX_ACTIVE_RECORD_INSPECTIONS: usize = 1;
+
+struct BoundedRawHeader {
+    raw: raw::Header,
+    vlr_extent: VlrExtent,
+}
+
+#[derive(Clone, Copy)]
+struct VlrExtent {
+    start: u64,
+    end: u64,
+    count: u32,
+    unclassified_bytes_before_points: u64,
+    gap_is_all_zero: Option<bool>,
+}
 
 #[derive(Clone)]
 struct RecordInspectionJob {
@@ -313,7 +329,8 @@ fn inspect_header(path: &Path) -> Result<Value, HandlerError> {
         ));
     }
 
-    let raw_header = read_bounded_raw_header(path, metadata.len())?;
+    let bounded_header = read_bounded_raw_header(path, metadata.len())?;
+    let raw_header = &bounded_header.raw;
     let mut header =
         Header::new(File::open(path).map_err(internal_io_error)?).map_err(|error| {
             HandlerError::InvalidParams(format!("LAS/LAZ header could not be read: {error}"))
@@ -460,7 +477,7 @@ fn inspect_header(path: &Path) -> Result<Value, HandlerError> {
     }))
 }
 
-fn read_bounded_raw_header(path: &Path, file_size: u64) -> Result<raw::Header, HandlerError> {
+fn read_bounded_raw_header(path: &Path, file_size: u64) -> Result<BoundedRawHeader, HandlerError> {
     let mut file = File::open(path).map_err(internal_io_error)?;
     let header = raw::Header::read_from(&mut file).map_err(|error| {
         HandlerError::InvalidParams(format!("LAS/LAZ fixed header could not be read: {error}"))
@@ -499,6 +516,7 @@ fn read_bounded_raw_header(path: &Path, file_size: u64) -> Result<raw::Header, H
             "LAS/LAZ declares more than {MAX_VLR_COUNT} variable-length records."
         )));
     }
+    let vlr_extent = read_vlr_extent(path, &header, file_size)?;
 
     if let Some(evlr) = header.evlr {
         if evlr.number_of_evlrs > MAX_EVLR_COUNT {
@@ -559,7 +577,95 @@ fn read_bounded_raw_header(path: &Path, file_size: u64) -> Result<raw::Header, H
         }
     }
 
-    Ok(header)
+    Ok(BoundedRawHeader {
+        raw: header,
+        vlr_extent,
+    })
+}
+
+fn read_vlr_extent(
+    path: &Path,
+    raw_header: &raw::Header,
+    file_size: u64,
+) -> Result<VlrExtent, HandlerError> {
+    let start = u64::from(raw_header.header_size);
+    let point_data_start = u64::from(raw_header.offset_to_point_data);
+    let mut next_record = start;
+    let mut file = File::open(path).map_err(internal_io_error)?;
+
+    for _ in 0..raw_header.number_of_variable_length_records {
+        let record_header_end = next_record
+            .checked_add(VLR_HEADER_BYTES)
+            .ok_or_else(|| HandlerError::InvalidParams("VLR header offset overflows.".into()))?;
+        if record_header_end > point_data_start || record_header_end > file_size {
+            return Err(HandlerError::InvalidParams(
+                "LAS/LAZ declared VLR header extends beyond the point-data offset or file size."
+                    .into(),
+            ));
+        }
+
+        file.seek(SeekFrom::Start(next_record))
+            .map_err(internal_io_error)?;
+        let mut record_header = [0_u8; VLR_HEADER_BYTES as usize];
+        file.read_exact(&mut record_header).map_err(|error| {
+            HandlerError::InvalidParams(format!("LAS/LAZ VLR header is truncated: {error}"))
+        })?;
+        let data_len = u64::from(u16::from_le_bytes([record_header[20], record_header[21]]));
+        next_record = record_header_end
+            .checked_add(data_len)
+            .ok_or_else(|| HandlerError::InvalidParams("VLR payload offset overflows.".into()))?;
+        if next_record > point_data_start || next_record > file_size {
+            return Err(HandlerError::InvalidParams(
+                "LAS/LAZ declared VLR payload extends beyond the point-data offset or file size."
+                    .into(),
+            ));
+        }
+    }
+
+    let unclassified_bytes_before_points = point_data_start - next_record;
+    let gap_is_all_zero = if unclassified_bytes_before_points == 0 {
+        None
+    } else {
+        Some(read_gap_is_all_zero(
+            &mut file,
+            next_record,
+            unclassified_bytes_before_points,
+        )?)
+    };
+
+    Ok(VlrExtent {
+        start,
+        end: next_record,
+        count: raw_header.number_of_variable_length_records,
+        unclassified_bytes_before_points,
+        gap_is_all_zero,
+    })
+}
+
+fn read_gap_is_all_zero(
+    file: &mut File,
+    start: u64,
+    byte_count: u64,
+) -> Result<bool, HandlerError> {
+    const BUFFER_BYTES: usize = 8 * 1024;
+
+    file.seek(SeekFrom::Start(start))
+        .map_err(internal_io_error)?;
+    let mut remaining = byte_count;
+    let mut buffer = [0_u8; BUFFER_BYTES];
+    while remaining > 0 {
+        let chunk_len = remaining.min(BUFFER_BYTES as u64) as usize;
+        file.read_exact(&mut buffer[..chunk_len]).map_err(|error| {
+            HandlerError::InvalidParams(format!(
+                "LAS/LAZ bytes between the VLR sequence and point data are truncated: {error}"
+            ))
+        })?;
+        if buffer[..chunk_len].iter().any(|byte| *byte != 0) {
+            return Ok(false);
+        }
+        remaining -= chunk_len as u64;
+    }
+    Ok(true)
 }
 
 fn internal_io_error(error: std::io::Error) -> HandlerError {
@@ -570,6 +676,7 @@ fn point_cloud_structure(
     path: &Path,
     raw_header: &raw::Header,
     header: &Header,
+    vlr_extent: VlrExtent,
     file_size: u64,
 ) -> Result<Value, HandlerError> {
     let point_start = u64::from(raw_header.offset_to_point_data);
@@ -597,6 +704,7 @@ fn point_cloud_structure(
         let tail_start = evlr_end.unwrap_or(point_end);
         let tail_bytes = file_size.saturating_sub(tail_start);
         let mut structure_warnings = Vec::new();
+        add_vlr_gap_warning(&mut structure_warnings, &vlr_extent);
         if point_end < boundary_before_evlrs {
             structure_warnings.push("Bytes occur after the declared LAS point records and before the EVLR boundary (or end of file); waveform and application-specific payloads are not interpreted.".to_string());
         }
@@ -608,7 +716,8 @@ fn point_cloud_structure(
         }
         return Ok(json!({
             "layoutStatus": "bounded",
-            "validationScope": "uncompressed point-record extent and declared EVLR sequence only",
+            "validationScope": "declared VLR sequence, uncompressed point-record extent, and declared EVLR sequence only",
+            "variableLengthRecords": vlr_extent_json(&vlr_extent),
             "pointDataStartByte": point_start.to_string(),
             "pointDataEndByte": point_end.to_string(),
             "pointDataByteCount": point_bytes.to_string(),
@@ -648,6 +757,7 @@ fn point_cloud_structure(
             .expect("fixed LASzip VLR field slice"),
     );
     let mut warnings = Vec::new();
+    add_vlr_gap_warning(&mut warnings, &vlr_extent);
     if (special_evlr_count, special_evlr_offset) != (-1, -1) {
         warnings.push(
             "LASzip special EVLR references are present; their layout is outside this inspection scope.".to_string(),
@@ -663,7 +773,8 @@ fn point_cloud_structure(
         );
         return Ok(json!({
             "layoutStatus": "incomplete",
-            "validationScope": "EVLR byte extents; pointwise compressed-data end is unknown",
+            "validationScope": "declared VLR and EVLR extents; pointwise compressed-data end is unknown",
+            "variableLengthRecords": vlr_extent_json(&vlr_extent),
             "pointDataStartByte": point_start.to_string(),
             "pointDataEndByte": null,
             "pointDataByteCount": null,
@@ -853,7 +964,8 @@ fn point_cloud_structure(
     if (special_evlr_count, special_evlr_offset) != (-1, -1) {
         return Ok(json!({
             "layoutStatus": "incomplete",
-            "validationScope": "chunk sequence, chunk table, and ordinary EVLR boundaries; LASzip special EVLR references are not validated",
+            "validationScope": "declared VLR sequence, chunk sequence, chunk table, and ordinary EVLR boundaries; LASzip special EVLR references are not validated",
+            "variableLengthRecords": vlr_extent_json(&vlr_extent),
             "pointDataStartByte": point_start.to_string(),
             "pointDataEndByte": compressed_end.to_string(),
             "pointDataByteCount": (compressed_end - point_start).to_string(),
@@ -897,7 +1009,8 @@ fn point_cloud_structure(
     }
     Ok(json!({
         "layoutStatus": "bounded",
-        "validationScope": "chunked LAZ point-data extent, chunk-table entries, and declared EVLR sequence only",
+        "validationScope": "declared VLR sequence, chunked LAZ point-data extent, chunk-table entries, and declared EVLR sequence only",
+        "variableLengthRecords": vlr_extent_json(&vlr_extent),
         "pointDataStartByte": point_start.to_string(),
         "pointDataEndByte": compressed_end.to_string(),
         "pointDataByteCount": (compressed_end - point_start).to_string(),
@@ -910,6 +1023,30 @@ fn point_cloud_structure(
         "unclassifiedBytesAfterKnownData": unclassified_tail_bytes.to_string(),
         "warnings": warnings,
     }))
+}
+
+fn add_vlr_gap_warning(warnings: &mut Vec<String>, extent: &VlrExtent) {
+    match extent.gap_is_all_zero {
+        Some(true) => warnings.push(format!(
+            "{} zero-filled bytes occur between the declared VLR sequence and point data; their meaning is not interpreted.",
+            extent.unclassified_bytes_before_points
+        )),
+        Some(false) => warnings.push(format!(
+            "{} unclassified bytes occur between the declared VLR sequence and point data; their contents are not interpreted.",
+            extent.unclassified_bytes_before_points
+        )),
+        None => {}
+    }
+}
+
+fn vlr_extent_json(extent: &VlrExtent) -> Value {
+    json!({
+        "declaredCount": extent.count,
+        "sequenceStartByte": extent.start.to_string(),
+        "sequenceEndByte": extent.end.to_string(),
+        "unclassifiedBytesBeforePointData": extent.unclassified_bytes_before_points.to_string(),
+        "gapBytesAllZero": extent.gap_is_all_zero,
+    })
 }
 
 fn read_evlr_extent(
@@ -974,13 +1111,18 @@ fn inspect_point_records_controlled(
     // Keep the existing header preflight as the single bounded gate for VLR/EVLR metadata.
     let _header_evidence = inspect_header(path)?;
     let metadata = std::fs::metadata(path).map_err(internal_io_error)?;
-    let raw_header = read_bounded_raw_header(path, metadata.len())?;
+    let bounded_header = read_bounded_raw_header(path, metadata.len())?;
     let structure_header =
         Header::new(File::open(path).map_err(internal_io_error)?).map_err(|error| {
             HandlerError::InvalidParams(format!("LAS/LAZ header could not be read: {error}"))
         })?;
-    let file_structure =
-        point_cloud_structure(path, &raw_header, &structure_header, metadata.len())?;
+    let file_structure = point_cloud_structure(
+        path,
+        &bounded_header.raw,
+        &structure_header,
+        bounded_header.vlr_extent,
+        metadata.len(),
+    )?;
     let mut reader = Reader::from_path(path).map_err(|error| {
         HandlerError::InvalidParams(format!("LAS/LAZ point reader could not be opened: {error}"))
     })?;
@@ -1171,7 +1313,7 @@ fn inspect_point_records_controlled(
         .collect();
 
     let mut warnings = vec![
-        "This scan decodes the point range declared by the LAS/LAZ header. The byte-layout report checks declared point and EVLR boundaries and, for chunked LAZ, chunk-table entries; it does not prove whole-file format conformance.".to_string(),
+        "This scan decodes the point range declared by the LAS/LAZ header. The byte-layout report checks declared VLR, point, and EVLR boundaries and, for chunked LAZ, chunk-table entries; it does not prove whole-file format conformance.".to_string(),
         "Coordinates are decoded with the source header scale and offset only. CRS, units, epoch, vertical reference, and project compatibility remain unresolved.".to_string(),
         "Classification counts are labels already stored in the source; no classification algorithm was run.".to_string(),
     ];
@@ -1335,6 +1477,15 @@ mod tests {
             .unwrap();
     }
 
+    fn insert_bytes_before_point_data(path: &std::path::Path, inserted: &[u8]) {
+        let mut bytes = std::fs::read(path).unwrap();
+        let point_data_start = u32::from_le_bytes(bytes[96..100].try_into().unwrap()) as usize;
+        bytes.splice(point_data_start..point_data_start, inserted.iter().copied());
+        let shifted_start = u32::try_from(point_data_start + inserted.len()).unwrap();
+        bytes[96..100].copy_from_slice(&shifted_start.to_le_bytes());
+        std::fs::write(path, bytes).unwrap();
+    }
+
     #[test]
     fn inspects_real_las_header_without_claiming_point_validation() {
         let temp = tempdir().unwrap();
@@ -1388,6 +1539,86 @@ mod tests {
         assert!(error
             .to_string()
             .contains("supported versions are 1.0 through 1.4"));
+    }
+
+    #[test]
+    fn rejects_vlr_payload_that_crosses_point_data_offset_before_header_decode() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("vlr-crosses-points.las");
+        write_fixture(&path, false);
+
+        let mut bytes = std::fs::read(&path).unwrap();
+        let header_size = u16::from_le_bytes(bytes[94..96].try_into().unwrap()) as usize;
+        bytes[header_size + 20..header_size + 22].copy_from_slice(&u16::MAX.to_le_bytes());
+        let malformed_source = bytes.clone();
+        std::fs::write(&path, bytes).unwrap();
+
+        let error = inspect_header(&path).unwrap_err().to_string();
+        assert!(
+            error.contains("VLR payload extends beyond the point-data offset"),
+            "{error}"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), malformed_source);
+    }
+
+    #[test]
+    fn reports_zero_filled_bytes_between_vlrs_and_points_as_unclassified() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("zero-gap.las");
+        write_fixture(&path, false);
+        insert_bytes_before_point_data(&path, &[0, 0, 0]);
+
+        let report = inspect_point_records(&path).unwrap();
+        assert_eq!(report["decodedPointCount"], "2");
+        assert_eq!(
+            report["fileStructure"]["variableLengthRecords"]["declaredCount"],
+            1
+        );
+        assert_eq!(
+            report["fileStructure"]["variableLengthRecords"]["unclassifiedBytesBeforePointData"],
+            "3"
+        );
+        assert_eq!(
+            report["fileStructure"]["variableLengthRecords"]["gapBytesAllZero"],
+            true
+        );
+        assert!(report["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| {
+                warning.as_str().unwrap().contains(
+                    "zero-filled bytes occur between the declared VLR sequence and point data",
+                )
+            }));
+    }
+
+    #[test]
+    fn reports_nonzero_bytes_between_vlrs_and_points_without_interpreting_them() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("nonzero-gap.las");
+        write_fixture(&path, false);
+        insert_bytes_before_point_data(&path, b"EXT");
+
+        let report = inspect_point_records(&path).unwrap();
+        assert_eq!(report["decodedPointCount"], "2");
+        assert_eq!(
+            report["fileStructure"]["variableLengthRecords"]["unclassifiedBytesBeforePointData"],
+            "3"
+        );
+        assert_eq!(
+            report["fileStructure"]["variableLengthRecords"]["gapBytesAllZero"],
+            false
+        );
+        assert!(report["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| {
+                warning.as_str().unwrap().contains(
+                    "unclassified bytes occur between the declared VLR sequence and point data",
+                )
+            }));
     }
 
     #[test]
