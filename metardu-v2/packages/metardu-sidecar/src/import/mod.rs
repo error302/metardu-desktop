@@ -26,3 +26,7 @@ pub use point_cloud::{
     handle_point_cloud_record_inspection, handle_point_cloud_record_inspection_status,
     handle_start_point_cloud_record_inspection,
 };
+pub use point_cloud::{
+    handle_cancel_point_cloud_chunk_stream, handle_point_cloud_chunk_stream_status,
+    handle_read_point_cloud_chunk, handle_start_point_cloud_chunk_stream,
+};

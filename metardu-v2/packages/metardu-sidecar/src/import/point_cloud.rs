@@ -30,6 +30,10 @@ const MAX_LAZ_CHUNK_TABLE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_RECORD_INSPECTION_JOBS: usize = 16;
 const RECORD_INSPECTION_JOB_RETENTION: Duration = Duration::from_secs(30 * 60);
 const MAX_ACTIVE_RECORD_INSPECTIONS: usize = 1;
+const MAX_POINT_CHUNK_STREAMS: usize = 8;
+const POINT_CHUNK_STREAM_RETENTION: Duration = Duration::from_secs(30 * 60);
+const MAX_ACTIVE_POINT_CHUNK_STREAMS: usize = 1;
+const MAX_POINT_CHUNK_POINTS: u64 = 2_048;
 
 struct BoundedRawHeader {
     raw: raw::Header,
@@ -68,6 +72,54 @@ static RECORD_INSPECTION_JOBS: OnceLock<Mutex<HashMap<String, RecordInspectionJo
 
 fn record_inspection_jobs() -> &'static Mutex<HashMap<String, RecordInspectionJob>> {
     RECORD_INSPECTION_JOBS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[derive(Clone)]
+struct PointCloudChunkStreamJob {
+    created_at: Instant,
+    cancelled: Arc<AtomicBool>,
+    read_pending: Arc<AtomicBool>,
+    commands: tokio::sync::mpsc::UnboundedSender<PointCloudChunkStreamCommand>,
+    state: Arc<Mutex<PointCloudChunkStreamState>>,
+}
+
+struct PointCloudChunkReadPendingGuard(Arc<AtomicBool>);
+
+impl Drop for PointCloudChunkReadPendingGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+enum PointCloudChunkStreamCommand {
+    Read(tokio::sync::oneshot::Sender<Result<Value, String>>),
+    Cancel,
+}
+
+#[derive(Clone)]
+enum PointCloudChunkStreamState {
+    Opening,
+    Running {
+        decoded_point_count: u64,
+        declared_point_count: u64,
+    },
+    Cancelling {
+        decoded_point_count: u64,
+        declared_point_count: u64,
+    },
+    Completed {
+        decoded_point_count: u64,
+        declared_point_count: u64,
+    },
+    Cancelled,
+    Failed(String),
+}
+
+static POINT_CLOUD_CHUNK_STREAM_JOBS: OnceLock<Mutex<HashMap<String, PointCloudChunkStreamJob>>> =
+    OnceLock::new();
+
+fn point_cloud_chunk_stream_jobs() -> &'static Mutex<HashMap<String, PointCloudChunkStreamJob>> {
+    POINT_CLOUD_CHUNK_STREAM_JOBS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -276,6 +328,625 @@ pub async fn handle_cancel_point_cloud_record_inspection(
         }
     };
     Ok(json!({ "jobId": job_id, "accepted": accepted }))
+}
+
+/// Open a bounded sequential point stream for trusted host processing. The
+/// Electron main process supplies the private managed path; the renderer does
+/// not call this method directly.
+pub async fn handle_start_point_cloud_chunk_stream(params: Value) -> Result<Value, HandlerError> {
+    let parsed: InspectParams = serde_json::from_value(params)
+        .map_err(|error| HandlerError::InvalidParams(error.to_string()))?;
+    let path = PathBuf::from(parsed.path);
+    if !path.is_absolute() {
+        return Err(HandlerError::InvalidParams(
+            "Point-cloud source path must be absolute.".into(),
+        ));
+    }
+
+    let stream_id = uuid::Uuid::new_v4().to_string();
+    let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
+    let job = PointCloudChunkStreamJob {
+        created_at: Instant::now(),
+        cancelled: Arc::new(AtomicBool::new(false)),
+        read_pending: Arc::new(AtomicBool::new(false)),
+        commands: command_tx,
+        state: Arc::new(Mutex::new(PointCloudChunkStreamState::Opening)),
+    };
+    {
+        let mut jobs = point_cloud_chunk_stream_jobs().lock().map_err(|_| {
+            HandlerError::Internal("Point-cloud chunk stream store is unavailable.".into())
+        })?;
+        prune_point_cloud_chunk_stream_jobs(&mut jobs);
+        let active_count = jobs
+            .values()
+            .filter(|candidate| {
+                candidate
+                    .state
+                    .lock()
+                    .map(|state| {
+                        matches!(
+                            &*state,
+                            PointCloudChunkStreamState::Opening
+                                | PointCloudChunkStreamState::Running { .. }
+                                | PointCloudChunkStreamState::Cancelling { .. }
+                        )
+                    })
+                    .unwrap_or(true)
+            })
+            .count();
+        if active_count >= MAX_ACTIVE_POINT_CHUNK_STREAMS {
+            return Err(HandlerError::InvalidParams(
+                "A point-cloud chunk stream is already running.".into(),
+            ));
+        }
+        while jobs.len() >= MAX_POINT_CHUNK_STREAMS {
+            let oldest_terminal = jobs
+                .iter()
+                .filter(|(_, candidate)| {
+                    candidate
+                        .state
+                        .lock()
+                        .map(|state| {
+                            matches!(
+                                &*state,
+                                PointCloudChunkStreamState::Completed { .. }
+                                    | PointCloudChunkStreamState::Cancelled
+                                    | PointCloudChunkStreamState::Failed(_)
+                            )
+                        })
+                        .unwrap_or(false)
+                })
+                .min_by_key(|(_, candidate)| candidate.created_at)
+                .map(|(id, _)| id.clone());
+            let Some(oldest_terminal) = oldest_terminal else {
+                return Err(HandlerError::InvalidParams(
+                    "The bounded point-cloud chunk stream store is full.".into(),
+                ));
+            };
+            jobs.remove(&oldest_terminal);
+        }
+        jobs.insert(stream_id.clone(), job.clone());
+    }
+
+    let worker_cancelled = job.cancelled.clone();
+    let worker_state = job.state.clone();
+    let (opened_tx, opened_rx) = tokio::sync::oneshot::channel();
+    tokio::task::spawn_blocking(move || {
+        run_point_cloud_chunk_stream(path, worker_cancelled, worker_state, command_rx, opened_tx)
+    });
+
+    match opened_rx.await {
+        Ok(Ok(metadata)) => {
+            schedule_point_cloud_chunk_stream_expiration(job.clone());
+            Ok(json!({
+                "streamId": stream_id,
+                "status": "running",
+                "metadata": metadata,
+            }))
+        }
+        Ok(Err(message)) => {
+            if let Ok(mut jobs) = point_cloud_chunk_stream_jobs().lock() {
+                jobs.remove(&stream_id);
+            }
+            Err(HandlerError::InvalidParams(message))
+        }
+        Err(_) => {
+            if let Ok(mut jobs) = point_cloud_chunk_stream_jobs().lock() {
+                jobs.remove(&stream_id);
+            }
+            Err(HandlerError::Internal(
+                "Point-cloud chunk stream could not be initialized.".into(),
+            ))
+        }
+    }
+}
+
+/// Read one source-order chunk. The sidecar retains the reader between calls.
+pub async fn handle_read_point_cloud_chunk(params: Value) -> Result<Value, HandlerError> {
+    let stream_id = parse_point_cloud_chunk_stream_id(&params)?;
+    let job = get_point_cloud_chunk_stream_job(&stream_id)?;
+    let state = job
+        .state
+        .lock()
+        .map_err(|_| {
+            HandlerError::Internal("Point-cloud chunk stream state is unavailable.".into())
+        })?
+        .clone();
+    if let Some(terminal) = point_cloud_chunk_stream_terminal_value(&state) {
+        return Ok(terminal);
+    }
+    if job.cancelled.load(Ordering::Acquire) {
+        return Ok(json!({ "status": "cancelling" }));
+    }
+    if job
+        .read_pending
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return Err(HandlerError::InvalidParams(
+            "A point-cloud chunk read is already pending for this stream.".into(),
+        ));
+    }
+    let _pending_read = PointCloudChunkReadPendingGuard(job.read_pending.clone());
+
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    if job
+        .commands
+        .send(PointCloudChunkStreamCommand::Read(reply_tx))
+        .is_err()
+    {
+        return Err(HandlerError::Internal(
+            "Point-cloud chunk stream is no longer available.".into(),
+        ));
+    }
+    let reply = reply_rx.await;
+    match reply {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(message)) => Err(HandlerError::InvalidParams(message)),
+        Err(_) => Err(HandlerError::Internal(
+            "Point-cloud chunk stream stopped before returning a chunk.".into(),
+        )),
+    }
+}
+
+/// Return counters and terminal state without transferring point records.
+pub async fn handle_point_cloud_chunk_stream_status(params: Value) -> Result<Value, HandlerError> {
+    let stream_id = parse_point_cloud_chunk_stream_id(&params)?;
+    let job = get_point_cloud_chunk_stream_job(&stream_id)?;
+    let state = job
+        .state
+        .lock()
+        .map_err(|_| {
+            HandlerError::Internal("Point-cloud chunk stream state is unavailable.".into())
+        })?
+        .clone();
+    if let Some(terminal) = point_cloud_chunk_stream_terminal_value(&state) {
+        return Ok(terminal);
+    }
+    Ok(match state {
+        PointCloudChunkStreamState::Opening => json!({ "status": "opening" }),
+        PointCloudChunkStreamState::Running {
+            decoded_point_count,
+            declared_point_count,
+        } => json!({
+            "status": "running",
+            "decodedPointCount": decoded_point_count.to_string(),
+            "declaredPointCount": declared_point_count.to_string(),
+        }),
+        PointCloudChunkStreamState::Cancelling {
+            decoded_point_count,
+            declared_point_count,
+        } => json!({
+            "status": "cancelling",
+            "decodedPointCount": decoded_point_count.to_string(),
+            "declaredPointCount": declared_point_count.to_string(),
+        }),
+        _ => unreachable!("terminal states return before this match"),
+    })
+}
+
+/// Stop a stream between bounded point reads and discard any queued request.
+pub async fn handle_cancel_point_cloud_chunk_stream(params: Value) -> Result<Value, HandlerError> {
+    let stream_id = parse_point_cloud_chunk_stream_id(&params)?;
+    let job = get_point_cloud_chunk_stream_job(&stream_id)?;
+    let mut state = job.state.lock().map_err(|_| {
+        HandlerError::Internal("Point-cloud chunk stream state is unavailable.".into())
+    })?;
+    match &*state {
+        PointCloudChunkStreamState::Completed { .. }
+        | PointCloudChunkStreamState::Cancelled
+        | PointCloudChunkStreamState::Failed(_) => return Ok(json!({ "accepted": false })),
+        PointCloudChunkStreamState::Cancelling { .. } => return Ok(json!({ "accepted": true })),
+        PointCloudChunkStreamState::Opening | PointCloudChunkStreamState::Running { .. } => {}
+    }
+    job.cancelled.store(true, Ordering::Release);
+    if let PointCloudChunkStreamState::Running {
+        decoded_point_count,
+        declared_point_count,
+    } = &*state
+    {
+        *state = PointCloudChunkStreamState::Cancelling {
+            decoded_point_count: *decoded_point_count,
+            declared_point_count: *declared_point_count,
+        };
+    }
+    job.commands
+        .send(PointCloudChunkStreamCommand::Cancel)
+        .map_err(|_| {
+            HandlerError::Internal("Point-cloud chunk stream is no longer available.".into())
+        })?;
+    Ok(json!({ "accepted": true }))
+}
+
+fn parse_point_cloud_chunk_stream_id(params: &Value) -> Result<String, HandlerError> {
+    let stream_id = params
+        .get("streamId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HandlerError::InvalidParams("Point-cloud stream ID is required.".into()))?;
+    let parsed = uuid::Uuid::parse_str(stream_id)
+        .map_err(|_| HandlerError::InvalidParams("Point-cloud stream ID is invalid.".into()))?;
+    Ok(parsed.to_string())
+}
+
+fn get_point_cloud_chunk_stream_job(
+    stream_id: &str,
+) -> Result<PointCloudChunkStreamJob, HandlerError> {
+    point_cloud_chunk_stream_jobs()
+        .lock()
+        .map_err(|_| {
+            HandlerError::Internal("Point-cloud chunk stream store is unavailable.".into())
+        })?
+        .get(stream_id)
+        .cloned()
+        .ok_or_else(|| {
+            HandlerError::InvalidParams("Point-cloud chunk stream is unknown or expired.".into())
+        })
+}
+
+fn prune_point_cloud_chunk_stream_jobs(jobs: &mut HashMap<String, PointCloudChunkStreamJob>) {
+    let now = Instant::now();
+    jobs.retain(|_, job| {
+        if now.duration_since(job.created_at) < POINT_CHUNK_STREAM_RETENTION {
+            return true;
+        }
+        let Ok(state) = job.state.lock() else {
+            return false;
+        };
+        let active = matches!(
+            &*state,
+            PointCloudChunkStreamState::Opening
+                | PointCloudChunkStreamState::Running { .. }
+                | PointCloudChunkStreamState::Cancelling { .. }
+        );
+        drop(state);
+        if active && !job.cancelled.swap(true, Ordering::AcqRel) {
+            let _ = job.commands.send(PointCloudChunkStreamCommand::Cancel);
+        }
+        active
+    });
+}
+
+fn schedule_point_cloud_chunk_stream_expiration(job: PointCloudChunkStreamJob) {
+    tokio::spawn(async move {
+        tokio::time::sleep(POINT_CHUNK_STREAM_RETENTION).await;
+        let should_cancel = if let Ok(mut state) = job.state.lock() {
+            match &*state {
+                PointCloudChunkStreamState::Opening => true,
+                PointCloudChunkStreamState::Running {
+                    decoded_point_count,
+                    declared_point_count,
+                } => {
+                    *state = PointCloudChunkStreamState::Cancelling {
+                        decoded_point_count: *decoded_point_count,
+                        declared_point_count: *declared_point_count,
+                    };
+                    true
+                }
+                PointCloudChunkStreamState::Cancelling { .. } => true,
+                PointCloudChunkStreamState::Completed { .. }
+                | PointCloudChunkStreamState::Cancelled
+                | PointCloudChunkStreamState::Failed(_) => false,
+            }
+        } else {
+            false
+        };
+        if should_cancel && !job.cancelled.swap(true, Ordering::AcqRel) {
+            let _ = job.commands.send(PointCloudChunkStreamCommand::Cancel);
+        }
+    });
+}
+
+fn point_cloud_chunk_stream_terminal_value(state: &PointCloudChunkStreamState) -> Option<Value> {
+    match state {
+        PointCloudChunkStreamState::Completed {
+            decoded_point_count,
+            declared_point_count,
+        } => Some(json!({
+            "status": "completed",
+            "decodedPointCount": decoded_point_count.to_string(),
+            "declaredPointCount": declared_point_count.to_string(),
+        })),
+        PointCloudChunkStreamState::Cancelled => Some(json!({ "status": "cancelled" })),
+        PointCloudChunkStreamState::Failed(message) => Some(json!({
+            "status": "failed",
+            "message": message,
+        })),
+        PointCloudChunkStreamState::Opening
+        | PointCloudChunkStreamState::Running { .. }
+        | PointCloudChunkStreamState::Cancelling { .. } => None,
+    }
+}
+
+fn run_point_cloud_chunk_stream(
+    path: PathBuf,
+    cancelled: Arc<AtomicBool>,
+    state: Arc<Mutex<PointCloudChunkStreamState>>,
+    mut commands: tokio::sync::mpsc::UnboundedReceiver<PointCloudChunkStreamCommand>,
+    opened: tokio::sync::oneshot::Sender<Result<Value, String>>,
+) {
+    let open_result = (|| -> Result<_, String> {
+        inspect_header(&path).map_err(|error| error.to_string())?;
+        let reader = Reader::from_path(&path)
+            .map_err(|error| format!("LAS/LAZ point reader could not be opened: {error}"))?;
+        let header = reader.header();
+        let declared_point_count = header.number_of_points();
+        let point_format_id = header
+            .point_format()
+            .to_u8()
+            .map_err(|error| format!("Unsupported LAS point format: {error}"))?;
+        let version = header.version().to_string();
+        let has_extra_bytes = header
+            .vlrs()
+            .iter()
+            .chain(header.evlrs().iter())
+            .any(|vlr| vlr.user_id == "LASF_Spec" && vlr.record_id == 4);
+        let has_waveform_data = matches!(point_format_id, 4 | 5 | 9 | 10);
+        let point_data = PointDataBuilder::new().for_header(header).build();
+        let gps_time_present = point_data.gps_time().is_some();
+        let rgb_present = point_data.rgb().is_some();
+        let nir_present = point_data.nir().is_some();
+        let metadata = json!({
+            "format": if header.point_format().is_compressed { "LAZ" } else { "LAS" },
+            "version": version,
+            "pointFormatId": point_format_id,
+            "declaredPointCount": declared_point_count.to_string(),
+            "maxPointsPerChunk": MAX_POINT_CHUNK_POINTS,
+            "coordinateInterpretation": "LAS scale and offset applied to X/Y/Z; CRS, units, epoch and vertical reference are not interpreted.",
+            "supportedDimensions": [
+                "pointIndex", "x", "y", "z", "intensity", "classification",
+                "returnNumber", "numberOfReturns", "scanAngleDegrees", "userData",
+                "pointSourceId", "gpsTime", "rgb", "nir"
+            ],
+            "optionalDimensionsPresent": {
+                "gpsTime": gps_time_present,
+                "rgb": rgb_present,
+                "nir": nir_present,
+                "extraBytes": has_extra_bytes,
+                "waveformPackets": has_waveform_data
+            },
+            "omittedDimensions": ["LAS point-format flags", "Extra Bytes payload values", "waveform packet data"],
+        });
+        Ok((reader, declared_point_count, metadata))
+    })();
+
+    let (mut reader, declared_point_count, metadata) = match open_result {
+        Ok(value) => value,
+        Err(message) => {
+            if let Ok(mut state) = state.lock() {
+                *state = PointCloudChunkStreamState::Failed(message.clone());
+            }
+            let _ = opened.send(Err(message));
+            return;
+        }
+    };
+
+    if let Ok(mut state) = state.lock() {
+        *state = PointCloudChunkStreamState::Running {
+            decoded_point_count: 0,
+            declared_point_count,
+        };
+    }
+    if opened.send(Ok(metadata)).is_err() {
+        cancelled.store(true, Ordering::Release);
+        if let Ok(mut state) = state.lock() {
+            *state = PointCloudChunkStreamState::Cancelled;
+        }
+        return;
+    }
+
+    let mut points = PointDataBuilder::new().for_header(reader.header()).build();
+    let mut decoded_point_count = 0_u64;
+    let mut chunk_index = 0_u64;
+    loop {
+        let Some(command) = commands.blocking_recv() else {
+            cancelled.store(true, Ordering::Release);
+            if let Ok(mut state) = state.lock() {
+                *state = PointCloudChunkStreamState::Cancelled;
+            }
+            return;
+        };
+        match command {
+            PointCloudChunkStreamCommand::Cancel => {
+                cancelled.store(true, Ordering::Release);
+                if let Ok(mut state) = state.lock() {
+                    *state = PointCloudChunkStreamState::Cancelled;
+                }
+                return;
+            }
+            PointCloudChunkStreamCommand::Read(reply) => {
+                if cancelled.load(Ordering::Acquire) {
+                    if let Ok(mut state) = state.lock() {
+                        *state = PointCloudChunkStreamState::Cancelled;
+                    }
+                    let _ = reply.send(Ok(json!({ "status": "cancelled" })));
+                    return;
+                }
+
+                let count = match reader.fill_points(MAX_POINT_CHUNK_POINTS, &mut points) {
+                    Ok(count) => count,
+                    Err(error) => {
+                        let message = format!("LAS/LAZ point decoding failed: {error}");
+                        if let Ok(mut state) = state.lock() {
+                            *state = PointCloudChunkStreamState::Failed(message.clone());
+                        }
+                        let _ = reply.send(Ok(json!({ "status": "failed", "message": message })));
+                        return;
+                    }
+                };
+                if count == 0 {
+                    if decoded_point_count != declared_point_count {
+                        let message = format!(
+                            "Decoded {decoded_point_count} points but the source header declares {declared_point_count}."
+                        );
+                        if let Ok(mut state) = state.lock() {
+                            *state = PointCloudChunkStreamState::Failed(message.clone());
+                        }
+                        let _ = reply.send(Ok(json!({ "status": "failed", "message": message })));
+                        return;
+                    }
+                    if let Ok(mut state) = state.lock() {
+                        *state = PointCloudChunkStreamState::Completed {
+                            decoded_point_count,
+                            declared_point_count,
+                        };
+                    }
+                    let _ = reply.send(Ok(json!({
+                        "status": "completed",
+                        "decodedPointCount": decoded_point_count.to_string(),
+                        "declaredPointCount": declared_point_count.to_string(),
+                    })));
+                    return;
+                }
+                let Some(next_count) = decoded_point_count.checked_add(count) else {
+                    let message = "Decoded point count overflowed its 64-bit range.".to_string();
+                    if let Ok(mut state) = state.lock() {
+                        *state = PointCloudChunkStreamState::Failed(message.clone());
+                    }
+                    let _ = reply.send(Ok(json!({ "status": "failed", "message": message })));
+                    return;
+                };
+                if next_count > declared_point_count {
+                    let message =
+                        "The LAS/LAZ reader decoded beyond the source header-declared point count."
+                            .to_string();
+                    if let Ok(mut state) = state.lock() {
+                        *state = PointCloudChunkStreamState::Failed(message.clone());
+                    }
+                    let _ = reply.send(Ok(json!({ "status": "failed", "message": message })));
+                    return;
+                }
+                if count > MAX_POINT_CHUNK_POINTS {
+                    let message = "The LAS/LAZ reader returned a chunk larger than the configured point limit.".to_string();
+                    if let Ok(mut state) = state.lock() {
+                        *state = PointCloudChunkStreamState::Failed(message.clone());
+                    }
+                    let _ = reply.send(Ok(json!({ "status": "failed", "message": message })));
+                    return;
+                }
+                if cancelled.load(Ordering::Acquire) {
+                    if let Ok(mut state) = state.lock() {
+                        *state = PointCloudChunkStreamState::Cancelled;
+                    }
+                    let _ = reply.send(Ok(json!({ "status": "cancelled" })));
+                    return;
+                }
+
+                let first_point_index = decoded_point_count;
+                let points_value =
+                    match point_cloud_chunk_points_value(&points, first_point_index, count) {
+                        Ok(value) => value,
+                        Err(message) => {
+                            if let Ok(mut state) = state.lock() {
+                                *state = PointCloudChunkStreamState::Failed(message.clone());
+                            }
+                            let _ =
+                                reply.send(Ok(json!({ "status": "failed", "message": message })));
+                            return;
+                        }
+                    };
+                decoded_point_count = next_count;
+                if let Ok(mut state) = state.lock() {
+                    *state = PointCloudChunkStreamState::Running {
+                        decoded_point_count,
+                        declared_point_count,
+                    };
+                }
+                let value = json!({
+                    "status": "chunk",
+                    "chunkIndex": chunk_index.to_string(),
+                    "firstPointIndex": first_point_index.to_string(),
+                    "decodedPointCount": decoded_point_count.to_string(),
+                    "declaredPointCount": declared_point_count.to_string(),
+                    "points": points_value,
+                });
+                chunk_index = chunk_index.saturating_add(1);
+                if reply.send(Ok(value)).is_err() {
+                    cancelled.store(true, Ordering::Release);
+                    if let Ok(mut state) = state.lock() {
+                        *state = PointCloudChunkStreamState::Cancelled;
+                    }
+                    return;
+                }
+            }
+        }
+    }
+}
+
+fn point_cloud_chunk_points_value(
+    points: &las::PointData,
+    first_point_index: u64,
+    count: u64,
+) -> Result<Value, String> {
+    let xs: Vec<f64> = points.x().collect();
+    let ys: Vec<f64> = points.y().collect();
+    let zs: Vec<f64> = points.z().collect();
+    let intensities: Vec<u16> = points.intensity().collect();
+    let classifications: Vec<u8> = points.classification().collect();
+    let return_numbers: Vec<u8> = points.return_number().collect();
+    let number_of_returns: Vec<u8> = points.number_of_returns().collect();
+    let scan_angles: Vec<f32> = points.scan_angle_degrees().collect();
+    let user_data: Vec<u8> = points.user_data().collect();
+    let point_source_ids: Vec<u16> = points.point_source_id().collect();
+    let gps_times: Option<Vec<f64>> = points.gps_time().map(Iterator::collect);
+    let colors: Option<Vec<(u16, u16, u16)>> = points.rgb().map(Iterator::collect);
+    let nir_values: Option<Vec<u16>> = points.nir().map(Iterator::collect);
+    let expected =
+        usize::try_from(count).map_err(|_| "Point chunk count is too large.".to_string())?;
+    let lengths = [
+        xs.len(),
+        ys.len(),
+        zs.len(),
+        intensities.len(),
+        classifications.len(),
+        return_numbers.len(),
+        number_of_returns.len(),
+        scan_angles.len(),
+        user_data.len(),
+        point_source_ids.len(),
+    ];
+    if lengths.iter().any(|length| *length != expected)
+        || gps_times
+            .as_ref()
+            .is_some_and(|values| values.len() != expected)
+        || colors
+            .as_ref()
+            .is_some_and(|values| values.len() != expected)
+        || nir_values
+            .as_ref()
+            .is_some_and(|values| values.len() != expected)
+    {
+        return Err("The LAS/LAZ reader returned inconsistent point dimension lengths.".into());
+    }
+    let mut result = Vec::with_capacity(expected);
+    for offset in 0..expected {
+        let point_index = first_point_index
+            .checked_add(offset as u64)
+            .ok_or_else(|| "Point index overflowed its 64-bit range.".to_string())?;
+        let gps_time = gps_times
+            .as_ref()
+            .and_then(|values| values.get(offset))
+            .copied()
+            .filter(|value| value.is_finite());
+        let color = colors.as_ref().and_then(|values| values.get(offset));
+        let nir = nir_values.as_ref().and_then(|values| values.get(offset));
+        result.push(json!({
+            "pointIndex": point_index.to_string(),
+            "x": finite_json(xs[offset]),
+            "y": finite_json(ys[offset]),
+            "z": finite_json(zs[offset]),
+            "intensity": intensities[offset],
+            "classification": classifications[offset],
+            "returnNumber": return_numbers[offset],
+            "numberOfReturns": number_of_returns[offset],
+            "scanAngleDegrees": scan_angles[offset],
+            "userData": user_data[offset],
+            "pointSourceId": point_source_ids[offset],
+            "gpsTime": gps_time,
+            "rgb": color.map(|(red, green, blue)| json!({ "red": red, "green": green, "blue": blue })),
+            "nir": nir,
+        }));
+    }
+    Ok(Value::Array(result))
 }
 
 fn parse_record_inspection_job_id(params: &Value) -> Result<String, HandlerError> {
@@ -1431,10 +2102,13 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        handle_cancel_point_cloud_record_inspection, handle_point_cloud_record_inspection_status,
+        handle_cancel_point_cloud_chunk_stream, handle_cancel_point_cloud_record_inspection,
+        handle_point_cloud_chunk_stream_status, handle_point_cloud_record_inspection_status,
+        handle_read_point_cloud_chunk, handle_start_point_cloud_chunk_stream,
         handle_start_point_cloud_record_inspection, inspect_header, inspect_point_records,
-        inspect_point_records_controlled, read_bounded_raw_header, record_inspection_jobs,
-        RecordInspectionJob, RecordInspectionJobState, VLR_HEADER_BYTES,
+        inspect_point_records_controlled, point_cloud_chunk_stream_jobs, read_bounded_raw_header,
+        record_inspection_jobs, RecordInspectionJob, RecordInspectionJobState,
+        MAX_POINT_CHUNK_POINTS, VLR_HEADER_BYTES,
     };
     use crate::dispatcher::HandlerError;
 
@@ -1498,6 +2172,34 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
+    }
+
+    fn write_many_point_fixture(path: &std::path::Path, point_count: u64) {
+        let mut builder = Builder::from((1, 4));
+        builder.point_format = las::point::Format::new(3).unwrap();
+        builder.transforms.x.scale = 0.01;
+        builder.transforms.y.scale = 0.01;
+        builder.transforms.z.scale = 0.01;
+        builder.transforms.x.offset = 500_000.0;
+        builder.transforms.y.offset = 6_000_000.0;
+        builder.transforms.z.offset = 100.0;
+        let mut writer = Writer::from_path(path, builder.into_header().unwrap()).unwrap();
+        for index in 0..point_count {
+            writer
+                .write_point(Point {
+                    x: 500_000.0 + index as f64 * 0.01,
+                    y: 6_000_000.0 + index as f64 * 0.02,
+                    z: 100.0 + index as f64 * 0.005,
+                    intensity: (index % 65_536) as u16,
+                    return_number: 1,
+                    number_of_returns: 1,
+                    classification: las::point::Classification::Ground,
+                    gps_time: Some(index as f64),
+                    color: Some(las::Color::new(100, 200, 300)),
+                    ..Default::default()
+                })
+                .unwrap();
+        }
     }
 
     fn laz_vlr_data_offset(bytes: &[u8]) -> usize {
@@ -1883,6 +2585,228 @@ mod tests {
             .lock()
             .unwrap()
             .remove(&active_job_id);
+    }
+
+    #[tokio::test]
+    async fn host_chunk_stream_is_bounded_ordered_cancellable_and_read_only() {
+        point_cloud_chunk_stream_jobs().lock().unwrap().clear();
+        let temp = tempdir().unwrap();
+        let las_path = temp.path().join("stream.las");
+        write_fixture(&las_path, false);
+        let las_bytes_before = std::fs::read(&las_path).unwrap();
+        let las_start = handle_start_point_cloud_chunk_stream(json!({
+            "path": las_path.to_string_lossy().to_string()
+        }))
+        .await
+        .unwrap();
+        let las_stream_id = las_start["streamId"].as_str().unwrap().to_owned();
+        assert_eq!(
+            las_start["metadata"]["maxPointsPerChunk"],
+            MAX_POINT_CHUNK_POINTS
+        );
+        assert_eq!(
+            las_start["metadata"]["coordinateInterpretation"],
+            "LAS scale and offset applied to X/Y/Z; CRS, units, epoch and vertical reference are not interpreted."
+        );
+        assert_eq!(
+            las_start["metadata"]["optionalDimensionsPresent"]["gpsTime"],
+            true
+        );
+        assert_eq!(
+            las_start["metadata"]["optionalDimensionsPresent"]["rgb"],
+            true
+        );
+
+        let las_job = super::get_point_cloud_chunk_stream_job(&las_stream_id).unwrap();
+        las_job.read_pending.store(true, Ordering::Release);
+        let overlapping_read = handle_read_point_cloud_chunk(json!({
+            "streamId": las_stream_id.as_str()
+        }))
+        .await
+        .unwrap_err();
+        assert!(overlapping_read.to_string().contains("already pending"));
+        las_job.read_pending.store(false, Ordering::Release);
+
+        let first_las_chunk =
+            handle_read_point_cloud_chunk(json!({ "streamId": las_stream_id.as_str() }))
+                .await
+                .unwrap();
+        assert_eq!(first_las_chunk["status"], "chunk");
+        assert_eq!(first_las_chunk["chunkIndex"], "0");
+        assert_eq!(first_las_chunk["firstPointIndex"], "0");
+        assert_eq!(first_las_chunk["decodedPointCount"], "2");
+        assert_eq!(first_las_chunk["points"].as_array().unwrap().len(), 2);
+        assert_eq!(first_las_chunk["points"][0]["pointIndex"], "0");
+        assert_eq!(first_las_chunk["points"][0]["x"], 500_001.25);
+        assert_eq!(first_las_chunk["points"][0]["y"], 6_000_002.5);
+        assert_eq!(first_las_chunk["points"][0]["z"], 101.0);
+        assert_eq!(first_las_chunk["points"][0]["classification"], 2);
+        assert_eq!(first_las_chunk["points"][0]["returnNumber"], 1);
+        assert_eq!(first_las_chunk["points"][0]["numberOfReturns"], 2);
+        assert_eq!(first_las_chunk["points"][0]["gpsTime"], 1.0);
+        assert_eq!(first_las_chunk["points"][0]["rgb"]["red"], 100);
+        assert_eq!(first_las_chunk["points"][1]["pointIndex"], "1");
+        assert_eq!(first_las_chunk["points"][1]["classification"], 6);
+        let las_complete =
+            handle_read_point_cloud_chunk(json!({ "streamId": las_stream_id.as_str() }))
+                .await
+                .unwrap();
+        assert_eq!(las_complete["status"], "completed");
+        assert_eq!(las_complete["decodedPointCount"], "2");
+        assert_eq!(std::fs::read(&las_path).unwrap(), las_bytes_before);
+        assert_eq!(
+            handle_cancel_point_cloud_chunk_stream(json!({ "streamId": las_stream_id.as_str() }))
+                .await
+                .unwrap()["accepted"],
+            false
+        );
+        assert!(handle_point_cloud_chunk_stream_status(json!({
+            "streamId": "../../outside.las"
+        }))
+        .await
+        .is_err());
+
+        let laz_path = temp.path().join("stream.laz");
+        write_fixture(&laz_path, true);
+        let laz_start = handle_start_point_cloud_chunk_stream(json!({
+            "path": laz_path.to_string_lossy().to_string()
+        }))
+        .await
+        .unwrap();
+        assert_eq!(laz_start["metadata"]["format"], "LAZ");
+        let laz_stream_id = laz_start["streamId"].as_str().unwrap().to_owned();
+        let laz_chunk =
+            handle_read_point_cloud_chunk(json!({ "streamId": laz_stream_id.as_str() }))
+                .await
+                .unwrap();
+        assert_eq!(laz_chunk["status"], "chunk");
+        assert_eq!(laz_chunk["points"][0]["x"], 500_001.25);
+        assert_eq!(laz_chunk["points"][1]["classification"], 6);
+        assert_eq!(
+            handle_read_point_cloud_chunk(json!({ "streamId": laz_stream_id.as_str() }))
+                .await
+                .unwrap()["status"],
+            "completed"
+        );
+
+        let many_path = temp.path().join("many-points.las");
+        write_many_point_fixture(&many_path, MAX_POINT_CHUNK_POINTS + 3);
+        let many_bytes_before = std::fs::read(&many_path).unwrap();
+        let many_start = handle_start_point_cloud_chunk_stream(json!({
+            "path": many_path.to_string_lossy().to_string()
+        }))
+        .await
+        .unwrap();
+        let many_stream_id = many_start["streamId"].as_str().unwrap().to_owned();
+        let bounded_chunk =
+            handle_read_point_cloud_chunk(json!({ "streamId": many_stream_id.as_str() }))
+                .await
+                .unwrap();
+        assert_eq!(
+            bounded_chunk["points"].as_array().unwrap().len(),
+            MAX_POINT_CHUNK_POINTS as usize
+        );
+        assert_eq!(bounded_chunk["firstPointIndex"], "0");
+        assert_eq!(
+            bounded_chunk["points"][MAX_POINT_CHUNK_POINTS as usize - 1]["pointIndex"],
+            "2047"
+        );
+        let final_chunk =
+            handle_read_point_cloud_chunk(json!({ "streamId": many_stream_id.as_str() }))
+                .await
+                .unwrap();
+        assert_eq!(final_chunk["status"], "chunk");
+        assert_eq!(final_chunk["firstPointIndex"], "2048");
+        assert_eq!(final_chunk["points"].as_array().unwrap().len(), 3);
+        assert_eq!(final_chunk["points"][2]["pointIndex"], "2050");
+        assert_eq!(
+            handle_read_point_cloud_chunk(json!({ "streamId": many_stream_id.as_str() }))
+                .await
+                .unwrap()["status"],
+            "completed"
+        );
+        assert_eq!(std::fs::read(&many_path).unwrap(), many_bytes_before);
+
+        let mismatch_path = temp.path().join("count-mismatch.las");
+        write_fixture(&mismatch_path, false);
+        let mut mismatch_bytes = std::fs::read(&mismatch_path).unwrap();
+        mismatch_bytes[107..111].copy_from_slice(&3_u32.to_le_bytes());
+        mismatch_bytes[247..255].copy_from_slice(&3_u64.to_le_bytes());
+        std::fs::write(&mismatch_path, mismatch_bytes).unwrap();
+        match handle_start_point_cloud_chunk_stream(json!({
+            "path": mismatch_path.to_string_lossy().to_string()
+        }))
+        .await
+        {
+            Err(_) => {}
+            Ok(start) => {
+                let mismatch_id = start["streamId"].as_str().unwrap().to_owned();
+                let first =
+                    handle_read_point_cloud_chunk(json!({ "streamId": mismatch_id.as_str() }))
+                        .await
+                        .unwrap();
+                let terminal = if first["status"] == "chunk" {
+                    handle_read_point_cloud_chunk(json!({ "streamId": mismatch_id.as_str() }))
+                        .await
+                        .unwrap()
+                } else {
+                    first
+                };
+                assert_eq!(terminal["status"], "failed");
+            }
+        }
+
+        let cancel_start = handle_start_point_cloud_chunk_stream(json!({
+            "path": las_path.to_string_lossy().to_string()
+        }))
+        .await
+        .unwrap();
+        let cancel_id = cancel_start["streamId"].as_str().unwrap().to_owned();
+        assert_eq!(
+            handle_cancel_point_cloud_chunk_stream(json!({ "streamId": cancel_id.as_str() }))
+                .await
+                .unwrap()["accepted"],
+            true
+        );
+        let cancelled = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let status = handle_point_cloud_chunk_stream_status(
+                    json!({ "streamId": cancel_id.as_str() }),
+                )
+                .await
+                .unwrap();
+                if status["status"] == "cancelled" {
+                    break status;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("chunk stream should stop after cancellation");
+        assert_eq!(cancelled["status"], "cancelled");
+        assert_eq!(
+            handle_read_point_cloud_chunk(json!({ "streamId": cancel_id.as_str() }))
+                .await
+                .unwrap()["status"],
+            "cancelled"
+        );
+
+        let active_start = handle_start_point_cloud_chunk_stream(json!({
+            "path": las_path.to_string_lossy().to_string()
+        }))
+        .await
+        .unwrap();
+        let active_id = active_start["streamId"].as_str().unwrap().to_owned();
+        let duplicate = handle_start_point_cloud_chunk_stream(json!({
+            "path": las_path.to_string_lossy().to_string()
+        }))
+        .await
+        .unwrap_err();
+        assert!(duplicate.to_string().contains("already running"));
+        handle_cancel_point_cloud_chunk_stream(json!({ "streamId": active_id.as_str() }))
+            .await
+            .unwrap();
+        point_cloud_chunk_stream_jobs().lock().unwrap().clear();
     }
 
     #[test]

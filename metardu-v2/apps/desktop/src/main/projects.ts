@@ -91,7 +91,10 @@ function migrateJsonIfNeeded(): void {
 
 // ─── IPC handler registration ────────────────────────────────────
 
-export function registerProjectIpcHandlers(getWindow: () => BrowserWindow | null): void {
+export function registerProjectIpcHandlers(
+  getWindow: () => BrowserWindow | null,
+  onActiveProjectChanged?: () => void | Promise<void>,
+): void {
   configureDatabasePath(path.join(app.getPath("userData"), "metardu.db"));
   console.log("[projects] Initializing database...");
   try {
@@ -137,10 +140,12 @@ export function registerProjectIpcHandlers(getWindow: () => BrowserWindow | null
   ipcMain.handle("metardu:projects:create", (_event, input: CreateProjectInput) => {
     const db = getDatabase();
     const ur = getUndoRedo();
+    const previousActiveProjectId = getActiveProjectId(db);
 
     // Snapshot the active project before creation (for undo).
     // Create the project (also sets it active).
     const created = createProjectInDb(db, input);
+    if (getActiveProjectId(db) !== previousActiveProjectId) void onActiveProjectChanged?.();
 
     // Log the operation with a synthetic "old state" for setActive.
     ur.recordOperation("create", created.id, null, created);
@@ -169,11 +174,13 @@ export function registerProjectIpcHandlers(getWindow: () => BrowserWindow | null
   ipcMain.handle("metardu:projects:delete", (_event, id: string) => {
     const db = getDatabase();
     const ur = getUndoRedo();
+    const previousActiveProjectId = getActiveProjectId(db);
 
     // Snapshot before deletion.
     const oldState = getProject(db, id);
 
     const result = deleteProjectFromDb(db, id);
+    if (getActiveProjectId(db) !== previousActiveProjectId) void onActiveProjectChanged?.();
 
     if (result.ok && oldState) {
       ur.recordOperation("delete", id, oldState, null);
@@ -191,6 +198,7 @@ export function registerProjectIpcHandlers(getWindow: () => BrowserWindow | null
     if (prevActiveId === id) return { ok: true };
 
     setActiveProjectId(db, id);
+    void onActiveProjectChanged?.();
 
     // For setActive, we store a minimal "state" with just the activeProjectId
     // so undo can restore the previous active project.
@@ -207,14 +215,20 @@ export function registerProjectIpcHandlers(getWindow: () => BrowserWindow | null
 
   ipcMain.handle("metardu:projects:undo", () => {
     const ur = getUndoRedo();
+    const db = getDatabase();
+    const previousActiveProjectId = getActiveProjectId(db);
     const result = ur.undo();
+    if (getActiveProjectId(db) !== previousActiveProjectId) void onActiveProjectChanged?.();
     broadcastChanged(getWindow);
     return result;
   });
 
   ipcMain.handle("metardu:projects:redo", () => {
     const ur = getUndoRedo();
+    const db = getDatabase();
+    const previousActiveProjectId = getActiveProjectId(db);
     const result = ur.redo();
+    if (getActiveProjectId(db) !== previousActiveProjectId) void onActiveProjectChanged?.();
     broadcastChanged(getWindow);
     return result;
   });

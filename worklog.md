@@ -3940,6 +3940,30 @@ Work Log:
 - `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `212e285a34b0487c4b8e42aeda857c77cca4fdf1`, matching local `HEAD` at verification time.
 - Existing staged deletion and unrelated untracked work remain outside this task commit.
 
+---
+Task ID: desktop-pointcloud-host-managed-chunks
+Agent: Codex — 2026-11-01
+Task: Add the first bounded, source-verified LAS/LAZ point stream for trusted Desktop host tools.
+
+Work Log:
+- Added a Rust sidecar stream actor that keeps one LAS/LAZ reader open and yields source-order chunks capped at 2,048 points. Each point carries its original index, scale/offset-applied XYZ, intensity, existing numeric classification, return data, scan angle, user data, source ID, and optional GPS time, RGB, and NIR. Metadata explicitly lists optional/omitted dimensions and says CRS, units, coordinate epoch, and vertical reference are not interpreted.
+- Added a main-process-only controller. It accepts a source ID from the active project, resolves the private managed path itself, verifies byte size and SHA-256 before starting and after verified EOF, enforces contiguous point/chunk indices, rejects stale project/source membership, and confirms cancellation through sidecar status. Project changes and app shutdown request cancellation. No renderer/preload route or ABI v1 project-data capability was added.
+- Updated ADR-0013, the task brief, and the international product plan. The plan now records this as a read-only data-streaming foundation; community plug-ins do not consume it yet, and classification, derived-output writing, and usable end-to-end LiDAR workflows remain unavailable.
+- The first count-mismatch fixture edit updated the LAS 1.4 extended point count but not the legacy count, so the reader still saw two records. The test fixture was corrected to create an unambiguous mismatch; the final focused test and full Rust suite pass.
+
+Verification:
+- `npm run build` in `packages/ipc-schemas`: Exit 0.
+- `npx tsc --noEmit` in `apps/desktop`: Exit 0.
+- `npm test` in `apps/desktop`: 26 test files passed, 1 skipped; 284 tests passed, 7 skipped; Exit 0.
+- `npm run build:renderer` in `metardu-v2`: 2,455 modules transformed; build completed in 10.95 seconds; Exit 0. Existing browser-externalization warnings for Node modules remain. This is a renderer compilation check, not an Electron runtime test.
+- `cargo test --no-default-features --features instrument` in `packages/metardu-sidecar`: 198 passed, 0 failed; Exit 0. This includes the new LAS/LAZ stream test for chunk bounds/order, scale/offset, dimensions, sequential indices, count mismatch, single in-flight reads, cancellation, malformed IDs, one active stream, and unchanged source bytes.
+- `rustfmt --edition 2021 --config skip_children=true --check src/import/point_cloud.rs`: Exit 0.
+- `git diff --check`: Exit 0; Git emitted only its existing Windows LF-to-CRLF notices.
+
+Evidence limits: This does not run an Electron instance, exercise a real third-party LAS/LAZ producer or processing plug-in, validate classifier methods, write derived point-cloud files, or prove full LAS/LAZ conformance or field use. The default GDAL-enabled build was not run for this delivery; the earlier worklog records that this host lacks `gdal_i.lib`.
+
+Next LiDAR gate: use representative surveyor-owned LAS/LAZ datasets to validate producer compatibility and performance, then design a versioned capability-scoped extension interface and a separate derived-artifact/provenance writer before enabling any classification workflow.
+
 Stage Summary:
 - The verified pointwise-LAZ boundary change is committed and available on the METARDU Desktop feature branch. This delivery record is appended after the verification above.
 

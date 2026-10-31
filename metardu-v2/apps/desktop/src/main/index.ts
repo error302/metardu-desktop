@@ -66,6 +66,7 @@ import {
   PointCloudInspectionController,
   registerPointCloudInspectionIpcHandlers,
 } from "./point-cloud-inspection.js";
+import { PointCloudChunkStreamController } from "./point-cloud-chunks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -181,6 +182,20 @@ const pointCloudInspectionController = new PointCloudInspectionController({
   getSidecar: () => sidecar,
   getUserDataPath: () => app.getPath("userData"),
   summarizeSource: pointCloudSourceSummary,
+});
+
+const pointCloudChunkStreamController = new PointCloudChunkStreamController({
+  store: {
+    getActiveProject: () => {
+      const database = getDatabase();
+      const activeProjectId = getActiveProjectId(database);
+      return activeProjectId ? getProject(database, activeProjectId) : null;
+    },
+    getSource: (projectId, sourceId) => listProjectPointCloudSources(getDatabase(), projectId)
+      .find((source) => source.id === sourceId),
+  },
+  getSidecar: () => sidecar,
+  getUserDataPath: () => app.getPath("userData"),
 });
 
 function pruneSelectedPluginModules(now = Date.now()): void {
@@ -1026,7 +1041,9 @@ function registerIpcHandlers(): void {
 
   // ─── Project store (persisted local layer that sync reconciles) ──────────
   console.log("[main] Registering project IPC...");
-  registerProjectIpcHandlers(() => mainWindow);
+  registerProjectIpcHandlers(() => mainWindow, () => {
+    void pointCloudChunkStreamController.cancelActiveStreams();
+  });
   console.log("[main] All IPC handlers registered successfully");
 }
 
@@ -1057,6 +1074,7 @@ app.on("activate", () => {
 // Clean shutdown: stop the sidecar before the app exits, otherwise the
 // child process can be orphaned and hold file locks / sockets open.
 app.on("window-all-closed", async () => {
+  await pointCloudChunkStreamController.cancelActiveStreams();
   if (sidecar) {
     try {
       await sidecar.stop();
@@ -1073,6 +1091,7 @@ app.on("before-quit", async (event) => {
   if (sidecar && sidecar.isRunning()) {
     event.preventDefault();
     try {
+      await pointCloudChunkStreamController.cancelActiveStreams();
       await sidecar.stop();
     } catch (err) {
       console.error("[main] sidecar stop failed on before-quit:", (err as Error).message);

@@ -299,6 +299,18 @@ impl Dispatcher {
         self.register("pointcloud.cancel_record_inspection", |params: Value| async move {
             crate::import::handle_cancel_point_cloud_record_inspection(params).await
         });
+        self.register("pointcloud.start_chunk_stream", |params: Value| async move {
+            crate::import::handle_start_point_cloud_chunk_stream(params).await
+        });
+        self.register("pointcloud.read_chunk", |params: Value| async move {
+            crate::import::handle_read_point_cloud_chunk(params).await
+        });
+        self.register("pointcloud.chunk_stream_status", |params: Value| async move {
+            crate::import::handle_point_cloud_chunk_stream_status(params).await
+        });
+        self.register("pointcloud.cancel_chunk_stream", |params: Value| async move {
+            crate::import::handle_cancel_point_cloud_chunk_stream(params).await
+        });
 
         // ---- Instrument connection — live serial, BLE, NTRIP streaming ----
         // These handlers manage instrument connections. The actual data
