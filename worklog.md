@@ -4007,3 +4007,21 @@ Evidence limits: The LinkedIn post shows a point-cloud class-visualization workf
 
 Stage only the seven task-owned files listed in the task brief, then append the commit and Desktop remote verification here. Do not include the unrelated staged deletion or untracked work already present in the checkout.
 ---
+
+---
+Task ID: desktop-las14-class-interpretation — delivery addendum
+Agent: Codex — 2026-11-01
+
+- Commit `985f9d97fc2244c8b552c26b9816ff540b8951a0` (`feat(point-cloud): explain LAS 1.4 class labels`) contains only the seven scoped implementation, documentation, and worklog paths.
+- Push output:
+  ~~~text
+  To https://github.com/error302/metardu-desktop.git
+     ece2067..985f9d9  codex/international-desktop-product-plan -> codex/international-desktop-product-plan
+  ~~~
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan`:
+  ~~~text
+  985f9d97fc2244c8b552c26b9816ff540b8951a0	refs/heads/codex/international-desktop-product-plan
+  ~~~
+  This matched local `HEAD` at verification time.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside the implementation commit.
+---
