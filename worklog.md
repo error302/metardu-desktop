@@ -3967,3 +3967,43 @@ Next LiDAR gate: use representative surveyor-owned LAS/LAZ datasets to validate 
 Stage Summary:
 - The verified pointwise-LAZ boundary change is committed and available on the METARDU Desktop feature branch. This delivery record is appended after the verification above.
 
+---
+Task ID: desktop-las14-class-interpretation — delivery record
+Agent: Codex — 2026-11-01
+Task: Show LAS 1.4 point-format-aware meanings for stored classes and separate source-provided lookup descriptions.
+
+Changes:
+- Inspection reports preserve each numeric class and count, add LAS 1.4 base meanings selected by legacy point formats 0-5 or modern formats 6-10, and keep other LAS versions numeric-only.
+- A classification lookup is used only when a single `LASF_Spec` record ID 0 VLR contains the complete 4,096-byte table, all 256 class codes exactly once, and printable ASCII descriptions. Duplicate VLRs, malformed payloads, and lookalike EVLRs are ignored; invalid VLR metadata adds a warning.
+- Source descriptions remain separate from standard meanings. Codes 39-63 are marked profile-dependent; user-defined and reserved codes are described conservatively. The UI states that metadata does not validate class correctness and no classifier ran. Old saved reports retain their numeric fallback.
+- Added ADR-0014 and an implementation brief; updated the international product plan.
+
+Verification (terminal evidence):
+- `cargo test --no-default-features --features instrument point_cloud::tests -- --nocapture`:
+  ~~~text
+  running 22 tests
+  test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out; finished in 0.24s
+  ~~~
+- `cargo test --no-default-features --features instrument`:
+  ~~~text
+  test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+  ~~~
+- `npx tsc --noEmit`: Exit code 0; no output.
+- `npm test` in `apps/desktop/`:
+  ~~~text
+  Test Files  26 passed | 1 skipped (27)
+       Tests  284 passed | 7 skipped (291)
+  ~~~
+- `npm run build:renderer` in `metardu-v2/`:
+  ~~~text
+  ✓ 2455 modules transformed.
+  ✓ built in 4.10s
+  ~~~
+  Exit code 0. Existing browser-externalization warnings for Node modules remain; this is compilation evidence, not an Electron runtime check.
+- `rustfmt --edition 2021 --config skip_children=true --check metardu-v2\packages\metardu-sidecar\src\import\point_cloud.rs`: Exit code 0.
+- `git diff --check`: Exit code 0; Git emitted only its Windows LF-to-CRLF notices for the four modified tracked source/docs files.
+
+Evidence limits: The LinkedIn post shows a point-cloud class-visualization workflow but does not establish its algorithm, accuracy, or license. This task improves reading of existing LAS labels; it does not classify points, create derived LAS/LAZ or terrain artifacts, validate domain profiles or classification correctness, prove full-file conformance or third-party producer compatibility, or exercise the live Electron workflow. GDAL-enabled default builds and field use were not verified.
+
+Stage only the seven task-owned files listed in the task brief, then append the commit and Desktop remote verification here. Do not include the unrelated staged deletion or untracked work already present in the checkout.
+---

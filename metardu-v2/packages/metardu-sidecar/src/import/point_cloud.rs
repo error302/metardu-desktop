@@ -1961,14 +1961,24 @@ fn inspect_point_records_controlled(
         None
     };
 
+    let classification_lookup = classification_lookup_from_header(header);
     let classification_counts: Vec<Value> = class_counts
         .iter()
         .enumerate()
         .filter(|(_, count)| **count > 0)
         .map(|(code, count)| {
+            let (standard_meaning, interpretation) =
+                las14_classification_meaning(&version, point_format_id, code as u8);
+            let source_description = classification_lookup
+                .labels
+                .as_ref()
+                .and_then(|labels| labels[code].as_ref());
             json!({
                 "code": code,
                 "count": count.to_string(),
+                "standardMeaning": standard_meaning,
+                "interpretation": interpretation,
+                "sourceDescription": source_description,
             })
         })
         .collect();
@@ -2045,9 +2055,12 @@ fn inspect_point_records_controlled(
         );
     }
     if !header.point_format().is_extended && class_counts[12] > 0 {
-        warnings.push(
-            "Legacy point formats may use class code 12 for overlap points; the code is reported as stored and is not reinterpreted.".into(),
-        );
+        warnings.push("For LAS 1.4 legacy point formats 0-5, class code 12 means Overlap Points; this class label is not a check of how the producer assigned it.".into());
+    }
+    if classification_lookup.status == "invalid_or_ambiguous" {
+        warnings.push("A LASF_Spec classification lookup record is malformed or duplicated; its descriptions were ignored.".into());
+    } else if classification_lookup.status == "valid" {
+        warnings.push("Classification lookup descriptions are source-provided labels; domain-profile meaning and classification correctness are not validated.".into());
     }
 
     Ok(json!({
@@ -2059,6 +2072,12 @@ fn inspect_point_records_controlled(
         "decodedPointCount": decoded_point_count.to_string(),
         "headerCountMatchesDecoded": header_count_matches,
         "classificationCounts": classification_counts,
+        "classificationInterpretation": {
+            "standardScheme": if version == "1.4" { Some("ASPRS LAS 1.4 R16 base classes") } else { None },
+            "pointFormatFamily": if version == "1.4" && point_format_id <= 5 { Some("legacy") } else if version == "1.4" { Some("modern") } else { None },
+            "classificationLookupVlrStatus": classification_lookup.status,
+            "domainProfileStatus": "not_interpreted",
+        },
         "returnCounts": decoded_return_counts,
         "numberOfReturnsCounts": decoded_number_of_returns_counts,
         "headerReturnCountComparison": return_count_comparison,
@@ -2090,6 +2109,155 @@ fn finite_json(value: f64) -> Value {
     }
 }
 
+struct ClassificationLookup {
+    status: &'static str,
+    labels: Option<Vec<Option<String>>>,
+}
+
+fn classification_lookup_from_header(header: &Header) -> ClassificationLookup {
+    let records: Vec<&Vlr> = header
+        .vlrs()
+        .iter()
+        .filter(|vlr| vlr.user_id == "LASF_Spec" && vlr.record_id == 0)
+        .collect();
+    match records.as_slice() {
+        [] => ClassificationLookup {
+            status: "absent",
+            labels: None,
+        },
+        [record] => match parse_classification_lookup_data(&record.data) {
+            Ok(labels) => ClassificationLookup {
+                status: "valid",
+                labels: Some(labels),
+            },
+            Err(_) => ClassificationLookup {
+                status: "invalid_or_ambiguous",
+                labels: None,
+            },
+        },
+        _ => ClassificationLookup {
+            status: "invalid_or_ambiguous",
+            labels: None,
+        },
+    }
+}
+
+fn parse_classification_lookup_data(data: &[u8]) -> Result<Vec<Option<String>>, &'static str> {
+    const ENTRY_BYTES: usize = 16;
+    const ENTRY_COUNT: usize = 256;
+    if data.len() != ENTRY_BYTES * ENTRY_COUNT {
+        return Err("classification lookup must contain 256 fixed-size entries");
+    }
+
+    let mut labels: Vec<Option<String>> = vec![None; ENTRY_COUNT];
+    let mut seen = [false; ENTRY_COUNT];
+    for entry in data.chunks_exact(ENTRY_BYTES) {
+        let code = entry[0] as usize;
+        if seen[code] {
+            return Err("classification lookup contains a duplicate class number");
+        }
+        seen[code] = true;
+
+        let description = &entry[1..ENTRY_BYTES];
+        let text_end = description
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(description.len());
+        let text = &description[..text_end];
+        if text
+            .iter()
+            .any(|byte| !byte.is_ascii_graphic() && *byte != b' ')
+        {
+            return Err("classification lookup contains non-printable or non-ASCII text");
+        }
+        let label = String::from_utf8(text.to_vec())
+            .map_err(|_| "classification lookup text is not valid ASCII")?
+            .trim_end()
+            .to_owned();
+        if !label.is_empty() {
+            labels[code] = Some(label);
+        }
+    }
+
+    if seen.iter().any(|present| !present) {
+        return Err("classification lookup is missing a class number");
+    }
+    Ok(labels)
+}
+
+/// Apply only the LAS 1.4 base class table. LAS 1.4 R16's official change
+/// summary does not change these tables; names from source lookup records and
+/// domain profiles remain separate, explicitly unvalidated metadata.
+fn las14_classification_meaning(
+    version: &str,
+    point_format_id: u8,
+    code: u8,
+) -> (Option<&'static str>, &'static str) {
+    if version != "1.4" {
+        return (None, "raw_only");
+    }
+
+    if point_format_id <= 5 {
+        let meaning = match code {
+            0 => Some("Created, never classified"),
+            1 => Some("Unclassified"),
+            2 => Some("Ground"),
+            3 => Some("Low vegetation"),
+            4 => Some("Medium vegetation"),
+            5 => Some("High vegetation"),
+            6 => Some("Building"),
+            7 => Some("Low point (noise)"),
+            8 => Some("Model key-point"),
+            9 => Some("Water"),
+            12 => Some("Overlap points"),
+            10..=11 | 13..=31 => Some("Reserved in the LAS 1.4 legacy class table"),
+            _ => None,
+        };
+        let interpretation = match code {
+            10..=11 | 13..=31 => "reserved",
+            0..=9 | 12 => "standard",
+            _ => "raw_only",
+        };
+        return (meaning, interpretation);
+    }
+
+    let meaning = match code {
+        0 => Some("Created, never classified"),
+        1 => Some("Unclassified"),
+        2 => Some("Ground"),
+        3 => Some("Low vegetation"),
+        4 => Some("Medium vegetation"),
+        5 => Some("High vegetation"),
+        6 => Some("Building"),
+        7 => Some("Low point (noise)"),
+        9 => Some("Water"),
+        10 => Some("Rail"),
+        11 => Some("Road surface"),
+        13 => Some("Wire - guard (shield)"),
+        14 => Some("Wire - conductor (phase)"),
+        15 => Some("Transmission tower"),
+        16 => Some("Wire-structure connector"),
+        17 => Some("Bridge deck"),
+        18 => Some("High noise"),
+        19 => Some("Overhead structure"),
+        20 => Some("Ignored ground"),
+        21 => Some("Snow"),
+        22 => Some("Temporal exclusion"),
+        8 | 12 | 23..=38 => Some("Reserved in the LAS 1.4 base class table"),
+        39..=63 => {
+            Some("Base-reserved code; a domain-profile definition requires separate validation")
+        }
+        _ => None,
+    };
+    let interpretation = match code {
+        8 | 12 | 23..=38 => "reserved",
+        39..=63 => "profile_dependent",
+        64..=u8::MAX => "user_defined",
+        _ => "standard",
+    };
+    (meaning, interpretation)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::File;
@@ -2102,13 +2270,14 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        handle_cancel_point_cloud_chunk_stream, handle_cancel_point_cloud_record_inspection,
-        handle_point_cloud_chunk_stream_status, handle_point_cloud_record_inspection_status,
-        handle_read_point_cloud_chunk, handle_start_point_cloud_chunk_stream,
-        handle_start_point_cloud_record_inspection, inspect_header, inspect_point_records,
-        inspect_point_records_controlled, point_cloud_chunk_stream_jobs, read_bounded_raw_header,
-        record_inspection_jobs, RecordInspectionJob, RecordInspectionJobState,
-        MAX_POINT_CHUNK_POINTS, VLR_HEADER_BYTES,
+        classification_lookup_from_header, handle_cancel_point_cloud_chunk_stream,
+        handle_cancel_point_cloud_record_inspection, handle_point_cloud_chunk_stream_status,
+        handle_point_cloud_record_inspection_status, handle_read_point_cloud_chunk,
+        handle_start_point_cloud_chunk_stream, handle_start_point_cloud_record_inspection,
+        inspect_header, inspect_point_records, inspect_point_records_controlled,
+        las14_classification_meaning, parse_classification_lookup_data,
+        point_cloud_chunk_stream_jobs, read_bounded_raw_header, record_inspection_jobs,
+        RecordInspectionJob, RecordInspectionJobState, MAX_POINT_CHUNK_POINTS, VLR_HEADER_BYTES,
     };
     use crate::dispatcher::HandlerError;
 
@@ -2458,8 +2627,28 @@ mod tests {
         assert_eq!(result["headerCountMatchesDecoded"], true);
         assert_eq!(result["classificationCounts"][0]["code"], 2);
         assert_eq!(result["classificationCounts"][0]["count"], "1");
+        assert_eq!(
+            result["classificationCounts"][0]["standardMeaning"],
+            "Ground"
+        );
         assert_eq!(result["classificationCounts"][1]["code"], 6);
         assert_eq!(result["classificationCounts"][1]["count"], "1");
+        assert_eq!(
+            result["classificationCounts"][1]["standardMeaning"],
+            "Building"
+        );
+        assert_eq!(
+            result["classificationInterpretation"]["standardScheme"],
+            "ASPRS LAS 1.4 R16 base classes"
+        );
+        assert_eq!(
+            result["classificationInterpretation"]["pointFormatFamily"],
+            "legacy"
+        );
+        assert_eq!(
+            result["classificationInterpretation"]["classificationLookupVlrStatus"],
+            "absent"
+        );
         assert_eq!(
             result["headerReturnCountComparison"][0]["decodedCount"],
             "1"
@@ -2480,6 +2669,165 @@ mod tests {
             result["fileStructure"]["unclassifiedBytesAfterKnownData"],
             "0"
         );
+    }
+
+    #[test]
+    fn applies_class_meanings_only_for_supported_las_14_point_format_family() {
+        assert_eq!(
+            las14_classification_meaning("1.4", 3, 12),
+            (Some("Overlap points"), "standard")
+        );
+        assert_eq!(
+            las14_classification_meaning("1.4", 6, 12),
+            (Some("Reserved in the LAS 1.4 base class table"), "reserved")
+        );
+        assert_eq!(
+            las14_classification_meaning("1.4", 6, 11),
+            (Some("Road surface"), "standard")
+        );
+        assert_eq!(
+            las14_classification_meaning("1.4", 6, 42),
+            (
+                Some(
+                    "Base-reserved code; a domain-profile definition requires separate validation"
+                ),
+                "profile_dependent"
+            )
+        );
+        assert_eq!(
+            las14_classification_meaning("1.4", 6, 64),
+            (None, "user_defined")
+        );
+        assert_eq!(
+            las14_classification_meaning("1.3", 3, 2),
+            (None, "raw_only")
+        );
+    }
+
+    #[test]
+    fn reports_source_lookup_label_separately_from_las_standard_meaning() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("class-lookup.las");
+        let mut data = vec![0_u8; 256 * 16];
+        for code in 0_u16..=255 {
+            data[code as usize * 16] = code as u8;
+        }
+        data[2 * 16 + 1..2 * 16 + 13].copy_from_slice(b"Ground point");
+
+        let mut builder = Builder::from((1, 4));
+        builder.point_format = las::point::Format::new(3).unwrap();
+        builder.vlrs.push(Vlr {
+            user_id: "LASF_Spec".into(),
+            record_id: 0,
+            description: "Classification Lookup".into(),
+            data,
+        });
+        let mut writer = Writer::from_path(&path, builder.into_header().unwrap()).unwrap();
+        writer
+            .write_point(Point {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+                return_number: 1,
+                number_of_returns: 1,
+                classification: las::point::Classification::Ground,
+                gps_time: Some(1.0),
+                color: Some(las::Color::new(100, 200, 300)),
+                ..Default::default()
+            })
+            .unwrap();
+        drop(writer);
+
+        let report = inspect_point_records(&path).unwrap();
+        assert_eq!(
+            report["classificationInterpretation"]["classificationLookupVlrStatus"],
+            "valid"
+        );
+        assert_eq!(report["classificationCounts"][0]["code"], 2);
+        assert_eq!(
+            report["classificationCounts"][0]["standardMeaning"],
+            "Ground"
+        );
+        assert_eq!(
+            report["classificationCounts"][0]["sourceDescription"],
+            "Ground point"
+        );
+    }
+
+    #[test]
+    fn parses_only_complete_unique_ascii_classification_lookup_records() {
+        let mut data = vec![0_u8; 256 * 16];
+        for code in 0_u16..=255 {
+            let offset = code as usize * 16;
+            data[offset] = code as u8;
+        }
+        data[64 * 16 + 1..64 * 16 + 12].copy_from_slice(b"Tree canopy");
+
+        let parsed = parse_classification_lookup_data(&data).unwrap();
+        assert_eq!(parsed[64].as_deref(), Some("Tree canopy"));
+        assert_eq!(parsed[63], None);
+
+        let mut duplicate = data.clone();
+        duplicate[0] = 64;
+        assert!(parse_classification_lookup_data(&duplicate).is_err());
+        assert!(parse_classification_lookup_data(&data[..data.len() - 1]).is_err());
+
+        let mut non_ascii = data;
+        non_ascii[64 * 16 + 1] = 0xFF;
+        assert!(parse_classification_lookup_data(&non_ascii).is_err());
+    }
+
+    #[test]
+    fn reads_only_one_complete_classification_lookup_vlr() {
+        let mut data = vec![0_u8; 256 * 16];
+        for code in 0_u16..=255 {
+            data[code as usize * 16] = code as u8;
+        }
+        data[64 * 16 + 1..64 * 16 + 12].copy_from_slice(b"Tree canopy");
+        let mut builder = Builder::from((1, 4));
+        builder.vlrs.push(Vlr {
+            user_id: "LASF_Spec".into(),
+            record_id: 0,
+            description: "Classification Lookup".into(),
+            data,
+        });
+        let header = builder.into_header().unwrap();
+
+        let lookup = classification_lookup_from_header(&header);
+        assert_eq!(lookup.status, "valid");
+        assert_eq!(lookup.labels.unwrap()[64].as_deref(), Some("Tree canopy"));
+
+        let mut duplicate_builder = Builder::from((1, 4));
+        for _ in 0..2 {
+            duplicate_builder.vlrs.push(Vlr {
+                user_id: "LASF_Spec".into(),
+                record_id: 0,
+                description: "Classification Lookup".into(),
+                data: {
+                    let mut data = vec![0_u8; 256 * 16];
+                    for code in 0_u16..=255 {
+                        data[code as usize * 16] = code as u8;
+                    }
+                    data[64 * 16 + 1..64 * 16 + 12].copy_from_slice(b"Tree canopy");
+                    data
+                },
+            });
+        }
+        let duplicate_lookup =
+            classification_lookup_from_header(&duplicate_builder.into_header().unwrap());
+        assert_eq!(duplicate_lookup.status, "invalid_or_ambiguous");
+        assert!(duplicate_lookup.labels.is_none());
+
+        let mut evlr_builder = Builder::from((1, 4));
+        evlr_builder.evlrs.push(Vlr {
+            user_id: "LASF_Spec".into(),
+            record_id: 0,
+            description: "Classification Lookup".into(),
+            data: vec![0_u8; 256 * 16],
+        });
+        let evlr_lookup = classification_lookup_from_header(&evlr_builder.into_header().unwrap());
+        assert_eq!(evlr_lookup.status, "absent");
+        assert!(evlr_lookup.labels.is_none());
     }
 
     #[test]

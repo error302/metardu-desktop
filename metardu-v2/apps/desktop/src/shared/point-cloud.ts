@@ -37,7 +37,21 @@ export interface PointCloudRecordInspection {
   headerDeclaredPointCount: string;
   decodedPointCount: string;
   headerCountMatchesDecoded: boolean;
-  classificationCounts: Array<{ code: number; count: string }>;
+  classificationCounts: Array<{
+    code: number;
+    count: string;
+    /** Optional for reports saved before version-aware class interpretation shipped. */
+    standardMeaning?: string | null;
+    interpretation?: "standard" | "reserved" | "profile_dependent" | "user_defined" | "raw_only";
+    sourceDescription?: string | null;
+  }>;
+  /** Optional for reports saved before version-aware class interpretation shipped. */
+  classificationInterpretation?: {
+    standardScheme: string | null;
+    pointFormatFamily: "legacy" | "modern" | null;
+    classificationLookupVlrStatus: "absent" | "valid" | "invalid_or_ambiguous";
+    domainProfileStatus: "not_interpreted";
+  };
   returnCounts: Array<{ returnNumber: number; count: string }>;
   numberOfReturnsCounts: Array<{ numberOfReturns: number; count: string }>;
   headerReturnCountComparison: Array<{

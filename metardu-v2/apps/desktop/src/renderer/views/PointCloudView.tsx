@@ -207,13 +207,31 @@ function RecordInspectionDetails({ inspection }: { inspection: PointCloudRecordI
           <div style={{ color: "var(--text-tertiary)" }}>No point records were decoded.</div>
         ) : (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
-            {inspection.classificationCounts.map(({ code, count }) => (
-              <span key={code} style={{ padding: "2px 6px", border: "1px solid var(--border-subtle)", borderRadius: 3 }}>
-                Class {code}: {formatCount(count)}
-              </span>
-            ))}
+            {inspection.classificationCounts.map(({ code, count, standardMeaning, interpretation, sourceDescription }) => {
+              const fallbackMeaning = interpretation === "user_defined"
+                ? "User-defined"
+                : interpretation === "profile_dependent"
+                  ? "Base-reserved code; domain profile not validated"
+                  : interpretation === "reserved"
+                    ? "Reserved in base LAS table"
+                    : null;
+              return (
+                <span key={code} style={{ padding: "2px 6px", border: "1px solid var(--border-subtle)", borderRadius: 3 }}>
+                  Class {code}{(standardMeaning || fallbackMeaning) && ` · ${standardMeaning ?? fallbackMeaning}`}: {formatCount(count)}
+                  {sourceDescription && <span style={{ color: "var(--text-secondary)" }}> · Source label: {sourceDescription}</span>}
+                </span>
+              );
+            })}
           </div>
         )}
+        <div style={{ color: "var(--text-tertiary)", fontSize: 10, marginTop: 5 }}>
+          {inspection.classificationInterpretation?.standardScheme
+            ? `${inspection.classificationInterpretation.standardScheme} meanings are selected by point format. Source lookup descriptions are shown as supplied; domain profiles and classification correctness are not validated.`
+            : inspection.version === "1.4"
+              ? "This saved report has no version-aware class meaning metadata; numeric codes remain as stored."
+              : "Class meanings are not applied for this LAS version; numeric codes remain as stored."}
+          {" "}These are existing source labels; no new classification was run.
+        </div>
       </div>
       <div style={{ color: "var(--text-secondary)", fontSize: 11 }}>
         Returns: {inspection.returnCounts.length === 0
@@ -476,9 +494,9 @@ export const PointCloudView: React.FC = () => {
       <section role="status" aria-live="polite" style={{ ...panelStyle, display: "flex", gap: 12, borderColor: "var(--status-warning, #D97706)", background: "rgba(217, 119, 6, 0.08)" }}>
         <AlertTriangle size={20} color="var(--status-warning, #D97706)" aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
         <div style={{ display: "flex", flexDirection: "column", gap: 5, color: "var(--text-primary)", fontSize: "var(--text-sm)", lineHeight: 1.55 }}>
-            <strong>Source inspection now reports progress and supports cancellation. Classification is not available.</strong>
+            <strong>Source inspection reports existing class labels; classification algorithms and derived outputs are not available.</strong>
           <span>
-            METARDU preserves a copied source, verifies its hash before and after an explicit scan, and can decode the point records declared by its LAS/LAZ header in bounded batches with progress and cooperative cancellation. It reports existing numeric class codes, return counts, and decoded bounds; it does not interpret class-code lookup tables, run a classifier, validate all trailing bytes or full-file conformance, interpret CRS or units, create a portable project bundle, or generate a DTM or survey result.
+            METARDU preserves a copied source, verifies its hash before and after an explicit scan, and can decode the point records declared by its LAS/LAZ header in bounded batches with progress and cooperative cancellation. It reports existing numeric class codes, LAS 1.4 base meanings by point format, validated source lookup descriptions, return counts, and decoded bounds. It does not run a classifier, validate class correctness or domain profiles, validate all trailing bytes or full-file conformance, interpret CRS or units, create a portable project bundle, or generate a DTM or survey result.
           </span>
         </div>
       </section>
