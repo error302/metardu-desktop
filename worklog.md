@@ -4041,5 +4041,7 @@ Agent: Codex — 2026-11-01
   - `npm run build:renderer` in `metardu-v2`: exit 0; Vite emitted existing Node-module externalization warnings.
   - `git diff --check`: exit 0; Windows line-ending notices only.
 - Evidence limit: renderer compilation and controller/schema tests do not prove Electron runtime interaction, third-party LAS/LAZ producer compatibility, accuracy of a future classification algorithm, or survey deliverable suitability. Real-world file fixtures, runtime viewport review, performance profiling, and independently validated classifiers remain future gates.
-- Commit and METARDU Desktop remote confirmation to be appended after push. Preserve the pre-existing staged deletion and unrelated untracked files outside the scoped commit.
+- Commit `b622eac0c0692a515f7f79365d99dc14cd688b5c` (`feat(point-cloud): add sampled class viewport`) contains the 15 scoped implementation, test, plan, decision, and worklog paths.
+- The METARDU Desktop branch `codex/international-desktop-product-plan` was pushed to `https://github.com/error302/metardu-desktop.git`. `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `b622eac0c0692a515f7f79365d99dc14cd688b5c`, matching local `HEAD` at that verification point.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside the implementation commit.
 ---
