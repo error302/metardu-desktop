@@ -53,6 +53,16 @@ import {
 export { MAX_COMMUNITY_PLUGIN_INPUT_BYTES, PLUGIN_RUN_INPUT_SCHEMA } from "./namespaces/plugins.js";
 export type { PluginRunInput } from "./namespaces/plugins.js";
 export {
+  PROJECT_COORDINATE_CONTEXT_SCHEMA,
+  PROJECT_HORIZONTAL_UNIT_SCHEMA,
+  PROJECT_VERTICAL_REFERENCE_SCHEMA,
+} from "./namespaces/project-coordinate-context.js";
+export type {
+  ProjectCoordinateContext,
+  ProjectHorizontalUnit,
+  ProjectVerticalReference,
+} from "./namespaces/project-coordinate-context.js";
+export {
   POINT_CLOUD_CHUNK_MAX_POINTS,
   POINT_CLOUD_CHUNK_POINT_SCHEMA,
   POINT_CLOUD_CHUNK_STREAM_ID_SCHEMA,

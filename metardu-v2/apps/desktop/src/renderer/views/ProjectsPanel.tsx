@@ -24,6 +24,11 @@
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Plus, FolderOpen, Folder, Pencil, Trash2, Check, X, Loader2, Star, FolderArchive, Sparkles, ChevronRight, Eye, EyeOff } from "lucide-react";
+import {
+  PROJECT_COORDINATE_CONTEXT_SCHEMA,
+  type ProjectCoordinateContext,
+  type ProjectHorizontalUnit,
+} from "@metardu/ipc-schemas";
 import { useSurveyState } from "../SurveyStateContext.js";
 import { PROJECT_TEMPLATES, getTemplateById, type ProjectTemplate } from "../project-templates.js";
 import { COUNTRY_OPTIONS, GLOBAL_WGS84_UTM_OPTIONS, projectCrsLabel } from "../countries.js";
@@ -37,6 +42,129 @@ const SURVEY_TYPES = [
   "utility-mapping",
   "surface-comparison",
 ];
+
+type VerticalKind = NonNullable<ProjectCoordinateContext["verticalReference"]>["kind"];
+type VerticalUnit = NonNullable<ProjectCoordinateContext["verticalReference"]>["unit"];
+
+interface CoordinateContextForm {
+  horizontalUnit: ProjectHorizontalUnit;
+  coordinateEpoch: string;
+  verticalKind: VerticalKind | "";
+  verticalName: string;
+  verticalUnit: VerticalUnit;
+}
+
+const EMPTY_COORDINATE_CONTEXT_FORM: CoordinateContextForm = {
+  horizontalUnit: "unknown",
+  coordinateEpoch: "",
+  verticalKind: "",
+  verticalName: "",
+  verticalUnit: "unknown",
+};
+
+function coordinateContextFormFromSaved(context?: ProjectCoordinateContext): CoordinateContextForm {
+  return context ? {
+    horizontalUnit: context.horizontalUnit,
+    coordinateEpoch: context.coordinateEpoch === null ? "" : String(context.coordinateEpoch),
+    verticalKind: context.verticalReference?.kind ?? "",
+    verticalName: context.verticalReference?.name ?? "",
+    verticalUnit: context.verticalReference?.unit ?? "unknown",
+  } : { ...EMPTY_COORDINATE_CONTEXT_FORM };
+}
+
+function buildCoordinateContext(form: CoordinateContextForm): { context?: ProjectCoordinateContext | null; error?: string } {
+  let coordinateEpoch: number | null = null;
+  if (form.coordinateEpoch.trim()) {
+    coordinateEpoch = Number(form.coordinateEpoch);
+    if (!Number.isFinite(coordinateEpoch) || coordinateEpoch <= 0) {
+      return { error: "Coordinate epoch must be a positive decimal year or left blank." };
+    }
+  }
+
+  let verticalReference: ProjectCoordinateContext["verticalReference"] = null;
+  if (form.verticalKind) {
+    const name = form.verticalName.trim();
+    if (!name) return { error: "Name the vertical reference or leave it unrecorded." };
+    verticalReference = { kind: form.verticalKind, name, unit: form.verticalUnit };
+  }
+
+  if (form.horizontalUnit === "unknown" && coordinateEpoch === null && verticalReference === null) {
+    return { context: null };
+  }
+
+  const parsed = PROJECT_COORDINATE_CONTEXT_SCHEMA.safeParse({
+    schemaVersion: 1,
+    horizontalUnit: form.horizontalUnit,
+    coordinateEpoch,
+    verticalReference,
+    evidenceStatus: "user_declared_unverified",
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues.map((issue) => issue.message).join("; ") };
+  }
+  return { context: parsed.data };
+}
+
+function CoordinateContextFields({
+  value,
+  onChange,
+}: {
+  value: CoordinateContextForm;
+  onChange: (next: CoordinateContextForm) => void;
+}): React.ReactElement {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 190px), 1fr))", gap: 9, width: "100%" }}>
+      <label style={{ ...subLabelStyle, display: "flex", flexDirection: "column", gap: 4 }}>
+        Horizontal coordinate unit
+        <select style={inputStyle} value={value.horizontalUnit} onChange={(event) => onChange({ ...value, horizontalUnit: event.target.value as ProjectHorizontalUnit })}>
+          <option value="unknown">Not declared</option>
+          <option value="metre">Metre</option>
+          <option value="international_foot">International foot</option>
+          <option value="us_survey_foot">US survey foot</option>
+          <option value="degree">Degree</option>
+        </select>
+      </label>
+      <label style={{ ...subLabelStyle, display: "flex", flexDirection: "column", gap: 4 }}>
+        Coordinate epoch · decimal year
+        <input style={inputStyle} type="number" step="any" value={value.coordinateEpoch} onChange={(event) => onChange({ ...value, coordinateEpoch: event.target.value })} placeholder="Not recorded" />
+      </label>
+      <label style={{ ...subLabelStyle, display: "flex", flexDirection: "column", gap: 4 }}>
+        Vertical reference type
+        <select style={inputStyle} value={value.verticalKind} onChange={(event) => onChange({
+          ...value,
+          verticalKind: event.target.value as VerticalKind | "",
+          verticalName: event.target.value ? value.verticalName : "",
+        })}>
+          <option value="">Not recorded</option>
+          <option value="ellipsoidal">Ellipsoidal</option>
+          <option value="orthometric">Orthometric</option>
+          <option value="local">Local benchmark datum</option>
+          <option value="other">Other / documented</option>
+        </select>
+      </label>
+      {value.verticalKind && (
+        <>
+          <label style={{ ...subLabelStyle, display: "flex", flexDirection: "column", gap: 4 }}>
+            Vertical reference name
+            <input style={inputStyle} value={value.verticalName} onChange={(event) => onChange({ ...value, verticalName: event.target.value })} placeholder="Exact source label" maxLength={200} />
+          </label>
+          <label style={{ ...subLabelStyle, display: "flex", flexDirection: "column", gap: 4 }}>
+            Vertical coordinate unit
+            <select style={inputStyle} value={value.verticalUnit} onChange={(event) => onChange({ ...value, verticalUnit: event.target.value as VerticalUnit })}>
+              <option value="unknown">Not declared</option>
+              <option value="metre">Metre</option>
+              <option value="international_foot">International foot</option>
+              <option value="us_survey_foot">US survey foot</option>
+            </select>
+          </label>
+        </>
+      )}
+      <p style={{ gridColumn: "1 / -1", margin: 0, color: "var(--text-tertiary)", fontSize: 10, lineHeight: 1.45 }}>
+        These are user declarations for project context. They are unverified metadata; recording or editing them never transforms coordinates or verifies a datum.
+      </p>
+    </div>
+  );
+}
 
 function getProjectsApi(): unknown {
   return (window as unknown as { metardu?: { projects?: unknown } }).metardu?.projects;
@@ -56,6 +184,8 @@ export const ProjectsPanel: React.FC = () => {
   const [name, setName] = useState("");
   const [country, setCountry] = useState("");
   const [crsSrid, setCrsSrid] = useState("");
+  const [coordinateContextForm, setCoordinateContextForm] = useState<CoordinateContextForm>({ ...EMPTY_COORDINATE_CONTEXT_FORM });
+  const [activeCoordinateContextForm, setActiveCoordinateContextForm] = useState<CoordinateContextForm>({ ...EMPTY_COORDINATE_CONTEXT_FORM });
   const [surveyType, setSurveyType] = useState("cadastral");
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
@@ -80,6 +210,10 @@ export const ProjectsPanel: React.FC = () => {
 
   const electronMode = getProjectsApi() !== undefined;
 
+  useEffect(() => {
+    setActiveCoordinateContextForm(coordinateContextFormFromSaved(activeProject?.coordinateContext));
+  }, [activeProject?.id, activeProject?.coordinateContext]);
+
   // Reset the armed-delete state after 2.5s so a stray second click
   // can't delete by accident.
   useEffect(() => {
@@ -100,6 +234,11 @@ export const ProjectsPanel: React.FC = () => {
   const handleCreate = useCallback(async () => {
     const trimmed = name.trim();
     if (!trimmed) { setError("Project name is required."); return; }
+    const coordinateContextResult = buildCoordinateContext(coordinateContextForm);
+    if (coordinateContextResult.error) {
+      setError(coordinateContextResult.error);
+      return;
+    }
     setBusy(true); setError(null); setLastResult(null);
     try {
       const templateNote = selectedTemplate ? ` (template: ${selectedTemplate.name})` : "";
@@ -107,18 +246,20 @@ export const ProjectsPanel: React.FC = () => {
         name: trimmed,
         countryCode: country,
         crsSrid: crsSrid ? Number(crsSrid) : undefined,
+        ...(coordinateContextResult.context ? { coordinateContext: coordinateContextResult.context } : {}),
         surveyType,
       });
       setLastResult(`Created "${trimmed}"${templateNote} — now active.`);
       setName("");
       setCrsSrid("");
+      setCoordinateContextForm({ ...EMPTY_COORDINATE_CONTEXT_FORM });
       setSelectedTemplate(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [name, country, crsSrid, surveyType, createProject, selectedTemplate]);
+  }, [name, country, crsSrid, coordinateContextForm, surveyType, createProject, selectedTemplate]);
 
   const handleSetActive = useCallback(async (id: string) => {
     setBusy(true); setError(null);
@@ -146,6 +287,26 @@ export const ProjectsPanel: React.FC = () => {
       setBusy(false);
     }
   }, [updateProject]);
+
+  const handleSaveCoordinateContext = useCallback(async () => {
+    if (!activeProject) return;
+    const result = buildCoordinateContext(activeCoordinateContextForm);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setBusy(true); setError(null); setLastResult(null);
+    try {
+      await updateProject(activeProject.id, { coordinateContext: result.context ?? null });
+      setLastResult(result.context
+        ? "Project coordinate declarations saved as user-declared, unverified metadata."
+        : "Project coordinate context cleared. Coordinates were not changed.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [activeProject, activeCoordinateContextForm, updateProject]);
 
   const startRename = useCallback((id: string, currentName: string) => {
     setEditingId(id);
@@ -484,6 +645,10 @@ export const ProjectsPanel: React.FC = () => {
             Create
           </button>
         </div>
+        <div style={{ marginTop: 12, padding: 12, border: "1px solid var(--border-default)", borderRadius: 8, background: "var(--bg-primary)" }}>
+          <div style={{ ...subLabelStyle, marginBottom: 8 }}>Coordinate context (optional)</div>
+          <CoordinateContextFields value={coordinateContextForm} onChange={setCoordinateContextForm} />
+        </div>
       </div>
 
       {activeProject && (
@@ -509,6 +674,24 @@ export const ProjectsPanel: React.FC = () => {
           <p style={{ margin: "8px 0 0", fontSize: "11px", lineHeight: 1.45, color: "var(--text-tertiary)" }}>
             Jurisdiction controls local workflows; this CRS records the coordinate basis. The selector currently includes EPSG WGS 84 / UTM zones worldwide. Choosing a CRS records metadata only and never transforms existing coordinates. Other datums and height systems need a verified operation or grid before conversion.
           </p>
+          <div style={{ marginTop: 12, padding: 12, border: "1px solid var(--border-default)", borderRadius: 8, background: "var(--bg-primary)" }}>
+            <div style={{ ...subLabelStyle, marginBottom: 8 }}>Declared coordinate context</div>
+            {activeProject.coordinateContextStatus === "invalid" && (
+              <p role="alert" style={{ margin: "0 0 8px", color: "var(--accent-warning, #b54708)", fontSize: 11 }}>
+                Saved coordinate declarations could not be read. Review the fields and save a corrected declaration; coordinates have not been changed.
+              </p>
+            )}
+            {!activeProject.coordinateContext && activeProject.coordinateContextStatus !== "invalid" && (
+              <p style={{ margin: "0 0 8px", color: "var(--text-tertiary)", fontSize: 11 }}>
+                No coordinate context is recorded for this project. Existing projects stay undeclared until you save one here.
+              </p>
+            )}
+            <CoordinateContextFields value={activeCoordinateContextForm} onChange={setActiveCoordinateContextForm} />
+            <button onClick={() => void handleSaveCoordinateContext()} disabled={busy} style={{ ...primaryButton(busy), marginTop: 10 }}>
+              {busy ? <Loader2 size={14} strokeWidth={2} /> : <Check size={14} strokeWidth={2} />}
+              Save declarations
+            </button>
+          </div>
         </div>
       )}
 

@@ -83,6 +83,22 @@ describe("project-store-core", () => {
     expect(s1.projects[0]).toMatchObject({ countryCode: "", crsSrid: 32756 });
   });
 
+  it("preserves explicitly unverified project coordinate declarations through create and update", () => {
+    const coordinateContext = {
+      schemaVersion: 1 as const,
+      horizontalUnit: "us_survey_foot" as const,
+      coordinateEpoch: 2020.25,
+      verticalReference: { kind: "local" as const, name: "Project benchmark datum", unit: "metre" as const },
+      evidenceStatus: "user_declared_unverified" as const,
+    };
+    const s1 = createProject(emptyProjectStore(), makeInput({ coordinateContext }));
+    const id = s1.projects[0]!.id;
+    expect(s1.projects[0]?.coordinateContext).toEqual(coordinateContext);
+
+    const s2 = updateProject(s1, { id, name: "Renamed" });
+    expect(s2.projects[0]?.coordinateContext).toEqual(coordinateContext);
+  });
+
   it("create is immutable — the input state is untouched", () => {
     const s0 = emptyProjectStore();
     createProject(s0, makeInput());

@@ -4027,6 +4027,54 @@ Agent: Codex — 2026-11-01
 ---
 
 ---
+Task ID: desktop-project-coordinate-declarations
+Agent: Codex — 2026-11-01
+Task: Persist user-declared coordinate units, epoch, and vertical reference on Desktop projects.
+
+Work Log:
+- Added a versioned IPC schema and SQLite schema v5 field for project horizontal units, optional decimal-year coordinate epoch, and optional named vertical reference with explicit units. Every saved context is fixed to `user_declared_unverified`; no CRS, jurisdiction, or coordinate-value inference was added.
+- Added create/edit/clear controls in Projects. Blank optional values remain absent. Existing projects remain undeclared until an explicit save; the panel labels declarations unverified and says they do not transform coordinates or verify a datum.
+- Preserved valid context through project persistence, local undo/redo, and the Desktop sync envelope. Imported malformed context is surfaced as invalid and its raw database value remains intact after unrelated edits.
+- Fixed project recreation in undo/redo to clear and restore the active-project foreign key around the generated-ID replacement; tests cover create, update, and delete restore paths with context.
+- Updated the international product plan and added ADR-0016 plus this task brief. The opened LinkedIn post confirms an early surveyor-built point-cloud classification prototype, but provides no algorithm or accuracy evidence. CloudCompare's official plugin catalog shows existing classification extensions; its GPL-3.0 source requires a reviewed distribution strategy before reuse.
+
+Verification:
+- `npm run build --workspace @metardu/ipc-schemas`:
+  ~~~text
+  > @metardu/ipc-schemas@0.1.0 build
+  > tsc -p tsconfig.json
+  Exit code 0
+  ~~~
+- `npm test --workspace @metardu/ipc-schemas`:
+  ~~~text
+  Test Files  5 passed (5)
+       Tests  44 passed (44)
+  Exit code 0
+  ~~~
+- Focused Desktop tests (`database-project-crs`, `database-point-cloud`, `project-store-core`, `sync-projects`, `undo-redo-coordinate-context`):
+  ~~~text
+  Test Files  5 passed (5)
+       Tests  35 passed (35)
+  Exit code 0
+  ~~~
+- `npm test` in `apps/desktop`:
+  ~~~text
+  Test Files  28 passed | 1 skipped (29)
+       Tests  293 passed | 7 skipped (300)
+  Exit code 0
+  ~~~
+- `npm run build --workspace @metardu/desktop`: `tsc -p tsconfig.json`; Exit code 0.
+- `npm run build:renderer`: 2,476 modules transformed; Vite build completed in 5.25 seconds; Exit code 0. Existing Node module externalization warnings for `node:zlib`, `fs`, `path`, and `util` remain. This is compilation evidence, not an Electron runtime test.
+- `git diff --check`: Exit code 0; Git emitted only Windows LF-to-CRLF notices.
+- The first full Desktop suite run caught a migration test that still expected schema version 4. Updated the assertion for schema v5 and reran the full suite successfully.
+
+Evidence limits: The Projects UI was compiled but not exercised in a live Electron session. Unit declarations are not checked against EPSG, do not unlock transformations or vertical conversion, and are not shown in the persistent status strip yet. The sync test verifies only Desktop's outgoing envelope; Web-side persistence/round-trip is not established. The LinkedIn prototype does not establish classifier accuracy or CloudCompare reuse rights.
+
+Stage Summary:
+- Ready for a path-scoped commit to `codex/international-desktop-product-plan` and push to the METARDU Desktop repository. The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files are excluded.
+---
+
+---
 Task ID: desktop-pointcloud-sampled-viewport — delivery entry
 Agent: Codex — 2026-11-01
 

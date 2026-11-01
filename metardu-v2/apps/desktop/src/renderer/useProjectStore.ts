@@ -19,6 +19,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import type { ProjectCoordinateContext } from "@metardu/ipc-schemas";
 
 // ─── Types (mirrors project-store-core.ts, kept local to avoid bundling) ──
 
@@ -29,6 +30,8 @@ export interface StoredProject {
   countryCode: string;
   /** Explicit EPSG horizontal CRS, independent of legal jurisdiction. */
   crsSrid?: number;
+  coordinateContext?: ProjectCoordinateContext;
+  coordinateContextStatus?: "invalid";
   surveyType: string;
   sourceView: string;
   output: unknown;
@@ -53,6 +56,7 @@ export interface CreateProjectInput {
   description?: string;
   countryCode: string;
   crsSrid?: number;
+  coordinateContext?: ProjectCoordinateContext;
   surveyType: string;
   sourceView: string;
   output?: unknown;
@@ -65,6 +69,7 @@ export interface UpdateProjectInput {
   description?: string;
   countryCode?: string;
   crsSrid?: number | null;
+  coordinateContext?: ProjectCoordinateContext | null;
   surveyType?: string;
   sourceView?: string;
   output?: unknown;
@@ -115,7 +120,7 @@ export interface UseProjectStoreReturn {
   /** Create a new project and make it active. */
   create: (input: Omit<CreateProjectInput, "sourceView" | "output">) => Promise<StoredProject | null>;
   /** Update a project's fields. */
-  update: (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "crsSrid" | "surveyType" | "planSheet">>) => Promise<void>;
+  update: (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "crsSrid" | "coordinateContext" | "surveyType" | "planSheet">>) => Promise<void>;
   /** Delete a project. Active moves to most recent remaining. */
   remove: (id: string) => Promise<void>;
   /** Switch which project is active. */
@@ -201,7 +206,7 @@ export function useProjectStore(): UseProjectStoreReturn {
     return created;
   }, []);
 
-  const update = useCallback(async (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "crsSrid" | "surveyType" | "planSheet">>) => {
+  const update = useCallback(async (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "crsSrid" | "coordinateContext" | "surveyType" | "planSheet">>) => {
     const api = apiRef.current;
     await api.update?.({ id, ...input });
   }, []);

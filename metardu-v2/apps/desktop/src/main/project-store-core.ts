@@ -1,3 +1,5 @@
+import type { ProjectCoordinateContext } from "@metardu/ipc-schemas";
+
 /**
  * ProjectStore — pure CRUD core (no Electron, no fs).
  *
@@ -42,6 +44,10 @@ export interface StoredProject {
   countryCode: string;
   /** Explicit EPSG horizontal CRS; omitted on legacy or unconfigured projects. */
   crsSrid?: number;
+  /** User-declared units, epoch, and height reference; never treated as verified. */
+  coordinateContext?: ProjectCoordinateContext;
+  /** Set when persisted declaration JSON failed validation and needs repair. */
+  coordinateContextStatus?: "invalid";
   surveyType: string;
   /** Which workflow view produced the output (e.g. "TopographicView"). */
   sourceView: string;
@@ -65,6 +71,7 @@ export interface CreateProjectInput {
   description?: string;
   countryCode: string;
   crsSrid?: number;
+  coordinateContext?: ProjectCoordinateContext;
   surveyType: string;
   sourceView: string;
   output?: unknown;
@@ -77,6 +84,7 @@ export interface UpdateProjectInput {
   description?: string;
   countryCode?: string;
   crsSrid?: number | null;
+  coordinateContext?: ProjectCoordinateContext | null;
   surveyType?: string;
   sourceView?: string;
   output?: unknown;
@@ -98,6 +106,7 @@ export function createProject(
     description: input.description,
     countryCode: input.countryCode,
     crsSrid: input.crsSrid,
+    coordinateContext: input.coordinateContext,
     surveyType: input.surveyType,
     sourceView: input.sourceView,
     output: input.output ?? null,
@@ -129,6 +138,7 @@ export function updateProject(
       ...(input.description !== undefined ? { description: input.description } : {}),
       ...(input.countryCode !== undefined ? { countryCode: input.countryCode } : {}),
       ...(input.crsSrid !== undefined ? { crsSrid: input.crsSrid ?? undefined } : {}),
+      ...(input.coordinateContext !== undefined ? { coordinateContext: input.coordinateContext ?? undefined, coordinateContextStatus: undefined } : {}),
       ...(input.surveyType !== undefined ? { surveyType: input.surveyType } : {}),
       ...(input.sourceView !== undefined ? { sourceView: input.sourceView } : {}),
       ...(input.output !== undefined ? { output: input.output } : {}),

@@ -55,6 +55,19 @@ describe("projectFromStored", () => {
     expect(wire.countryCode).toBe("");
   });
 
+  it("carries user-declared coordinate context without upgrading its evidence state", () => {
+    const coordinateContext = {
+      schemaVersion: 1 as const,
+      horizontalUnit: "international_foot" as const,
+      coordinateEpoch: 2010.5,
+      verticalReference: { kind: "orthometric" as const, name: "Local benchmark datum", unit: "metre" as const },
+      evidenceStatus: "user_declared_unverified" as const,
+    };
+    const wire = projectFromStored(makeStored({ coordinateContext }), 1);
+    expect(wire.data.coordinateContext).toEqual(coordinateContext);
+    expect((wire.data.coordinateContext as typeof coordinateContext).evidenceStatus).toBe("user_declared_unverified");
+  });
+
   it("passes the saved version through so re-pushes stay PUTs (not POST duplicates)", () => {
     const wire = projectFromStored(makeStored(), 7);
     expect(wire.version).toBe(7);

@@ -42,7 +42,8 @@ describe("point-cloud project source records", () => {
 
       migrateDatabase(database);
 
-      expect((database.prepare("SELECT version FROM schema_version").get() as { version: number }).version).toBe(4);
+      expect((database.prepare("SELECT version FROM schema_version").get() as { version: number }).version).toBe(5);
+      expect((database.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>).some((column) => column.name === "coordinateContext")).toBe(true);
       expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'point_cloud_sources'").get()).toBeTruthy();
       expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'point_cloud_inspections'").get()).toBeTruthy();
       expect((database.prepare("SELECT name, version FROM projects WHERE id = ?").get("existing-project") as { name: string; version: number })).toEqual({ name: "Existing project", version: 7 });

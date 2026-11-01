@@ -22,6 +22,7 @@
 import type BetterSqlite3 from "better-sqlite3";
 import {
   getDatabase,
+  getActiveProjectId,
   getLatestOperationId,
   logOperation,
   getOperationLog,
@@ -132,17 +133,14 @@ export class UndoRedoManager {
             description: op.oldState.description,
             countryCode: op.oldState.countryCode,
             crsSrid: op.oldState.crsSrid,
+            coordinateContext: op.oldState.coordinateContext,
             surveyType: op.oldState.surveyType,
             sourceView: op.oldState.sourceView,
             output: op.oldState.output,
             planSheet: op.oldState.planSheet,
           });
           // Override the ID and timestamps to match the original.
-          this.db
-            .prepare("UPDATE projects SET id = ?, createdAt = ?, updatedAt = ?, version = ? WHERE id = ?")
-            .run(op.oldState.id, op.oldState.createdAt, op.oldState.updatedAt, op.oldState.version, recreated.id);
-          // Also restore the ID in the recreated project.
-          recreated.id = op.oldState.id;
+          restoreRecreatedProjectIdentity(this.db, recreated, op.oldState);
           this.pointer--;
           return {
             success: true,
@@ -169,6 +167,7 @@ export class UndoRedoManager {
             description: op.oldState.description,
             countryCode: op.oldState.countryCode,
             crsSrid: op.oldState.crsSrid ?? null,
+            coordinateContext: op.oldState.coordinateContext ?? null,
             surveyType: op.oldState.surveyType,
             sourceView: op.oldState.sourceView,
             output: op.oldState.output,
@@ -243,20 +242,13 @@ export class UndoRedoManager {
             description: nextOp.newState.description,
             countryCode: nextOp.newState.countryCode,
             crsSrid: nextOp.newState.crsSrid,
+            coordinateContext: nextOp.newState.coordinateContext,
             surveyType: nextOp.newState.surveyType,
             sourceView: nextOp.newState.sourceView,
             output: nextOp.newState.output,
             planSheet: nextOp.newState.planSheet,
           });
-          this.db
-            .prepare("UPDATE projects SET id = ?, createdAt = ?, updatedAt = ?, version = ? WHERE id = ?")
-            .run(
-              nextOp.newState.id,
-              nextOp.newState.createdAt,
-              nextOp.newState.updatedAt,
-              nextOp.newState.version,
-              recreated.id,
-            );
+          restoreRecreatedProjectIdentity(this.db, recreated, nextOp.newState);
           this.pointer++;
           return {
             success: true,
@@ -292,6 +284,7 @@ export class UndoRedoManager {
             description: nextOp.newState.description,
             countryCode: nextOp.newState.countryCode,
             crsSrid: nextOp.newState.crsSrid ?? null,
+            coordinateContext: nextOp.newState.coordinateContext ?? null,
             surveyType: nextOp.newState.surveyType,
             sourceView: nextOp.newState.sourceView,
             output: nextOp.newState.output,
@@ -365,6 +358,23 @@ export class UndoRedoManager {
   resetPointer(): void {
     this.pointer = getLatestOperationId(this.db);
   }
+}
+
+/** Restore the original identity without leaving the active-project FK at a temporary ID. */
+function restoreRecreatedProjectIdentity(
+  database: BetterSqlite3.Database,
+  recreated: StoredProject,
+  snapshot: StoredProject,
+): void {
+  const wasActive = getActiveProjectId(database) === recreated.id;
+  database.transaction(() => {
+    if (wasActive) setActiveProjectId(database, null);
+    database
+      .prepare("UPDATE projects SET id = ?, createdAt = ?, updatedAt = ?, version = ? WHERE id = ?")
+      .run(snapshot.id, snapshot.createdAt, snapshot.updatedAt, snapshot.version, recreated.id);
+    if (wasActive) setActiveProjectId(database, snapshot.id);
+  })();
+  recreated.id = snapshot.id;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────

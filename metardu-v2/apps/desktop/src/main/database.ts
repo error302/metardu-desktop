@@ -26,6 +26,10 @@
 
 import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
+import {
+  PROJECT_COORDINATE_CONTEXT_SCHEMA,
+  type ProjectCoordinateContext,
+} from "@metardu/ipc-schemas";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -38,6 +42,8 @@ export interface StoredProject {
   countryCode: string;
   /** Explicit EPSG horizontal CRS. Absent means no project CRS was assigned. */
   crsSrid?: number;
+  coordinateContext?: ProjectCoordinateContext;
+  coordinateContextStatus?: "invalid";
   surveyType: string;
   sourceView: string;
   output: unknown;
@@ -64,6 +70,7 @@ export interface CreateProjectInput {
   description?: string;
   countryCode: string;
   crsSrid?: number;
+  coordinateContext?: ProjectCoordinateContext;
   surveyType: string;
   sourceView: string;
   output?: unknown;
@@ -76,6 +83,7 @@ export interface UpdateProjectInput {
   description?: string;
   countryCode?: string;
   crsSrid?: number | null;
+  coordinateContext?: ProjectCoordinateContext | null;
   surveyType?: string;
   sourceView?: string;
   output?: unknown;
@@ -141,7 +149,7 @@ export interface StoredPointCloudInspection {
 
 // ─── Schema ──────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const POINT_CLOUD_SOURCE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS point_cloud_sources (
@@ -189,6 +197,7 @@ const SCHEMA_SQL = `
     description TEXT,
     countryCode TEXT NOT NULL DEFAULT '',
     crsSrid     INTEGER,
+    coordinateContext TEXT,
     surveyType  TEXT NOT NULL DEFAULT '',
     sourceView  TEXT NOT NULL DEFAULT '',
     output      TEXT,          -- JSON-serialized survey workflow output
@@ -315,6 +324,16 @@ export function migrateDatabase(database: BetterSqlite3.Database): void {
     database.transaction(() => {
       database.exec(POINT_CLOUD_INSPECTION_SCHEMA_SQL);
       database.prepare("UPDATE schema_version SET version = ?").run(4);
+    })();
+  }
+
+  if (current < 5) {
+    database.transaction(() => {
+      const projectColumns = database.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>;
+      if (!projectColumns.some((column) => column.name === "coordinateContext")) {
+        database.exec("ALTER TABLE projects ADD COLUMN coordinateContext TEXT");
+      }
+      database.prepare("UPDATE schema_version SET version = ?").run(5);
     })();
   }
 }
@@ -482,6 +501,9 @@ export function createProjectInDb(
   database: BetterSqlite3.Database,
   input: CreateProjectInput,
 ): StoredProject {
+  const coordinateContext = input.coordinateContext === undefined
+    ? undefined
+    : validateCoordinateContext(input.coordinateContext);
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   const project: StoredProject = {
@@ -490,6 +512,7 @@ export function createProjectInDb(
     description: input.description,
     countryCode: input.countryCode,
     crsSrid: input.crsSrid,
+    coordinateContext,
     surveyType: input.surveyType,
     sourceView: input.sourceView,
     output: input.output ?? null,
@@ -500,8 +523,8 @@ export function createProjectInDb(
   };
 
   const insert = database.prepare(`
-    INSERT INTO projects (id, name, description, countryCode, crsSrid, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO projects (id, name, description, countryCode, crsSrid, coordinateContext, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   insert.run(
@@ -510,6 +533,7 @@ export function createProjectInDb(
     project.description ?? null,
     project.countryCode,
     project.crsSrid ?? null,
+    project.coordinateContext ? JSON.stringify(project.coordinateContext) : null,
     project.surveyType,
     project.sourceView,
     JSON.stringify(project.output),
@@ -525,12 +549,28 @@ export function createProjectInDb(
   return project;
 }
 
+function validateCoordinateContext(value: unknown): ProjectCoordinateContext {
+  const parsed = PROJECT_COORDINATE_CONTEXT_SCHEMA.safeParse(value);
+  if (!parsed.success) {
+    const details = parsed.error.issues
+      .map((issue) => `${issue.path.join(".") || "coordinateContext"}: ${issue.message}`)
+      .join("; ");
+    throw new Error(`Project coordinate declarations are invalid: ${details}`);
+  }
+  return parsed.data;
+}
+
 export function updateProjectInDb(
   database: BetterSqlite3.Database,
   input: UpdateProjectInput,
 ): StoredProject | null {
   const existing = getProject(database, input.id);
   if (!existing) return null;
+
+  const coordinateContextChanged = input.coordinateContext !== undefined;
+  const coordinateContext = input.coordinateContext === undefined
+    ? existing.coordinateContext
+    : input.coordinateContext === null ? undefined : validateCoordinateContext(input.coordinateContext);
 
   const now = new Date().toISOString();
   const updated: StoredProject = {
@@ -539,6 +579,8 @@ export function updateProjectInDb(
     ...(input.description !== undefined ? { description: input.description } : {}),
     ...(input.countryCode !== undefined ? { countryCode: input.countryCode } : {}),
     ...(input.crsSrid !== undefined ? { crsSrid: input.crsSrid ?? undefined } : {}),
+    coordinateContext,
+    ...(coordinateContextChanged ? { coordinateContextStatus: undefined } : {}),
     ...(input.surveyType !== undefined ? { surveyType: input.surveyType } : {}),
     ...(input.sourceView !== undefined ? { sourceView: input.sourceView } : {}),
     ...(input.output !== undefined ? { output: input.output } : {}),
@@ -550,7 +592,8 @@ export function updateProjectInDb(
   database
     .prepare(
       `UPDATE projects SET
-        name = ?, description = ?, countryCode = ?, crsSrid = ?, surveyType = ?, sourceView = ?,
+        name = ?, description = ?, countryCode = ?, crsSrid = ?,
+        coordinateContext = CASE WHEN ? THEN ? ELSE coordinateContext END, surveyType = ?, sourceView = ?,
         output = ?, planSheet = ?, updatedAt = ?, version = ?
       WHERE id = ?`,
     )
@@ -559,6 +602,8 @@ export function updateProjectInDb(
       updated.description ?? null,
       updated.countryCode,
       updated.crsSrid ?? null,
+      coordinateContextChanged ? 1 : 0,
+      updated.coordinateContext ? JSON.stringify(updated.coordinateContext) : null,
       updated.surveyType,
       updated.sourceView,
       JSON.stringify(updated.output),
@@ -690,8 +735,8 @@ export function importFromJson(
       for (const p of projects) {
         database
           .prepare(
-            `INSERT OR IGNORE INTO projects (id, name, description, countryCode, crsSrid, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR IGNORE INTO projects (id, name, description, countryCode, crsSrid, coordinateContext, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             p.id,
@@ -699,6 +744,7 @@ export function importFromJson(
             p.description ?? null,
             p.countryCode,
             p.crsSrid ?? null,
+            p.coordinateContext === undefined ? null : JSON.stringify(p.coordinateContext),
             p.surveyType,
             p.sourceView,
             JSON.stringify(p.output),
@@ -734,6 +780,7 @@ interface Row {
   description: string | null;
   countryCode: string;
   crsSrid: number | null;
+  coordinateContext: string | null;
   surveyType: string;
   sourceView: string;
   output: string | null;
@@ -753,12 +800,25 @@ interface OpLogRow {
 }
 
 function rowToProject(row: Row): StoredProject {
+  let coordinateContext: ProjectCoordinateContext | undefined;
+  let coordinateContextStatus: "invalid" | undefined;
+  if (row.coordinateContext !== null) {
+    try {
+      const parsed = PROJECT_COORDINATE_CONTEXT_SCHEMA.safeParse(JSON.parse(row.coordinateContext) as unknown);
+      if (parsed.success) coordinateContext = parsed.data;
+      else coordinateContextStatus = "invalid";
+    } catch {
+      coordinateContextStatus = "invalid";
+    }
+  }
   return {
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
     countryCode: row.countryCode,
     crsSrid: row.crsSrid ?? undefined,
+    ...(coordinateContext ? { coordinateContext } : {}),
+    ...(coordinateContextStatus ? { coordinateContextStatus } : {}),
     surveyType: row.surveyType,
     sourceView: row.sourceView,
     output: row.output ? JSON.parse(row.output) : null,
