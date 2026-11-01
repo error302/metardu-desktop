@@ -4071,7 +4071,25 @@ Verification:
 Evidence limits: The Projects UI was compiled but not exercised in a live Electron session. Unit declarations are not checked against EPSG, do not unlock transformations or vertical conversion, and are not shown in the persistent status strip yet. The sync test verifies only Desktop's outgoing envelope; Web-side persistence/round-trip is not established. The LinkedIn prototype does not establish classifier accuracy or CloudCompare reuse rights.
 
 Stage Summary:
-- Ready for a path-scoped commit to `codex/international-desktop-product-plan` and push to the METARDU Desktop repository. The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files are excluded.
+- Project coordinate declarations are implemented and verified. The scoped implementation was committed and pushed to the METARDU Desktop repository; the delivery addendum below records the remote SHA. The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files are excluded.
+---
+
+---
+Task ID: desktop-project-coordinate-declarations — delivery addendum
+Agent: Codex — 2026-11-01
+
+- Commit `e32110362f28bd2f619accb867de27be61663213` (`feat(projects): store coordinate context declarations`) contains the 19 explicitly scoped project-context implementation, tests, plan, ADR, brief, and worklog paths.
+- Push output:
+  ~~~text
+  To https://github.com/error302/metardu-desktop.git
+     55456ef..e321103  codex/international-desktop-product-plan -> codex/international-desktop-product-plan
+  ~~~
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan`:
+  ~~~text
+  e32110362f28bd2f619accb867de27be61663213	refs/heads/codex/international-desktop-product-plan
+  ~~~
+  This matched local `HEAD` at verification time.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked work remain outside both commits.
 ---
 
 ---
