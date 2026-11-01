@@ -59,6 +59,9 @@ import type {
 import { makeProjectToWgs84 } from "./geodesy.js";
 import {
   PLUGIN_RUN_INPUT_SCHEMA,
+  POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA,
+  POINT_CLOUD_PREVIEW_START_INPUT_SCHEMA,
+  POINT_CLOUD_PREVIEW_STATUS_SCHEMA,
   POINT_CLOUD_SOURCE_ID_SCHEMA,
   type PluginRunInput,
 } from "@metardu/ipc-schemas";
@@ -67,6 +70,7 @@ import {
   registerPointCloudInspectionIpcHandlers,
 } from "./point-cloud-inspection.js";
 import { PointCloudChunkStreamController } from "./point-cloud-chunks.js";
+import { PointCloudPreviewController } from "./point-cloud-preview.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -196,6 +200,10 @@ const pointCloudChunkStreamController = new PointCloudChunkStreamController({
   },
   getSidecar: () => sidecar,
   getUserDataPath: () => app.getPath("userData"),
+});
+
+const pointCloudPreviewController = new PointCloudPreviewController({
+  streams: pointCloudChunkStreamController,
 });
 
 function pruneSelectedPluginModules(now = Date.now()): void {
@@ -551,6 +559,27 @@ function registerIpcHandlers(): void {
       activeProjectName: project.name,
       sources: listProjectPointCloudSources(database, project.id).map((source) => pointCloudSourceSummary(source)),
     };
+  });
+
+  ipcMain.handle("metardu:pointcloud:startActiveProjectPreview", async (_event, input: unknown) => {
+    const parsed = POINT_CLOUD_PREVIEW_START_INPUT_SCHEMA.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid point-cloud preview request.");
+    return pointCloudPreviewController.start(parsed.data.sourceId);
+  });
+
+  ipcMain.handle("metardu:pointcloud:activeProjectPreviewStatus", (_event, jobId: unknown) => {
+    const parsed = POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA.safeParse(jobId);
+    if (!parsed.success) throw new Error("Point-cloud preview job identifier is invalid.");
+    const status = pointCloudPreviewController.status(parsed.data);
+    const validated = POINT_CLOUD_PREVIEW_STATUS_SCHEMA.safeParse(status);
+    if (!validated.success) throw new Error("Point-cloud preview returned an invalid result.");
+    return validated.data;
+  });
+
+  ipcMain.handle("metardu:pointcloud:cancelActiveProjectPreview", async (_event, jobId: unknown) => {
+    const parsed = POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA.safeParse(jobId);
+    if (!parsed.success) throw new Error("Point-cloud preview job identifier is invalid.");
+    return pointCloudPreviewController.cancel(parsed.data);
   });
 
   ipcMain.handle("metardu:pointcloud:verifyActiveProjectSource", async (_event, sourceId: unknown): Promise<PointCloudSourceVerification> => {

@@ -4025,3 +4025,21 @@ Agent: Codex — 2026-11-01
   This matched local `HEAD` at verification time.
 - The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside the implementation commit.
 ---
+
+---
+Task ID: desktop-pointcloud-sampled-viewport — delivery entry
+Agent: Codex — 2026-11-01
+
+- Added a bounded, class-colored LAS/LAZ visual preview to the Point Cloud screen. The trusted main process reads the full header-declared stream through the existing project-scoped, before-and-after hash-verified chunk controller. It retains a deterministic source-index stride sample capped at 25,000 points, exposes scan progress and cancellation, and clears partial samples after cancellation/failure. The renderer receives only the bounded sample and sanitized source name, not a source path or storage key.
+- The viewport supports rotate, zoom, local XYZ axes, sample class counts, class visibility filters, and sampled-coordinate ranges. It labels the view as local and visualization-only; the coordinates use LAS scale/offset, while CRS, units, epoch, and vertical reference are not interpreted. Display colors identify existing class codes and do not assert the source classifications are correct.
+- The opened LinkedIn post says its author built a small point-cloud classification tool with Claude in 3–4 hours; it does not disclose an algorithm, accuracy evaluation, or an integration license. This implementation is a read-only preview, not a classifier, derived LAS/LAZ writer, terrain model, or community plug-in.
+- Verification:
+  - `npm run build` in `packages/ipc-schemas`: exit 0.
+  - `npm test` in `packages/ipc-schemas`: 4 files passed; 41 tests passed.
+  - `npm test` in `apps/desktop`: 27 files passed, 1 skipped; 287 tests passed, 7 skipped.
+  - `npx tsc --noEmit` in `apps/desktop`: exit 0.
+  - `npm run build:renderer` in `metardu-v2`: exit 0; Vite emitted existing Node-module externalization warnings.
+  - `git diff --check`: exit 0; Windows line-ending notices only.
+- Evidence limit: renderer compilation and controller/schema tests do not prove Electron runtime interaction, third-party LAS/LAZ producer compatibility, accuracy of a future classification algorithm, or survey deliverable suitability. Real-world file fixtures, runtime viewport review, performance profiling, and independently validated classifiers remain future gates.
+- Commit and METARDU Desktop remote confirmation to be appended after push. Preserve the pre-existing staged deletion and unrelated untracked files outside the scoped commit.
+---

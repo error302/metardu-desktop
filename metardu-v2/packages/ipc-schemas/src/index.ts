@@ -61,6 +61,13 @@ export {
   POINT_CLOUD_CHUNK_STREAM_START_SCHEMA,
   POINT_CLOUD_CHUNK_STREAM_STATUS_SCHEMA,
   POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA,
+  POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA,
+  POINT_CLOUD_PREVIEW_MAX_POINTS,
+  POINT_CLOUD_PREVIEW_POINT_SCHEMA,
+  POINT_CLOUD_PREVIEW_RESULT_SCHEMA,
+  POINT_CLOUD_PREVIEW_START_INPUT_SCHEMA,
+  POINT_CLOUD_PREVIEW_START_RESULT_SCHEMA,
+  POINT_CLOUD_PREVIEW_STATUS_SCHEMA,
   POINT_CLOUD_SOURCE_ID_SCHEMA,
 } from "./namespaces/point-cloud.js";
 export type {
@@ -69,6 +76,10 @@ export type {
   PointCloudChunkStreamRead,
   PointCloudChunkStreamStart,
   PointCloudChunkStreamStatus,
+  PointCloudPreviewPoint,
+  PointCloudPreviewResult,
+  PointCloudPreviewStartResult,
+  PointCloudPreviewStatus,
 } from "./namespaces/point-cloud.js";
 
 // ─── Aggregate registry ────────────────────────────────────────────

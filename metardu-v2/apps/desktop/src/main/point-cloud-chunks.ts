@@ -55,6 +55,7 @@ interface ManagedStream {
 export interface PointCloudChunkStreamOpen {
   streamId: string;
   sourceId: string;
+  sourceFileName: string;
   sourceSha256: string;
   metadata: PointCloudChunkStreamMetadata;
 }
@@ -342,6 +343,7 @@ export class PointCloudChunkStreamController {
       return {
         streamId: id,
         sourceId: source.id,
+        sourceFileName: source.fileName,
         sourceSha256: source.contentSha256,
         metadata: stream.metadata,
       };

@@ -1,3 +1,17 @@
+import type {
+  PointCloudPreviewPoint,
+  PointCloudPreviewResult,
+  PointCloudPreviewStartResult,
+  PointCloudPreviewStatus,
+} from "@metardu/ipc-schemas";
+
+export type {
+  PointCloudPreviewPoint,
+  PointCloudPreviewResult,
+  PointCloudPreviewStartResult,
+  PointCloudPreviewStatus,
+};
+
 export interface PointCloudHeaderDetails {
   format: "LAS" | "LAZ";
   version: string;

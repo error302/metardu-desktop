@@ -22,11 +22,15 @@ import type {
   PointCloudProjectSourceList,
   PointCloudRecordInspectionJobStart,
   PointCloudRecordInspectionJobStatus,
+  PointCloudPreviewStartResult,
+  PointCloudPreviewStatus,
   PointCloudSourceVerification,
 } from "../shared/point-cloud.js";
 import {
   PLUGIN_RUN_INPUT_SCHEMA,
   POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA,
+  POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA,
+  POINT_CLOUD_PREVIEW_START_INPUT_SCHEMA,
   POINT_CLOUD_SOURCE_ID_SCHEMA,
   validateSidecarParams,
 } from "@metardu/ipc-schemas";
@@ -40,6 +44,12 @@ function requirePointCloudSourceId(value: string): string {
 function requirePointCloudInspectionJobId(value: string): string {
   const parsed = POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA.safeParse(value);
   if (!parsed.success) throw new Error("Point-cloud inspection job identifier must be a UUID.");
+  return parsed.data;
+}
+
+function requirePointCloudPreviewJobId(value: string): string {
+  const parsed = POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA.safeParse(value);
+  if (!parsed.success) throw new Error("Point-cloud preview job identifier must be a UUID.");
   return parsed.data;
 }
 
@@ -212,6 +222,15 @@ const metarduApi = {
       ipcRenderer.invoke("metardu:pointcloud:activeProjectRecordInspectionStatus", requirePointCloudInspectionJobId(jobId)),
     cancelRecordInspection: (jobId: string): Promise<{ accepted: boolean }> =>
       ipcRenderer.invoke("metardu:pointcloud:cancelActiveProjectRecordInspection", requirePointCloudInspectionJobId(jobId)),
+    startPreview: (sourceId: string): Promise<PointCloudPreviewStartResult> => {
+      const parsed = POINT_CLOUD_PREVIEW_START_INPUT_SCHEMA.safeParse({ sourceId: requirePointCloudSourceId(sourceId) });
+      if (!parsed.success) throw new Error("Invalid point-cloud preview source.");
+      return ipcRenderer.invoke("metardu:pointcloud:startActiveProjectPreview", parsed.data);
+    },
+    previewStatus: (jobId: string): Promise<PointCloudPreviewStatus> =>
+      ipcRenderer.invoke("metardu:pointcloud:activeProjectPreviewStatus", requirePointCloudPreviewJobId(jobId)),
+    cancelPreview: (jobId: string): Promise<{ accepted: boolean }> =>
+      ipcRenderer.invoke("metardu:pointcloud:cancelActiveProjectPreview", requirePointCloudPreviewJobId(jobId)),
   },
   /** Digital signature + seal (Tier 1 #4). */
   signing: {

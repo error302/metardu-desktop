@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, FileInput, Layers3, Ruler, ShieldCheck } from "lucide-react";
+import { PointCloudPreviewCanvas } from "../components/PointCloudPreviewCanvas.js";
 import type {
   PointCloudHeaderDetails,
   PointCloudRecordInspectionJobStatus,
   PointCloudRecordInspection,
+  PointCloudPreviewResult,
+  PointCloudPreviewStatus,
   PointCloudSourceIntegrityStatus,
   PointCloudSourceSummary,
 } from "../../shared/point-cloud.js";
@@ -23,8 +26,8 @@ const roadmap = [
   },
   {
     icon: Layers3,
-    title: "Build project-aware chunk access",
-    description: "Let trusted tools request bounded source chunks without exposing file paths or serializing large clouds through JSON.",
+    title: "Add project-aware analysis tools",
+    description: "Let reviewed tools consume bounded source chunks while keeping file paths and full clouds out of the renderer.",
   },
   {
     icon: Ruler,
@@ -275,6 +278,9 @@ function SourceCard({
   inspecting,
   scanBusy,
   onInspect,
+  previewing,
+  previewBusy,
+  onPreview,
 }: {
   source: PointCloudSourceSummary;
   storageStatus: PointCloudSourceIntegrityStatus;
@@ -283,6 +289,9 @@ function SourceCard({
   inspecting: boolean;
   scanBusy: boolean;
   onInspect: () => void;
+  previewing: boolean;
+  previewBusy: boolean;
+  onPreview: () => void;
 }): React.ReactElement {
   return (
     <article style={{ display: "flex", flexDirection: "column", gap: 11, padding: 12, background: "var(--bg-primary)", border: "1px solid var(--border-subtle)", borderRadius: 4 }}>
@@ -300,6 +309,9 @@ function SourceCard({
         </button>
         <button onClick={onInspect} disabled={scanBusy}>
           {inspecting ? "Reading point records…" : source.recordInspection ? "Inspect records again" : "Inspect point records"}
+        </button>
+        <button onClick={onPreview} disabled={previewBusy || scanBusy}>
+          {previewing ? "Building point preview…" : "Open class-colored preview"}
         </button>
       </div>
       {source.recordInspection && (
@@ -340,6 +352,17 @@ export const PointCloudView: React.FC = () => {
     declaredPointCount: string;
   } | null>(null);
   const inspectingSourceId = inspectionJob?.sourceId ?? null;
+  const [openingPreviewSourceId, setOpeningPreviewSourceId] = useState<string | null>(null);
+  const [previewJob, setPreviewJob] = useState<{
+    jobId: string;
+    sourceId: string;
+    status: "running" | "cancelling";
+    decodedPointCount: string;
+    declaredPointCount: string;
+    selectedPointCount: number;
+  } | null>(null);
+  const [preview, setPreview] = useState<{ sourceId: string; result: PointCloudPreviewResult } | null>(null);
+  const previewingSourceId = previewJob?.sourceId ?? openingPreviewSourceId;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -360,7 +383,10 @@ export const PointCloudView: React.FC = () => {
 
   useEffect(() => {
     void refreshSources();
-    return window.metardu.projects.onChanged(() => { void refreshSources(); });
+    return window.metardu.projects.onChanged(() => {
+      setPreview(null);
+      void refreshSources();
+    });
   }, [refreshSources]);
 
   useEffect(() => {
@@ -411,6 +437,67 @@ export const PointCloudView: React.FC = () => {
     };
   }, [inspectionJob?.jobId]);
 
+  useEffect(() => {
+    const jobId = previewJob?.jobId;
+    if (!jobId) return;
+    let stopped = false;
+    let settled = false;
+    let timer: ReturnType<typeof window.setTimeout> | undefined;
+
+    const poll = async () => {
+      try {
+        const status: PointCloudPreviewStatus = await window.metardu.pointCloud.previewStatus(jobId);
+        if (stopped) return;
+        if (status.status === "running" || status.status === "cancelling") {
+          setPreviewJob((current) => current?.jobId === jobId ? {
+            ...current,
+            status: status.status,
+            decodedPointCount: status.decodedPointCount,
+            declaredPointCount: status.declaredPointCount,
+            selectedPointCount: status.selectedPointCount,
+          } : current);
+          timer = window.setTimeout(() => { void poll(); }, 500);
+          return;
+        }
+
+        settled = true;
+        if (status.status === "completed") {
+          setPreview({ sourceId: status.result.sourceId, result: status.result });
+          setVerificationBySourceId((current) => ({ ...current, [status.result.sourceId]: "verified" }));
+          setNotice(
+            `Previewed ${formatCount(status.result.renderedPointCount.toString())} sampled points from ${status.result.sourceFileName}. The full ${formatCount(status.result.decodedPointCount)}-point source scan completed and its hash matched at both ends.`,
+          );
+        } else if (status.status === "cancelled") {
+          setNotice("Point-cloud preview cancelled. The partial sample was discarded.");
+        } else {
+          setError(status.message);
+        }
+        setPreviewJob((current) => current?.jobId === jobId ? null : current);
+      } catch (cause) {
+        if (stopped) return;
+        settled = true;
+        setError(cause instanceof Error ? cause.message : String(cause));
+        setPreviewJob((current) => current?.jobId === jobId ? null : current);
+      }
+    };
+
+    void poll();
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      if (!settled) void window.metardu.pointCloud.cancelPreview(jobId).catch(() => undefined);
+    };
+  }, [previewJob?.jobId]);
+
+  useEffect(() => {
+    const jobId = previewJob?.jobId;
+    if (!jobId) return;
+    return window.metardu.projects.onChanged(() => {
+      setPreview(null);
+      void window.metardu.pointCloud.cancelPreview(jobId).catch(() => undefined);
+    });
+  }, [previewJob?.jobId]);
+
   const importSource = async () => {
     setBusy(true);
     setError(null);
@@ -436,6 +523,9 @@ export const PointCloudView: React.FC = () => {
     try {
       const result = await window.metardu.pointCloud.verifySource(sourceId);
       setVerificationBySourceId((current) => ({ ...current, [sourceId]: result.status }));
+      if (result.status !== "verified") {
+        setPreview((current) => current?.sourceId === sourceId ? null : current);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -455,6 +545,43 @@ export const PointCloudView: React.FC = () => {
         decodedPointCount: "0",
         declaredPointCount: job.declaredPointCount,
       });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const startPreview = async (sourceId: string) => {
+    setOpeningPreviewSourceId(sourceId);
+    setPreview(null);
+    setError(null);
+    setNotice("Verifying the stored copy, then reading its point records in bounded batches to build the preview sample.");
+    try {
+      const job = await window.metardu.pointCloud.startPreview(sourceId);
+      setPreviewJob({
+        jobId: job.jobId,
+        sourceId,
+        status: "running",
+        decodedPointCount: "0",
+        declaredPointCount: job.declaredPointCount,
+        selectedPointCount: 0,
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setOpeningPreviewSourceId(null);
+    }
+  };
+
+  const cancelPreview = async () => {
+    if (!previewJob || previewJob.status === "cancelling") return;
+    try {
+      const result = await window.metardu.pointCloud.cancelPreview(previewJob.jobId);
+      if (result.accepted) {
+        setPreviewJob((current) => current?.jobId === previewJob.jobId
+          ? { ...current, status: "cancelling" }
+          : current);
+        setNotice("Cancellation requested. The current bounded point batch will finish, then the preview sample will be discarded.");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -487,7 +614,7 @@ export const PointCloudView: React.FC = () => {
           Point Cloud Processing
         </h1>
         <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "var(--text-sm)", lineHeight: 1.6 }}>
-          Preserve LAS/LAZ sources in a survey project, inspect their declared headers, and build toward validated point-cloud workflows.
+          Preserve LAS/LAZ sources in a survey project, inspect their class summaries, and open a bounded, hash-verified visual preview.
         </p>
       </header>
 
@@ -509,7 +636,7 @@ export const PointCloudView: React.FC = () => {
               Active project: <strong>{loadingSources ? "Loading…" : activeProjectName ?? "None"}</strong>. METARDU copies the selected file into this Desktop installation; your original is not changed. The copy is linked to this project but is not yet part of a portable project bundle.
             </p>
           </div>
-          <button className="primary" onClick={importSource} disabled={busy || loadingSources || !hasActiveProject || inspectingSourceId !== null}>
+          <button className="primary" onClick={importSource} disabled={busy || loadingSources || !hasActiveProject || inspectingSourceId !== null || previewingSourceId !== null}>
               {busy ? "Copying and inspecting header…" : "Import LAS / LAZ source"}
           </button>
         </div>
@@ -546,6 +673,28 @@ export const PointCloudView: React.FC = () => {
             </button>
           </div>
         )}
+        {previewJob && (
+          <div role="status" aria-live="polite" style={{ padding: 10, border: "1px solid var(--border-default)", color: "var(--text-secondary)", fontSize: 11, lineHeight: 1.5, display: "flex", flexDirection: "column", gap: 8 }}>
+            <span>
+              {previewJob.status === "cancelling"
+                ? "Stopping after the current bounded batch; the partial sample will be discarded…"
+                : "Reading the complete header-declared point range to build a systematic sample and verify the source hash at EOF."}
+            </span>
+            <span>
+              Decoded {formatCount(previewJob.decodedPointCount)} of {formatCount(previewJob.declaredPointCount)} points · selected {previewJob.selectedPointCount.toLocaleString()} of at most 25,000 preview points.
+            </span>
+            {inspectionProgressPercent(previewJob.decodedPointCount, previewJob.declaredPointCount) !== null && (
+              <progress
+                aria-label="Point-cloud preview scan progress against the header-declared count"
+                max={100}
+                value={inspectionProgressPercent(previewJob.decodedPointCount, previewJob.declaredPointCount) ?? 0}
+              />
+            )}
+            <button onClick={() => { void cancelPreview(); }} disabled={previewJob.status === "cancelling"}>
+              {previewJob.status === "cancelling" ? "Cancelling preview…" : "Cancel preview"}
+            </button>
+          </div>
+        )}
         {sources.length === 0 && !loadingSources ? (
           <div style={{ padding: 18, border: "1px dashed var(--border-default)", color: "var(--text-tertiary)", textAlign: "center", fontSize: 12 }}>
             No LAS/LAZ source files are attached to this project.
@@ -560,13 +709,43 @@ export const PointCloudView: React.FC = () => {
                 verifying={verifyingSourceId === source.id}
                 onVerify={() => { void verifySource(source.id); }}
                 inspecting={inspectingSourceId === source.id}
-                scanBusy={inspectingSourceId !== null}
+                scanBusy={inspectingSourceId !== null || previewingSourceId !== null}
                 onInspect={() => { void inspectSourceRecords(source.id); }}
+                previewing={previewingSourceId === source.id}
+                previewBusy={previewingSourceId !== null}
+                onPreview={() => { void startPreview(source.id); }}
               />
             ))}
           </div>
         )}
       </section>
+
+      {preview && sources.some((source) => source.id === preview.sourceId) && (
+        <section style={{ ...panelStyle, display: "flex", flexDirection: "column", gap: 12 }}>
+          <header style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 230 }}>
+              <h2 style={{ margin: 0, color: "var(--text-primary)", fontSize: 15 }}>Class-colored point preview</h2>
+              <p style={{ margin: "5px 0 0", color: "var(--text-secondary)", fontSize: 11, lineHeight: 1.5 }}>
+                {preview.result.sourceFileName} · {preview.result.format} {preview.result.version} · point format {preview.result.pointFormatId} · source SHA-256 verified during this read.
+              </p>
+            </div>
+            <button onClick={() => setPreview(null)}>Close preview</button>
+          </header>
+          <div style={{ padding: 9, borderLeft: "2px solid var(--status-warning, #D97706)", color: "var(--text-secondary)", fontSize: 10, lineHeight: 1.5 }}>
+            Displaying {preview.result.renderedPointCount.toLocaleString()} finite points sampled every {formatCount(preview.result.samplingStride)} source records from {formatCount(preview.result.decodedPointCount)}. This view is for visual inspection only. It is not a DTM, coordinate transformation, measurement surface, or classification result.
+          </div>
+          <PointCloudPreviewCanvas
+            key={`${preview.result.sourceId}:${preview.result.sourceSha256}`}
+            preview={preview.result}
+            classLabels={sources.find((source) => source.id === preview.sourceId)?.recordInspection?.sourceSha256 === preview.result.sourceSha256
+              ? sources.find((source) => source.id === preview.sourceId)?.recordInspection?.classificationCounts.map(({ code, standardMeaning }) => ({ code, meaning: standardMeaning })) ?? []
+              : []}
+          />
+          <div style={{ color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", fontSize: 9, overflowWrap: "anywhere" }}>
+            Preview source SHA-256 · {preview.result.sourceSha256}
+          </div>
+        </section>
+      )}
 
       <section style={panelStyle}>
         <h2 style={{ margin: "0 0 12px", color: "var(--text-primary)", fontSize: 14 }}>Next survey workflow gates</h2>
