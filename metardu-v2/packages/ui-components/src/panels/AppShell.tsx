@@ -46,6 +46,7 @@ import {
 import "../styles/metardu-theme.css";
 import "../styles/enterprise-layout.css";
 import { THEMES, applyTheme, loadPersistedTheme, type ThemeId } from "../styles/theme-toggles.js";
+import { summarizeProjectCoordinates, type ShellProjectCoordinates } from "./project-coordinate-status.js";
 
 /**
  * MetaRDU Desktop AppShell — the top-level UI frame.
@@ -349,34 +350,61 @@ function syncStateClass(state: SyncState): string {
   }
 }
 
-// Active project name — live from the persisted project store (ProjectStore,
-// metardu:projects:*). The store lives in the main process; changes are
-// pushed over IPC. In a plain browser (no Electron bridge) the toolbar falls
-// back to the original "untitled" placeholder.
-function useActiveProjectName(): string {
-  const [name, setName] = useState<string>("untitled");
+interface ActiveShellProject extends ShellProjectCoordinates {
+  id: string;
+  name: string;
+}
+
+interface ActiveShellProjectState {
+  projects: ActiveShellProject[];
+  activeProjectId: string | null;
+}
+
+// The active project and its coordinate declarations come from the existing
+// persisted project bridge. The shell only presents the saved values; it does
+// not infer CRS metadata or authorize coordinate operations.
+function useActiveProject(): ActiveShellProject | null | undefined | "unavailable" {
+  const [project, setProject] = useState<ActiveShellProject | null | undefined | "unavailable">(undefined);
 
   useEffect(() => {
     const w = window as unknown as {
       metardu?: {
         projects?: {
-          list?: () => Promise<{ projects: Array<{ id: string; name: string }>; activeProjectId: string | null }>;
-          onChanged?: (cb: (s: { projects: Array<{ id: string; name: string }>; activeProjectId: string | null }) => void) => () => void;
+          list?: () => Promise<ActiveShellProjectState>;
+          onChanged?: (cb: (s: ActiveShellProjectState) => void) => () => void;
         };
       };
     };
-    if (!w.metardu?.projects?.onChanged) return; // stays "untitled"
+    const projects = w.metardu?.projects;
+    if (!projects) {
+      setProject(null);
+      return;
+    }
 
-    const apply = (s: { projects: Array<{ id: string; name: string }>; activeProjectId: string | null }) => {
+    let receivedChange = false;
+    const apply = (s: ActiveShellProjectState) => {
       const active = s.projects.find((p) => p.id === s.activeProjectId);
-      setName(active?.name ?? "untitled");
+      setProject(active ?? null);
     };
 
-    w.metardu.projects.list?.().then(apply).catch(() => {});
-    return w.metardu.projects.onChanged(apply);
+    const unsubscribe = projects.onChanged?.((state) => {
+      receivedChange = true;
+      apply(state);
+    });
+    const listRequest = projects.list?.();
+    if (!listRequest) {
+      if (!receivedChange) setProject("unavailable");
+      return unsubscribe;
+    }
+    listRequest.then((state) => {
+      if (!receivedChange) apply(state);
+    }).catch(() => {
+      if (!receivedChange) setProject("unavailable");
+    });
+    return unsubscribe;
   }, []);
 
-  return name;
+  return project;
 }
 
 // All projects — for the command palette search.
@@ -427,7 +455,9 @@ export const AppShell: React.FC<{
   const { license } = useLicense();
   const sidecarState = useSidecarState();
   const syncState = useSyncState();
-  const projectName = useActiveProjectName();
+  const activeProject = useActiveProject();
+  const projectName = activeProject && typeof activeProject === "object" ? activeProject.name : "untitled";
+  const coordinateStatus = summarizeProjectCoordinates(activeProject);
   const allProjects = useAllProjects();
   const lastKey = useRef<string | null>(null);
   const lastTime = useRef(0);
@@ -731,21 +761,35 @@ export const AppShell: React.FC<{
           </div>
         )}
         <div className="app-statusbar">
-          <span className="mono">platform: {typeof window !== "undefined" && (window as unknown as { metardu?: unknown }).metardu ? "electron" : "browser"}</span>
-          <span className={`mono ${sidecarStateClass(sidecarState)}`}>sidecar: {sidecarState}</span>
-          <span className={`mono ${syncStateClass(syncState.state)}`}>
-            sync: {syncState.state === "n/a" ? "n/a" : `${syncState.state}${syncState.pending > 0 ? ` (${syncState.pending})` : ""}`}
-            {syncState.deletes > 0 && (
-              <span title={`${syncState.deletes} project deletion${syncState.deletes === 1 ? "" : "s"} queued — will flush on next sync`} style={{ color: "var(--text-warning)" }}>
-                {" "}· {syncState.deletes} del
+          <div
+            className={`app-statusbar-coordinate-context app-statusbar-coordinate-context-${coordinateStatus.state}`}
+            role="group"
+            aria-label="Active project coordinate context"
+            title={coordinateStatus.helpText}
+          >
+            {coordinateStatus.items.map((item) => (
+              <span className="app-statusbar-coordinate-item" key={item.key}>
+                <span className="app-statusbar-coordinate-label">{item.label}:</span> {item.value}
               </span>
-            )}
-          </span>
-          <span className="mono" style={{ color: license.isAuthenticated ? "var(--accent-primary)" : "var(--text-disabled)" }}>
-            subscription: {license.isAuthenticated ? `${license.tier.toLowerCase()} (${license.status.toLowerCase()})` : "not verified"}
-          </span>
-          <div style={{ flex: 1 }} />
-          <span className="mono" style={{ color: "var(--text-tertiary)" }}>MetaRDU Desktop v{APP_VERSION}</span>
+            ))}
+          </div>
+          <div className="app-statusbar-operational">
+            <span className="mono">platform: {typeof window !== "undefined" && (window as unknown as { metardu?: unknown }).metardu ? "electron" : "browser"}</span>
+            <span className={`mono ${sidecarStateClass(sidecarState)}`}>sidecar: {sidecarState}</span>
+            <span className={`mono ${syncStateClass(syncState.state)}`}>
+              sync: {syncState.state === "n/a" ? "n/a" : `${syncState.state}${syncState.pending > 0 ? ` (${syncState.pending})` : ""}`}
+              {syncState.deletes > 0 && (
+                <span title={`${syncState.deletes} project deletion${syncState.deletes === 1 ? "" : "s"} queued — will flush on next sync`} style={{ color: "var(--text-warning)" }}>
+                  {" "}· {syncState.deletes} del
+                </span>
+              )}
+            </span>
+            <span className="mono" style={{ color: license.isAuthenticated ? "var(--accent-primary)" : "var(--text-disabled)" }}>
+              subscription: {license.isAuthenticated ? `${license.tier.toLowerCase()} (${license.status.toLowerCase()})` : "not verified"}
+            </span>
+            <div style={{ flex: 1 }} />
+            <span className="mono" style={{ color: "var(--text-tertiary)" }}>MetaRDU Desktop v{APP_VERSION}</span>
+          </div>
         </div>
       </div>
     </div>

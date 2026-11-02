@@ -4111,3 +4111,42 @@ Agent: Codex — 2026-11-01
 - The METARDU Desktop branch `codex/international-desktop-product-plan` was pushed to `https://github.com/error302/metardu-desktop.git`. `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `b622eac0c0692a515f7f79365d99dc14cd688b5c`, matching local `HEAD` at that verification point.
 - The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside the implementation commit.
 ---
+
+---
+Task ID: desktop-active-project-coordinate-status
+Agent: Codex — 2026-11-03
+
+Work Log:
+- Wired the always-visible AppShell status bar to the existing `projects.list` and `projects.onChanged` bridge. It now displays the active project's stored CRS code, horizontal unit, coordinate epoch, vertical reference, and evidence state while the surveyor changes workflows.
+- Added explicit loading and unavailable states so asynchronous project loading or a failed local project read cannot be mistaken for an empty project. Legacy and incomplete projects show missing values as not recorded. Invalid stored declarations show all declaration fields as unreadable and direct the user to Projects; no partial invalid declaration is exposed.
+- Added a pure formatter with runtime shape checks. A CRS integer is displayed only as `EPSG:<stored code>`; the formatter does not resolve a CRS definition, infer units from jurisdiction or code, validate a coordinate operation, or transform coordinates. User declarations remain labeled unverified.
+- The change uses the existing project IPC and grants no new capability. Source-specific coordinate contexts, geodetic validation, and coordinate transformations remain out of scope.
+- Updated the international product plan and marked this task brief complete.
+
+Verification:
+- `npm test --workspace @metardu/desktop`:
+  ~~~text
+  Test Files  29 passed | 1 skipped (30)
+       Tests  300 passed | 7 skipped (307)
+  Exit code 0
+  ~~~
+- `npm run build --workspace @metardu/desktop`:
+  ~~~text
+  > @metardu/desktop@0.2.0 build
+  > tsc -p tsconfig.json
+  Exit code 0
+  ~~~
+- `npm run build:renderer`:
+  ~~~text
+  ✓ 2477 modules transformed.
+  ✓ built in 2.91s
+  Exit code 0
+  ~~~
+  Existing browser-compatibility warnings remain for `node:zlib`, `fs`, `path`, and `util` imports in other renderer dependencies.
+- `git diff --check`: Exit code 0; Git emitted only existing Windows LF-to-CRLF notices for the edited product plan and stylesheet.
+
+Evidence limits: Tests exercise all seven coordinate-status cases, including loading, unavailable project state, no project, legacy values, user declarations, malformed declarations, and malformed CRS codes. The Electron application was not launched for a live window check. Builds and tests do not prove geodetic correctness, field usability, statutory acceptance, or survey accuracy; this change only renders project metadata.
+
+Stage Summary:
+- Status-strip implementation is complete locally and passed the checks above. Commit and push evidence will be appended after delivery.
+---
