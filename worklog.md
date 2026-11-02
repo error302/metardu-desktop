@@ -4230,3 +4230,21 @@ Agent: Codex — 2026-11-03
   It matched local `HEAD` at verification time.
 - The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside the implementation commit.
 ---
+
+---
+Task ID: desktop-nmea-absent-observation-semantics — delivery addendum
+Agent: Codex — 2026-11-03
+
+- Commit `38f623abf283d43f1c3477fec8ef863b57748454` (`fix(gnss): preserve absent NMEA observations`) contains the scoped GNSS parser, live serial raw-retention, tests, ADR, brief, and verification entry.
+- Push output:
+  ~~~text
+  To https://github.com/error302/metardu-desktop.git
+     bddb2e4..38f623a  codex/international-desktop-product-plan -> codex/international-desktop-product-plan
+  ~~~
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned:
+  ~~~text
+  38f623abf283d43f1c3477fec8ef863b57748454  refs/heads/codex/international-desktop-product-plan
+  ~~~
+  It matched local `HEAD` at verification time.
+- Only task-owned paths were included in the commit. The earlier staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside it.
+---

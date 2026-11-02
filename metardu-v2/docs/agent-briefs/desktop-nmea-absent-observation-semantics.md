@@ -45,8 +45,8 @@ The `AGENT.md` reference to `upload/METARDU-DESKTOP-MASTER-PLAN.md` is absent in
 - [ ] Default `cargo test` in `packages/metardu-sidecar/` passes; currently blocked before test compilation because this Windows environment lacks `gdal_i.lib`.
 - [x] `cargo build --release --no-default-features --features instrument` and both debug/release `cargo test --no-default-features --features instrument` suites pass.
 - [x] Engine GNSS tests and both package `npx tsc --noEmit` checks pass.
-- [ ] Exact verification output and delivery SHA are appended to the root `worklog.md`.
-- [ ] `git diff --check` passes; only task-owned paths are committed and pushed to the configured METARDU Desktop branch.
+- [x] Exact verification output and delivery SHA are appended to the root `worklog.md`.
+- [x] `git diff --check` passes; only task-owned paths are committed and pushed to the configured METARDU Desktop branch.
 
 ## Anti-hallucination clause
 
