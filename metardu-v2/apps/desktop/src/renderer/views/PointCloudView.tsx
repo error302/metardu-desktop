@@ -246,6 +246,23 @@ function RecordInspectionDetails({ inspection }: { inspection: PointCloudRecordI
         Decoded coordinates after source scale/offset: X {formatHeaderValue(inspection.decodedBounds.min.x)} to {formatHeaderValue(inspection.decodedBounds.max.x)}, Y {formatHeaderValue(inspection.decodedBounds.min.y)} to {formatHeaderValue(inspection.decodedBounds.max.y)}, Z {formatHeaderValue(inspection.decodedBounds.min.z)} to {formatHeaderValue(inspection.decodedBounds.max.z)}.
         {" "}CRS, units, epoch, and vertical reference are not interpreted.
       </div>
+      <div style={{
+        color: inspection.headerBoundsMatchDecodedExtrema === false
+          ? "var(--status-warning, #D97706)"
+          : inspection.headerBoundsMatchDecodedExtrema === true
+            ? "var(--status-success, #22C55E)"
+            : "var(--text-secondary)",
+        fontSize: 11,
+      }}>
+        Header min/max versus decoded extrema: {inspection.headerBoundsMatchDecodedExtrema === undefined
+          ? "not recorded by this older report"
+          : inspection.headerBoundsMatchDecodedExtrema === null
+            ? "inconclusive for this scan"
+            : inspection.headerBoundsMatchDecodedExtrema
+              ? "match"
+              : "mismatch"}.
+        {" "}The comparison allows a small floating-point representation difference; it is not a positional-accuracy check.
+      </div>
       {(BigInt(inspection.invalidReturnMetadataPointCount) > 0n || BigInt(inspection.nonFiniteCoordinatePointCount) > 0n) && (
         <div style={{ color: "var(--status-warning, #D97706)", fontSize: 11 }}>
           Invalid return metadata: {formatCount(inspection.invalidReturnMetadataPointCount)} · Non-finite coordinate records: {formatCount(inspection.nonFiniteCoordinatePointCount)}.

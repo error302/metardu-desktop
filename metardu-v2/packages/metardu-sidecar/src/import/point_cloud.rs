@@ -1937,29 +1937,52 @@ fn inspect_point_records_controlled(
             "max": { "x": null, "y": null, "z": null },
         })
     };
-    let bounds_within_header = if has_finite_bounds
-        && [
-            header_bounds.min.x,
-            header_bounds.min.y,
-            header_bounds.min.z,
-            header_bounds.max.x,
-            header_bounds.max.y,
-            header_bounds.max.z,
-        ]
-        .iter()
-        .all(|value| value.is_finite())
-    {
-        Some(
-            minimum[0] >= header_bounds.min.x
-                && minimum[1] >= header_bounds.min.y
-                && minimum[2] >= header_bounds.min.z
-                && maximum[0] <= header_bounds.max.x
-                && maximum[1] <= header_bounds.max.y
-                && maximum[2] <= header_bounds.max.z,
-        )
-    } else {
-        None
-    };
+    let source_header_extrema = [
+        header_bounds.min.x,
+        header_bounds.min.y,
+        header_bounds.min.z,
+        header_bounds.max.x,
+        header_bounds.max.y,
+        header_bounds.max.z,
+    ];
+    let decoded_extrema = [
+        minimum[0], minimum[1], minimum[2], maximum[0], maximum[1], maximum[2],
+    ];
+    let bounds_within_header =
+        if has_finite_bounds && source_header_extrema.iter().all(|value| value.is_finite()) {
+            Some(
+                less_than_or_equal_with_representation_tolerance(header_bounds.min.x, minimum[0])
+                    && less_than_or_equal_with_representation_tolerance(
+                        header_bounds.min.y,
+                        minimum[1],
+                    )
+                    && less_than_or_equal_with_representation_tolerance(
+                        header_bounds.min.z,
+                        minimum[2],
+                    )
+                    && less_than_or_equal_with_representation_tolerance(
+                        maximum[0],
+                        header_bounds.max.x,
+                    )
+                    && less_than_or_equal_with_representation_tolerance(
+                        maximum[1],
+                        header_bounds.max.y,
+                    )
+                    && less_than_or_equal_with_representation_tolerance(
+                        maximum[2],
+                        header_bounds.max.z,
+                    ),
+            )
+        } else {
+            None
+        };
+    let header_bounds_match_decoded_extrema = decoded_extrema_match_header(
+        header_count_matches,
+        decoded_point_count,
+        non_finite_coordinate_count,
+        source_header_extrema,
+        decoded_extrema,
+    );
 
     let classification_lookup = classification_lookup_from_header(header);
     let classification_counts: Vec<Value> = class_counts
@@ -2054,6 +2077,11 @@ fn inspect_point_records_controlled(
             "One or more decoded coordinates fall outside the header-declared bounds.".into(),
         );
     }
+    if header_bounds_match_decoded_extrema == Some(false) {
+        warnings.push(
+            "Decoded coordinate extrema do not match the LAS header-declared min/max values within the floating-point representation tolerance.".into(),
+        );
+    }
     if !header.point_format().is_extended && class_counts[12] > 0 {
         warnings.push("For LAS 1.4 legacy point formats 0-5, class code 12 means Overlap Points; this class label is not a check of how the producer assigned it.".into());
     }
@@ -2086,10 +2114,52 @@ fn inspect_point_records_controlled(
         "nonFiniteCoordinatePointCount": non_finite_coordinate_count.to_string(),
         "decodedBounds": decoded_bounds,
         "headerBoundsContainDecodedPoints": bounds_within_header,
+        "headerBoundsMatchDecodedExtrema": header_bounds_match_decoded_extrema,
         "fileStructure": file_structure,
         "coordinateInterpretation": "source coordinates after LAS scale/offset; CRS, units, epoch, and vertical reference not interpreted",
         "warnings": warnings,
     }))
+}
+
+fn decoded_extrema_match_header(
+    declared_count_matches: bool,
+    decoded_point_count: u64,
+    non_finite_coordinate_count: u64,
+    header_extrema: [f64; 6],
+    decoded_extrema: [f64; 6],
+) -> Option<bool> {
+    if !declared_count_matches || non_finite_coordinate_count > 0 {
+        return None;
+    }
+    if header_extrema.iter().any(|value| !value.is_finite()) {
+        return None;
+    }
+    if decoded_point_count == 0 {
+        return Some(header_extrema.iter().all(|value| *value == 0.0));
+    }
+    if decoded_extrema.iter().any(|value| !value.is_finite()) {
+        return None;
+    }
+
+    Some(
+        header_extrema
+            .iter()
+            .zip(decoded_extrema.iter())
+            .all(|(header, decoded)| within_float64_representation_tolerance(*header, *decoded)),
+    )
+}
+
+fn less_than_or_equal_with_representation_tolerance(lower: f64, upper: f64) -> bool {
+    lower <= upper || within_float64_representation_tolerance(lower, upper)
+}
+
+fn within_float64_representation_tolerance(left: f64, right: f64) -> bool {
+    if left == right {
+        return true;
+    }
+    let magnitude = left.abs().max(right.abs()).max(1.0);
+    let tolerance = 4.0 * f64::EPSILON * magnitude;
+    (left - right).abs() <= tolerance
 }
 
 fn checked_increment(count: &mut u64, label: &str) -> Result<(), HandlerError> {
@@ -2270,14 +2340,16 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        classification_lookup_from_header, handle_cancel_point_cloud_chunk_stream,
-        handle_cancel_point_cloud_record_inspection, handle_point_cloud_chunk_stream_status,
-        handle_point_cloud_record_inspection_status, handle_read_point_cloud_chunk,
-        handle_start_point_cloud_chunk_stream, handle_start_point_cloud_record_inspection,
-        inspect_header, inspect_point_records, inspect_point_records_controlled,
-        las14_classification_meaning, parse_classification_lookup_data,
+        classification_lookup_from_header, decoded_extrema_match_header,
+        handle_cancel_point_cloud_chunk_stream, handle_cancel_point_cloud_record_inspection,
+        handle_point_cloud_chunk_stream_status, handle_point_cloud_record_inspection_status,
+        handle_read_point_cloud_chunk, handle_start_point_cloud_chunk_stream,
+        handle_start_point_cloud_record_inspection, inspect_header, inspect_point_records,
+        inspect_point_records_controlled, las14_classification_meaning,
+        less_than_or_equal_with_representation_tolerance, parse_classification_lookup_data,
         point_cloud_chunk_stream_jobs, read_bounded_raw_header, record_inspection_jobs,
-        RecordInspectionJob, RecordInspectionJobState, MAX_POINT_CHUNK_POINTS, VLR_HEADER_BYTES,
+        within_float64_representation_tolerance, RecordInspectionJob, RecordInspectionJobState,
+        MAX_POINT_CHUNK_POINTS, VLR_HEADER_BYTES,
     };
     use crate::dispatcher::HandlerError;
 
@@ -2451,6 +2523,12 @@ mod tests {
         bytes.splice(point_data_start..point_data_start, inserted.iter().copied());
         let shifted_start = u32::try_from(point_data_start + inserted.len()).unwrap();
         bytes[96..100].copy_from_slice(&shifted_start.to_le_bytes());
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    fn replace_header_f64(path: &std::path::Path, byte_offset: usize, value: f64) {
+        let mut bytes = std::fs::read(path).unwrap();
+        bytes[byte_offset..byte_offset + 8].copy_from_slice(&value.to_le_bytes());
         std::fs::write(path, bytes).unwrap();
     }
 
@@ -2661,6 +2739,7 @@ mod tests {
         assert_eq!(result["decodedBounds"]["min"]["x"], 500_001.25);
         assert_eq!(result["decodedBounds"]["max"]["z"], 102.0);
         assert_eq!(result["headerBoundsContainDecodedPoints"], true);
+        assert_eq!(result["headerBoundsMatchDecodedExtrema"], true);
         assert_eq!(result["invalidReturnMetadataPointCount"], "0");
         assert_eq!(result["nonFiniteCoordinatePointCount"], "0");
         assert_eq!(result["fileStructure"]["layoutStatus"], "bounded");
@@ -2668,6 +2747,82 @@ mod tests {
         assert_eq!(
             result["fileStructure"]["unclassifiedBytesAfterKnownData"],
             "0"
+        );
+    }
+
+    #[test]
+    fn detects_stale_header_extrema_even_when_they_still_contain_the_decoded_points() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("stale-header-extrema.las");
+        write_fixture(&path, false);
+        // LAS 1.4 header Max X is a coordinate value at byte offset 179.
+        replace_header_f64(&path, 179, 500_004.0);
+        let before = std::fs::read(&path).unwrap();
+
+        let result = inspect_point_records(&path).unwrap();
+
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "inspection must not modify the source file"
+        );
+        assert_eq!(result["headerBoundsContainDecodedPoints"], true);
+        assert_eq!(result["headerBoundsMatchDecodedExtrema"], false);
+        assert!(result["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| {
+                warning
+                    .as_str()
+                    .unwrap()
+                    .contains("do not match the LAS header-declared min/max")
+            }));
+    }
+
+    #[test]
+    fn header_extrema_comparison_uses_only_a_small_binary64_representation_tolerance() {
+        let coordinate = 6_000_000.0_f64;
+        let adjacent = f64::from_bits(coordinate.to_bits() + 1);
+
+        assert!(within_float64_representation_tolerance(
+            coordinate, adjacent
+        ));
+        assert!(!within_float64_representation_tolerance(
+            coordinate,
+            coordinate + 0.01
+        ));
+        assert!(less_than_or_equal_with_representation_tolerance(
+            adjacent, coordinate
+        ));
+    }
+
+    #[test]
+    fn header_extrema_comparison_requires_complete_finite_points_and_zero_empty_bounds() {
+        let empty_bounds = [0.0; 6];
+        let decoded_empty = [
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ];
+        assert_eq!(
+            decoded_extrema_match_header(true, 0, 0, empty_bounds, decoded_empty),
+            Some(true)
+        );
+        assert_eq!(
+            decoded_extrema_match_header(true, 0, 0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0], decoded_empty),
+            Some(false)
+        );
+        assert_eq!(
+            decoded_extrema_match_header(false, 1, 0, [0.0; 6], [0.0; 6]),
+            None
+        );
+        assert_eq!(
+            decoded_extrema_match_header(true, 1, 1, [0.0; 6], [0.0; 6]),
+            None
         );
     }
 

@@ -4323,3 +4323,68 @@ Agent: Codex — 2026-11-03
   This matched local `HEAD` at verification time.
 - The pre-existing deletion of `metardu-v2/frontend/main.tsx` remains staged after the feature commit; unrelated untracked work remains untouched.
 ---
+
+---
+Task ID: desktop-pointcloud-r16-header-extrema
+Agent: Codex — 2026-11-03
+Task: Compare decoded LAS point extrema with source header bounds and correct the stale LiDAR status claim.
+
+Work Log:
+- Added `headerBoundsMatchDecodedExtrema` to record-inspection output. It compares the six LAS header min/max values with decoded coordinates after LAS scale/offset using a four-binary64-epsilon magnitude-scaled representation tolerance; the UI explicitly says this is not positional-accuracy evidence.
+- Kept `headerBoundsContainDecodedPoints` and applies the same representation tolerance to its boundaries. Incomplete point ranges, non-finite coordinates, and non-finite header values produce an inconclusive extrema comparison. Empty complete files match only when all six header extrema equal zero.
+- Added LAS fixture coverage for exact extrema, a stale but still enclosing Max X, one-ULP tolerance, inconclusive scans, empty-file semantics, and source immutability.
+- Updated the international Desktop plan and ADR-0020. Marked `STATUS-AND-REMAINING.md` as a historical snapshot and corrected its unsupported claim that Desktop LiDAR classification/DTM/DSM are complete.
+- The repository's default `cargo build --release` was attempted and failed because this Windows environment lacks `gdal_i.lib`. The supported no-default-features instrument build completed successfully. The engine's first sandboxed test attempt could not connect to its local mock server (`EACCES` on loopback); rerunning the same suite with loopback permission passed all tests.
+
+Verification:
+- `cargo test --release import::point_cloud::tests --no-default-features --features instrument`:
+  ~~~text
+  test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 188 filtered out; finished in 0.21s
+  ~~~
+- `cargo test --release --no-default-features --features instrument`:
+  ~~~text
+  test result: ok. 213 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+  ~~~
+- `cargo build --release --no-default-features --features instrument`:
+  ~~~text
+  warning: `metardu-sidecar` (bin "metardu-sidecar") generated 59 warnings (run `cargo fix --bin "metardu-sidecar" -p metardu-sidecar` to apply 36 suggestions)
+      Finished `release` profile [optimized] target(s) in 6m 19s
+  ~~~
+- `cargo build --release`:
+  ~~~text
+  error: failed to run custom build command for `gdal-sys v0.10.0`
+  thread 'main' (35872) panicked at C:\Users\user\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gdal-sys-0.10.0\build.rs:204:9:
+  windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+  ~~~
+- `npm test --workspace @metardu/desktop`:
+  ~~~text
+  Test Files  30 passed | 1 skipped (31)
+       Tests  306 passed | 7 skipped (313)
+  ~~~
+- `npm run build --workspace @metardu/desktop`:
+  ~~~text
+  > @metardu/desktop@0.2.0 build
+  > tsc -p tsconfig.json
+  ~~~
+- `npx tsc --noEmit` in `apps/desktop/` and `packages/engine/`: both exited 0 with no output.
+- `npm test` in `packages/engine/`:
+  ~~~text
+  Test Files  45 passed (45)
+       Tests  876 passed (876)
+  ~~~
+- `npm run build:renderer`:
+  ~~~text
+  ✓ 2477 modules transformed.
+  ✓ built in 3.04s
+  ~~~
+  Existing warnings remain for browser externalization of `node:zlib`, `fs`, `path`, and `util` imports.
+- `git diff --check`: exit 0; only the repository's Windows LF-to-CRLF notices were emitted.
+
+Evidence limits:
+- The default GDAL-enabled release build remains unverified on this machine because its required import library is absent; the no-GDAL release build and full no-GDAL Rust suite pass.
+- No live Electron window or independent LAS producer interoperability test was run. This report checks source-header consistency only; it does not verify CRS, units, epoch, positional accuracy, classification, or whole-file LAS/LAZ conformance.
+- The LiDAR classification workflow remains unavailable; only the historical status claim was corrected.
+
+Stage Summary:
+- The R16 header-extrema comparison is implemented and locally verified. The product's next LiDAR gate remains full structure/conformance review, then a named classifier and separate derived LAS/LAZ writer. Task-owned commit and push evidence will be appended after delivery; unrelated staged and untracked work remains outside this task.
+---

@@ -89,6 +89,8 @@ export interface PointCloudRecordInspection {
     max: Record<"x" | "y" | "z", number | null>;
   };
   headerBoundsContainDecodedPoints: boolean | null;
+  /** Optional because saved reports from earlier versions predate extrema comparison. */
+  headerBoundsMatchDecodedExtrema?: boolean | null;
   /** Optional because persisted reports from earlier versions predate byte-layout checks. */
   fileStructure?: PointCloudFileStructureInspection;
   coordinateInterpretation: string;
