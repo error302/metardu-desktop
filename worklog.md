@@ -4393,3 +4393,8 @@ Delivery Addendum:
 - Commit `a0f9020ef071b823eec9b8915c8a3a1ff106802c` (`fix(point-cloud): verify LAS header extrema`) contains only the eight task-owned implementation, UI contract, plan, status correction, ADR, brief, and worklog paths.
 - The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` was excluded with a path-scoped commit. Other untracked work remains untouched.
 - Remote push and GitHub branch-tip verification will be recorded after delivery.
+
+Push Verification Addendum:
+- Push completed to `https://github.com/error302/metardu-desktop.git`: `7c5edcc..fe7c949 HEAD -> codex/international-desktop-product-plan`.
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `fe7c949a804c3fa43c190c89e617bb19243573c4`, matching local `HEAD` at verification time.
+- The pre-existing staged deletion and unrelated untracked files remain outside the task commits.
