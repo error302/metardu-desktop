@@ -4150,3 +4150,21 @@ Evidence limits: Tests exercise all seven coordinate-status cases, including loa
 Stage Summary:
 - Status-strip implementation is complete locally and passed the checks above. Commit and push evidence will be appended after delivery.
 ---
+
+---
+Task ID: desktop-active-project-coordinate-status — delivery addendum
+Agent: Codex — 2026-11-03
+
+- Commit `c3757b2ac7acc42d7a53a1dafed5daeb8358c5a0` (`feat(projects): show coordinate context in shell`) contains only the eight task-owned implementation, test, plan, decision, brief, and worklog paths.
+- Push output:
+  ~~~text
+  To https://github.com/error302/metardu-desktop.git
+     08e00a7..c3757b2  codex/international-desktop-product-plan -> codex/international-desktop-product-plan
+  ~~~
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned:
+  ~~~text
+  c3757b2ac7acc42d7a53a1dafed5daeb8358c5a0  refs/heads/codex/international-desktop-product-plan
+  ~~~
+  It matched local `HEAD` at verification time.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside the implementation commit.
+---
