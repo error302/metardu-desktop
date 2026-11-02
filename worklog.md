@@ -4027,6 +4027,68 @@ Agent: Codex — 2026-11-01
 ---
 
 ---
+Task ID: desktop-nmea-absent-observation-semantics
+Agent: Codex — 2026-11-03
+Task: Preserve missing GNSS measurements, reject malformed typed observations, and retain rejected GGA/GSA serial evidence.
+
+Work Log:
+- Changed the Rust sidecar parser and both TypeScript GNSS parser copies to represent absent GGA/GSA measurements as `None`/`null`, preserve explicit numeric zeros, keep altitude and geoid fields separate from their receiver-provided unit tokens, and reject malformed or out-of-range values.
+- Kept quality metrics unavailable when required receiver DOP/fix values are missing. A `no_fix` assessment is produced only from an explicit GGA fix-quality code of `0`; a missing DOP no longer creates a synthetic `99` or accuracy estimate.
+- Changed the live serial reader to retain rejected GGA/GSA inputs as `nmea_rejected` raw records without parsed coordinates or quality values. Typed NMEA parsing still rejects invalid checksums and invalid fields.
+- Added tests for missing/zero/malformed values, coordinate validation, strict integer syntax, non-ASCII talker safety, and rejected raw serial retention. The two TypeScript parser copies have matching SHA-256 hashes.
+- Did not add CRS inference, height conversion, or survey-accuracy claims. Kept the pre-existing staged deletion and unrelated untracked paths outside this task.
+
+Verification:
+- Focused engine GNSS tests:
+  ~~~text
+  Test Files  2 passed (2)
+       Tests  92 passed (92)
+  Exit code 0
+  ~~~
+- Full engine suite with loopback enabled for its local sync mock server:
+  ~~~text
+  Test Files  45 passed (45)
+       Tests  876 passed (876)
+  Exit code 0
+  ~~~
+- Engine and Desktop `npx tsc --noEmit`: both exit code 0.
+- Sidecar instrument feature suite:
+  ~~~text
+  test result: ok. 210 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+  Exit code 0
+  ~~~
+- Default sidecar `cargo test` stops before test compilation because `gdal-sys` cannot find `gdal_i.lib` under `$GDAL_LIB_DIR` or `$GDAL_HOME\lib`. The instrument-feature suite above compiles and passes without the GDAL feature.
+- The first full engine suite attempt failed its 15 localhost sync tests with `connect EACCES 127.0.0.1`; rerunning the same `npm test` command with loopback access passed all 876 tests. No external service was contacted.
+- `git diff --check`: exit code 0; Windows line-ending notice only.
+- A fresh instrument-feature release build was still running at this entry; its final output is recorded in the verification addendum.
+
+Evidence limits: Type-level and fixture tests do not establish interoperability with a live receiver or field accuracy. Rejected records preserve the received line for review but do not explain which parser/checksum condition failed. The default-feature Rust test/build gate remains constrained by the missing GDAL Windows import library.
+
+Stage Summary:
+- Source and focused verification are complete locally. Commit and Desktop-branch push evidence will be appended after delivery.
+---
+
+---
+Task ID: desktop-nmea-absent-observation-semantics — verification addendum
+Agent: Codex — 2026-11-03
+
+- Fresh instrument-feature release build:
+  ~~~text
+  warning: `metardu-sidecar` (bin "metardu-sidecar") generated 59 warnings
+  Finished `release` profile [optimized] target(s) in 5m 35s
+  Exit code 0
+  ~~~
+- Optimized instrument-feature sidecar suite:
+  ~~~text
+  Finished `release` profile [optimized] target(s) in 7m 14s
+  test result: ok. 210 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+  Exit code 0
+  ~~~
+- These feature-specific release checks do not remove the default-feature test limitation: Windows `gdal-sys` requires `gdal_i.lib`, which is not available in this environment.
+- The 59/56 compiler warning counts are existing broader sidecar warnings; this task does not alter unrelated warning sources.
+---
+
+---
 Task ID: desktop-project-coordinate-declarations
 Agent: Codex — 2026-11-01
 Task: Persist user-declared coordinate units, epoch, and vertical reference on Desktop projects.
