@@ -4305,3 +4305,21 @@ Evidence limits:
 Stage Summary:
 - Source-specific coordinate declarations are implemented and locally verified. Only task-owned paths will be committed. Commit/push proof will be appended after delivery; the pre-existing staged deletion and unrelated untracked work remain outside this task.
 ---
+
+---
+Task ID: desktop-pointcloud-source-coordinate-context — delivery addendum
+Agent: Codex — 2026-11-03
+
+- Commit `257229cbecf4df422dc660f1bed7f600ed68bd8e` (`feat(point-cloud): declare source coordinate context`) contains the 16 task-owned implementation, test, plan, ADR, brief, and worklog paths. The pre-existing staged deletion is excluded.
+- Push output:
+  ~~~text
+  To https://github.com/error302/metardu-desktop.git
+     edb0b23..257229c  codex/international-desktop-product-plan -> codex/international-desktop-product-plan
+  ~~~
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned:
+  ~~~text
+  257229cbecf4df422dc660f1bed7f600ed68bd8e  refs/heads/codex/international-desktop-product-plan
+  ~~~
+  This matched local `HEAD` at verification time.
+- The pre-existing deletion of `metardu-v2/frontend/main.tsx` remains staged after the feature commit; unrelated untracked work remains untouched.
+---
