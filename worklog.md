@@ -4388,3 +4388,8 @@ Evidence limits:
 Stage Summary:
 - The R16 header-extrema comparison is implemented and locally verified. The product's next LiDAR gate remains full structure/conformance review, then a named classifier and separate derived LAS/LAZ writer. Task-owned commit and push evidence will be appended after delivery; unrelated staged and untracked work remains outside this task.
 ---
+
+Delivery Addendum:
+- Commit `a0f9020ef071b823eec9b8915c8a3a1ff106802c` (`fix(point-cloud): verify LAS header extrema`) contains only the eight task-owned implementation, UI contract, plan, status correction, ADR, brief, and worklog paths.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` was excluded with a path-scoped commit. Other untracked work remains untouched.
+- Remote push and GitHub branch-tip verification will be recorded after delivery.
