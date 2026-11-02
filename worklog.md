@@ -4248,3 +4248,60 @@ Agent: Codex — 2026-11-03
   It matched local `HEAD` at verification time.
 - Only task-owned paths were included in the commit. The earlier staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside it.
 ---
+
+---
+Task ID: desktop-pointcloud-source-coordinate-context
+Agent: Codex — 2026-11-03
+Task: Record explicit coordinate context separately for each LAS/LAZ source.
+
+Work Log:
+- Added schema version 6 with a nullable source coordinate declaration. Existing v5 sources migrate with no inferred declaration and keep their source metadata unchanged.
+- Added validated, active-project-scoped save/clear IPC for a free-text horizontal CRS label, horizontal unit, optional coordinate epoch, and optional named vertical reference with unit.
+- Added Point Cloud controls that distinguish missing, invalid, and saved declarations. Every saved declaration is visibly user-declared and unverified; no values are copied from the project or interpreted from LAS WKT.
+- Invalid JSON or schema values are retained in SQLite and summarized as invalid without exposing partial values to the renderer. Explicit replacement or clear is required to overwrite them.
+- Updated ADR-0019 and the international product plan. Source declarations remain local metadata; source-context edit history, Web sync, backup bundles, CRS operations, and classification remain future gates.
+- The first full Desktop test run found one test still expecting database schema v5. Updated the migration assertion and added a direct v5 source-table migration test; the rerun passed.
+
+Verification:
+- `npm run build --workspace @metardu/ipc-schemas`:
+  ~~~text
+  > @metardu/ipc-schemas@0.1.0 build
+  > tsc -p tsconfig.json
+  Exit code 0
+  ~~~
+- `npm test --workspace @metardu/ipc-schemas`:
+  ~~~text
+  Test Files  5 passed (5)
+       Tests  47 passed (47)
+  Exit code 0
+  ~~~
+- `npm test --workspace @metardu/desktop`:
+  ~~~text
+  Test Files  30 passed | 1 skipped (31)
+       Tests  306 passed | 7 skipped (313)
+  Exit code 0
+  ~~~
+- `npm run build --workspace @metardu/desktop`:
+  ~~~text
+  > @metardu/desktop@0.2.0 build
+  > tsc -p tsconfig.json
+  Exit code 0
+  ~~~
+- `npm run build:renderer`:
+  ~~~text
+  > metardu-v2@0.2.0 build:renderer
+  > vite build
+  ✓ built in 3.07s
+  Exit code 0
+  ~~~
+  Existing browser-compatibility externalization warnings remain for Node modules including `node:zlib`, `fs`, and `path`.
+- `git diff --check`: exit 0, no whitespace diagnostics; Git emitted only existing LF-to-CRLF notices.
+
+Evidence limits:
+- These tests establish schema validation, SQLite migration/persistence, active-project source scope, and UI compilation. They do not establish CRS correctness, coordinate operations, vertical datum validity, survey accuracy, or safe classification parameters.
+- The Desktop application was not launched for a live UI check. Source-context changes are not yet versioned in an audit history and are not in a portable project bundle or Web sync.
+- LiDAR classification and derived point-cloud output remain unavailable for professional delivery. Complete LAS/LAZ conformance and independent surveyor validation remain required.
+
+Stage Summary:
+- Source-specific coordinate declarations are implemented and locally verified. Only task-owned paths will be committed. Commit/push proof will be appended after delivery; the pre-existing staged deletion and unrelated untracked work remain outside this task.
+---

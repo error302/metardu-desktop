@@ -63,6 +63,7 @@ export type {
   ProjectVerticalReference,
 } from "./namespaces/project-coordinate-context.js";
 export {
+  POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA,
   POINT_CLOUD_CHUNK_MAX_POINTS,
   POINT_CLOUD_CHUNK_POINT_SCHEMA,
   POINT_CLOUD_CHUNK_STREAM_ID_SCHEMA,
@@ -79,8 +80,11 @@ export {
   POINT_CLOUD_PREVIEW_START_RESULT_SCHEMA,
   POINT_CLOUD_PREVIEW_STATUS_SCHEMA,
   POINT_CLOUD_SOURCE_ID_SCHEMA,
+  POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA,
+  POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA,
 } from "./namespaces/point-cloud.js";
 export type {
+  PointCloudCoordinateContext,
   PointCloudChunkPoint,
   PointCloudChunkStreamMetadata,
   PointCloudChunkStreamRead,
@@ -90,6 +94,8 @@ export type {
   PointCloudPreviewResult,
   PointCloudPreviewStartResult,
   PointCloudPreviewStatus,
+  PointCloudSetSourceCoordinateContextInput,
+  PointCloudSetSourceCoordinateContextResult,
 } from "./namespaces/point-cloud.js";
 
 // ─── Aggregate registry ────────────────────────────────────────────

@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  PROJECT_HORIZONTAL_UNIT_SCHEMA,
+  PROJECT_VERTICAL_REFERENCE_SCHEMA,
+} from "./project-coordinate-context.js";
 
 /** Opaque project source identifiers accepted by point-cloud IPC routes. */
 export const POINT_CLOUD_SOURCE_ID_SCHEMA = z.string().uuid();
@@ -11,6 +15,29 @@ export const POINT_CLOUD_CHUNK_STREAM_ID_SCHEMA = z.string().uuid();
 
 /** Host-issued job ID for a bounded, read-only point-cloud viewport sample. */
 export const POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA = z.string().uuid();
+
+/**
+ * A user-entered declaration for one source. It is metadata, not CRS
+ * interpretation or proof that the source actually uses the declared context.
+ */
+export const POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA = z.object({
+  schemaVersion: z.literal(1),
+  horizontalCrsLabel: z.string().trim().min(1).max(256).nullable(),
+  horizontalUnit: PROJECT_HORIZONTAL_UNIT_SCHEMA,
+  coordinateEpoch: z.number().finite().positive().nullable(),
+  verticalReference: PROJECT_VERTICAL_REFERENCE_SCHEMA.nullable(),
+  evidenceStatus: z.literal("user_declared_unverified"),
+}).strict();
+
+export const POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA = z.object({
+  sourceId: POINT_CLOUD_SOURCE_ID_SCHEMA,
+  coordinateContext: POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA.nullable(),
+}).strict();
+
+export const POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA = z.object({
+  sourceId: POINT_CLOUD_SOURCE_ID_SCHEMA,
+  coordinateContext: POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA.nullable(),
+}).strict();
 
 export const POINT_CLOUD_CHUNK_MAX_POINTS = 2_048;
 export const POINT_CLOUD_PREVIEW_MAX_POINTS = 25_000;
@@ -204,3 +231,6 @@ export type PointCloudPreviewPoint = z.infer<typeof POINT_CLOUD_PREVIEW_POINT_SC
 export type PointCloudPreviewResult = z.infer<typeof POINT_CLOUD_PREVIEW_RESULT_SCHEMA>;
 export type PointCloudPreviewStartResult = z.infer<typeof POINT_CLOUD_PREVIEW_START_RESULT_SCHEMA>;
 export type PointCloudPreviewStatus = z.infer<typeof POINT_CLOUD_PREVIEW_STATUS_SCHEMA>;
+export type PointCloudCoordinateContext = z.infer<typeof POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA>;
+export type PointCloudSetSourceCoordinateContextInput = z.infer<typeof POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA>;
+export type PointCloudSetSourceCoordinateContextResult = z.infer<typeof POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA>;

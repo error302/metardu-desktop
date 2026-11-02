@@ -40,6 +40,7 @@ import {
   getDatabase,
   getProject,
   listProjectPointCloudSources,
+  setPointCloudSourceCoordinateContext,
   type StoredPointCloudSource,
 } from "./database.js";
 import {
@@ -63,6 +64,8 @@ import {
   POINT_CLOUD_PREVIEW_START_INPUT_SCHEMA,
   POINT_CLOUD_PREVIEW_STATUS_SCHEMA,
   POINT_CLOUD_SOURCE_ID_SCHEMA,
+  POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA,
+  POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA,
   type PluginRunInput,
 } from "@metardu/ipc-schemas";
 import {
@@ -71,6 +74,7 @@ import {
 } from "./point-cloud-inspection.js";
 import { PointCloudChunkStreamController } from "./point-cloud-chunks.js";
 import { PointCloudPreviewController } from "./point-cloud-preview.js";
+import { parsePointCloudCoordinateContext } from "./point-cloud-coordinate-context.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -128,6 +132,7 @@ function pointCloudSourceSummary(
   storageStatus: PointCloudSourceSummary["storageStatus"] = "notChecked",
   recordInspection?: PointCloudRecordInspection | null,
 ): PointCloudSourceSummary {
+  const coordinateContextState = parsePointCloudCoordinateContext(source.coordinateContextJson);
   const persistedInspection = source.latestRecordInspectionJson
     ? JSON.parse(source.latestRecordInspectionJson) as Omit<PointCloudRecordInspection, "id" | "sourceSha256" | "inspectedAt">
     : null;
@@ -151,6 +156,7 @@ function pointCloudSourceSummary(
     format: source.format,
     importedAt: source.importedAt,
     storageStatus,
+    ...coordinateContextState,
     header: JSON.parse(source.headerJson) as PointCloudHeaderDetails,
     recordInspection: latestRecordInspection,
   };
@@ -559,6 +565,26 @@ function registerIpcHandlers(): void {
       activeProjectName: project.name,
       sources: listProjectPointCloudSources(database, project.id).map((source) => pointCloudSourceSummary(source)),
     };
+  });
+
+  ipcMain.handle("metardu:pointcloud:setActiveProjectSourceCoordinateContext", (_event, input: unknown) => {
+    const parsed = POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid point-cloud coordinate declaration.");
+    const database = getDatabase();
+    const projectId = getActiveProjectId(database);
+    if (!projectId) throw new Error("Activate a survey project before editing source coordinate context.");
+    const source = setPointCloudSourceCoordinateContext(
+      database,
+      projectId,
+      parsed.data.sourceId,
+      parsed.data.coordinateContext,
+    );
+    const result = POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA.safeParse({
+      sourceId: source.id,
+      coordinateContext: parsed.data.coordinateContext,
+    });
+    if (!result.success) throw new Error("Point-cloud coordinate declaration could not be validated.");
+    return result.data;
   });
 
   ipcMain.handle("metardu:pointcloud:startActiveProjectPreview", async (_event, input: unknown) => {

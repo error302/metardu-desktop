@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, FileInput, Layers3, Ruler, ShieldCheck } from "lucide-react";
 import { PointCloudPreviewCanvas } from "../components/PointCloudPreviewCanvas.js";
 import type {
+  PointCloudCoordinateContext,
   PointCloudHeaderDetails,
   PointCloudRecordInspectionJobStatus,
   PointCloudRecordInspection,
@@ -270,6 +271,154 @@ function integrityStatusLabel(status: PointCloudSourceIntegrityStatus): string {
   }
 }
 
+function horizontalUnitLabel(unit: PointCloudCoordinateContext["horizontalUnit"]): string {
+  switch (unit) {
+    case "metre": return "metre";
+    case "international_foot": return "international foot";
+    case "us_survey_foot": return "US survey foot";
+    case "degree": return "degree";
+    case "unknown": return "unknown";
+  }
+}
+
+function SourceCoordinateContextEditor({
+  source,
+  saving,
+  onSave,
+}: {
+  source: PointCloudSourceSummary;
+  saving: boolean;
+  onSave: (context: PointCloudCoordinateContext | null) => Promise<void>;
+}): React.ReactElement {
+  const [horizontalCrsLabel, setHorizontalCrsLabel] = useState("");
+  const [horizontalUnit, setHorizontalUnit] = useState<PointCloudCoordinateContext["horizontalUnit"]>("unknown");
+  const [coordinateEpoch, setCoordinateEpoch] = useState("");
+  const [verticalKind, setVerticalKind] = useState<"" | NonNullable<PointCloudCoordinateContext["verticalReference"]>["kind"]>("");
+  const [verticalName, setVerticalName] = useState("");
+  const [verticalUnit, setVerticalUnit] = useState<NonNullable<PointCloudCoordinateContext["verticalReference"]>["unit"]>("unknown");
+  const [formError, setFormError] = useState<string | null>(null);
+  const context = source.coordinateContext;
+
+  useEffect(() => {
+    setHorizontalCrsLabel(context?.horizontalCrsLabel ?? "");
+    setHorizontalUnit(context?.horizontalUnit ?? "unknown");
+    setCoordinateEpoch(context?.coordinateEpoch === null || context?.coordinateEpoch === undefined ? "" : String(context.coordinateEpoch));
+    setVerticalKind(context?.verticalReference?.kind ?? "");
+    setVerticalName(context?.verticalReference?.name ?? "");
+    setVerticalUnit(context?.verticalReference?.unit ?? "unknown");
+    setFormError(null);
+  }, [source.id, context]);
+
+  const save = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormError(null);
+    const epochText = coordinateEpoch.trim();
+    const epoch = epochText ? Number(epochText) : null;
+    if (epoch !== null && (!Number.isFinite(epoch) || epoch <= 0)) {
+      setFormError("Coordinate epoch must be a positive decimal year or left blank.");
+      return;
+    }
+    const name = verticalName.trim();
+    if ((verticalKind && !name) || (!verticalKind && name)) {
+      setFormError("Choose a vertical reference type and enter its exact name, or leave both blank.");
+      return;
+    }
+    await onSave({
+      schemaVersion: 1,
+      horizontalCrsLabel: horizontalCrsLabel.trim() || null,
+      horizontalUnit,
+      coordinateEpoch: epoch,
+      verticalReference: verticalKind
+        ? { kind: verticalKind, name, unit: verticalUnit }
+        : null,
+      evidenceStatus: "user_declared_unverified",
+    });
+  };
+
+  const clear = async () => {
+    setFormError(null);
+    await onSave(null);
+  };
+
+  return (
+    <details style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 9 }}>
+      <summary style={{ cursor: "pointer", color: "var(--accent-primary)", fontSize: 11 }}>
+        Source coordinate context: {source.coordinateContextStatus === "invalid"
+          ? "invalid stored declaration"
+          : context ? "user-declared · unverified" : "not declared"}
+      </summary>
+      <div style={{ display: "flex", flexDirection: "column", gap: 9, paddingTop: 10, color: "var(--text-secondary)", fontSize: 11, lineHeight: 1.5 }}>
+        <p style={{ margin: 0 }}>
+          Declare this file's context separately from the project. METARDU does not copy values from the project or interpret the LAS CRS record here. This declaration does not validate or transform coordinates and does not enable classification.
+        </p>
+        {source.coordinateContextStatus === "invalid" && (
+          <div role="status" style={{ padding: 8, borderLeft: "2px solid var(--status-warning, #D97706)" }}>
+            The saved declaration is invalid and its stored value has been preserved. Save a replacement or clear it; no partial values are being shown.
+          </div>
+        )}
+        {context && source.coordinateContextStatus !== "invalid" && (
+          <div>
+            Stored declaration: {context.horizontalCrsLabel ?? "horizontal CRS not recorded"} · {horizontalUnitLabel(context.horizontalUnit)}
+            {context.coordinateEpoch !== null && ` · epoch ${context.coordinateEpoch}`}
+            {context.verticalReference && ` · ${context.verticalReference.kind}: ${context.verticalReference.name} (${context.verticalReference.unit})`}
+            {" · "}{context.evidenceStatus.replaceAll("_", " ")}.
+          </div>
+        )}
+        <form onSubmit={(event) => { void save(event); }} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 8, alignItems: "end" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            Horizontal CRS label or identifier
+            <input value={horizontalCrsLabel} maxLength={256} onChange={(event) => setHorizontalCrsLabel(event.target.value)} placeholder="EPSG code or local grid name" />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            Horizontal coordinate unit
+            <select value={horizontalUnit} onChange={(event) => setHorizontalUnit(event.target.value as PointCloudCoordinateContext["horizontalUnit"])}>
+              <option value="unknown">Unknown / not declared</option>
+              <option value="metre">Metre</option>
+              <option value="international_foot">International foot</option>
+              <option value="us_survey_foot">US survey foot</option>
+              <option value="degree">Degree</option>
+            </select>
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            Coordinate epoch (decimal year)
+            <input inputMode="decimal" value={coordinateEpoch} onChange={(event) => setCoordinateEpoch(event.target.value)} placeholder="Optional" />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            Vertical reference type
+            <select value={verticalKind} onChange={(event) => setVerticalKind(event.target.value as typeof verticalKind)}>
+              <option value="">Not declared</option>
+              <option value="ellipsoidal">Ellipsoidal</option>
+              <option value="orthometric">Orthometric</option>
+              <option value="local">Local</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            Exact vertical reference name
+            <input value={verticalName} maxLength={200} onChange={(event) => setVerticalName(event.target.value)} placeholder="Optional" />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            Vertical unit
+            <select value={verticalUnit} onChange={(event) => setVerticalUnit(event.target.value as NonNullable<PointCloudCoordinateContext["verticalReference"]>["unit"])}>
+              <option value="unknown">Unknown</option>
+              <option value="metre">Metre</option>
+              <option value="international_foot">International foot</option>
+              <option value="us_survey_foot">US survey foot</option>
+            </select>
+          </label>
+          <div style={{ gridColumn: "1 / -1", display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="submit" disabled={saving}>{saving ? "Saving…" : "Save source declaration"}</button>
+            <button type="button" onClick={() => { void clear(); }} disabled={saving || (!context && source.coordinateContextStatus !== "invalid")}>
+              Clear declaration
+            </button>
+          </div>
+        </form>
+        {formError && <div role="alert" style={{ color: "var(--status-error, #EF4444)" }}>{formError}</div>}
+      </div>
+    </details>
+  );
+}
+
 function SourceCard({
   source,
   storageStatus,
@@ -281,6 +430,8 @@ function SourceCard({
   previewing,
   previewBusy,
   onPreview,
+  savingContext,
+  onSaveContext,
 }: {
   source: PointCloudSourceSummary;
   storageStatus: PointCloudSourceIntegrityStatus;
@@ -292,6 +443,8 @@ function SourceCard({
   previewing: boolean;
   previewBusy: boolean;
   onPreview: () => void;
+  savingContext: boolean;
+  onSaveContext: (context: PointCloudCoordinateContext | null) => Promise<void>;
 }): React.ReactElement {
   return (
     <article style={{ display: "flex", flexDirection: "column", gap: 11, padding: 12, background: "var(--bg-primary)", border: "1px solid var(--border-subtle)", borderRadius: 4 }}>
@@ -314,6 +467,7 @@ function SourceCard({
           {previewing ? "Building point preview…" : "Open class-colored preview"}
         </button>
       </div>
+      <SourceCoordinateContextEditor source={source} saving={savingContext} onSave={onSaveContext} />
       {source.recordInspection && (
         <>
           {storageStatus !== "verified" && (
@@ -342,6 +496,7 @@ export const PointCloudView: React.FC = () => {
   const [sources, setSources] = useState<PointCloudSourceSummary[]>([]);
   const [verificationBySourceId, setVerificationBySourceId] = useState<Record<string, PointCloudSourceIntegrityStatus>>({});
   const [verifyingSourceId, setVerifyingSourceId] = useState<string | null>(null);
+  const [savingContextSourceId, setSavingContextSourceId] = useState<string | null>(null);
   const [loadingSources, setLoadingSources] = useState(true);
   const [busy, setBusy] = useState(false);
   const [inspectionJob, setInspectionJob] = useState<{
@@ -533,6 +688,31 @@ export const PointCloudView: React.FC = () => {
     }
   };
 
+  const saveSourceCoordinateContext = async (
+    sourceId: string,
+    coordinateContext: PointCloudCoordinateContext | null,
+  ) => {
+    setSavingContextSourceId(sourceId);
+    setError(null);
+    try {
+      const result = await window.metardu.pointCloud.setSourceCoordinateContext(sourceId, coordinateContext);
+      setSources((current) => current.map((source) => source.id === result.sourceId
+        ? {
+            ...source,
+            coordinateContext: result.coordinateContext ?? undefined,
+            coordinateContextStatus: undefined,
+          }
+        : source));
+      setNotice(result.coordinateContext
+        ? `Saved the user-declared, unverified coordinate context for ${sources.find((source) => source.id === sourceId)?.fileName ?? "the source"}.`
+        : "Cleared the source coordinate declaration.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSavingContextSourceId(null);
+    }
+  };
+
   const inspectSourceRecords = async (sourceId: string) => {
     setError(null);
     setNotice(null);
@@ -714,6 +894,8 @@ export const PointCloudView: React.FC = () => {
                 previewing={previewingSourceId === source.id}
                 previewBusy={previewingSourceId !== null}
                 onPreview={() => { void startPreview(source.id); }}
+                savingContext={savingContextSourceId === source.id}
+                onSaveContext={(context) => saveSourceCoordinateContext(source.id, context)}
               />
             ))}
           </div>

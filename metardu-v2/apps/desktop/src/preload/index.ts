@@ -19,12 +19,14 @@ import type { Form3Input, SyncConfig, SyncProject, SyncStatus, SyncConflict, For
 import type { StoredProject, ProjectStoreState, CreateProjectInput, UpdateProjectInput } from "../main/project-store-core.js";
 import type {
   PointCloudImportResult,
+  PointCloudCoordinateContext,
   PointCloudProjectSourceList,
   PointCloudRecordInspectionJobStart,
   PointCloudRecordInspectionJobStatus,
   PointCloudPreviewStartResult,
   PointCloudPreviewStatus,
   PointCloudSourceVerification,
+  PointCloudSetSourceCoordinateContextResult,
 } from "../shared/point-cloud.js";
 import {
   PLUGIN_RUN_INPUT_SCHEMA,
@@ -32,6 +34,8 @@ import {
   POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA,
   POINT_CLOUD_PREVIEW_START_INPUT_SCHEMA,
   POINT_CLOUD_SOURCE_ID_SCHEMA,
+  POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA,
+  POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA,
   validateSidecarParams,
 } from "@metardu/ipc-schemas";
 
@@ -214,6 +218,24 @@ const metarduApi = {
       ipcRenderer.invoke("metardu:pointcloud:importToActiveProject"),
     listActiveProjectSources: (): Promise<PointCloudProjectSourceList> =>
       ipcRenderer.invoke("metardu:pointcloud:listActiveProjectSources"),
+    setSourceCoordinateContext: (
+      sourceId: string,
+      coordinateContext: PointCloudCoordinateContext | null,
+    ): Promise<PointCloudSetSourceCoordinateContextResult> => {
+      const parsed = POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA.safeParse({
+        sourceId: requirePointCloudSourceId(sourceId),
+        coordinateContext,
+      });
+      if (!parsed.success) throw new Error("Invalid point-cloud coordinate declaration.");
+      return ipcRenderer.invoke(
+        "metardu:pointcloud:setActiveProjectSourceCoordinateContext",
+        parsed.data,
+      ).then((result: unknown) => {
+        const validated = POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA.safeParse(result);
+        if (!validated.success) throw new Error("Main process returned an invalid point-cloud coordinate declaration.");
+        return validated.data;
+      });
+    },
     verifySource: (sourceId: string): Promise<PointCloudSourceVerification> =>
       ipcRenderer.invoke("metardu:pointcloud:verifyActiveProjectSource", requirePointCloudSourceId(sourceId)),
     startRecordInspection: (sourceId: string): Promise<PointCloudRecordInspectionJobStart> =>

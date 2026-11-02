@@ -1,15 +1,19 @@
 import type {
+  PointCloudCoordinateContext,
   PointCloudPreviewPoint,
   PointCloudPreviewResult,
   PointCloudPreviewStartResult,
   PointCloudPreviewStatus,
+  PointCloudSetSourceCoordinateContextResult,
 } from "@metardu/ipc-schemas";
 
 export type {
+  PointCloudCoordinateContext,
   PointCloudPreviewPoint,
   PointCloudPreviewResult,
   PointCloudPreviewStartResult,
   PointCloudPreviewStatus,
+  PointCloudSetSourceCoordinateContextResult,
 };
 
 export interface PointCloudHeaderDetails {
@@ -36,6 +40,9 @@ export interface PointCloudSourceSummary {
   format: "LAS" | "LAZ";
   importedAt: string;
   storageStatus: PointCloudSourceIntegrityStatus;
+  coordinateContext?: PointCloudCoordinateContext;
+  /** Raw persisted declaration is present but does not satisfy the current schema. */
+  coordinateContextStatus?: "invalid";
   header: PointCloudHeaderDetails;
   recordInspection: PointCloudRecordInspection | null;
 }

@@ -27,7 +27,9 @@
 import Database from "better-sqlite3";
 import type BetterSqlite3 from "better-sqlite3";
 import {
+  POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA,
   PROJECT_COORDINATE_CONTEXT_SCHEMA,
+  type PointCloudCoordinateContext,
   type ProjectCoordinateContext,
 } from "@metardu/ipc-schemas";
 import * as fs from "node:fs";
@@ -112,6 +114,7 @@ export interface StoredPointCloudSource {
   sourceExtension: "las" | "laz";
   format: "LAS" | "LAZ";
   headerJson: string;
+  coordinateContextJson?: string | null;
   importedAt: string;
   latestRecordInspectionJson?: string | null;
   latestRecordInspectionId?: string | null;
@@ -149,7 +152,7 @@ export interface StoredPointCloudInspection {
 
 // ─── Schema ──────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const POINT_CLOUD_SOURCE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS point_cloud_sources (
@@ -162,6 +165,7 @@ const POINT_CLOUD_SOURCE_SCHEMA_SQL = `
     sourceExtension TEXT NOT NULL CHECK (sourceExtension IN ('las', 'laz')),
     format         TEXT NOT NULL CHECK (format IN ('LAS', 'LAZ')),
     headerJson     TEXT NOT NULL,
+    coordinateContext TEXT,
     importedAt     TEXT NOT NULL,
     FOREIGN KEY (projectId) REFERENCES projects(id) ON DELETE SET NULL,
     UNIQUE (projectId, storageKey)
@@ -336,6 +340,16 @@ export function migrateDatabase(database: BetterSqlite3.Database): void {
       database.prepare("UPDATE schema_version SET version = ?").run(5);
     })();
   }
+
+  if (current < 6) {
+    database.transaction(() => {
+      const sourceColumns = database.prepare("PRAGMA table_info(point_cloud_sources)").all() as Array<{ name: string }>;
+      if (sourceColumns.length > 0 && !sourceColumns.some((column) => column.name === "coordinateContext")) {
+        database.exec("ALTER TABLE point_cloud_sources ADD COLUMN coordinateContext TEXT");
+      }
+      database.prepare("UPDATE schema_version SET version = ?").run(6);
+    })();
+  }
 }
 
 // ─── Project CRUD ────────────────────────────────────────────────
@@ -371,7 +385,7 @@ export function createPointCloudSource(
   JSON.parse(input.headerJson);
 
   const existing = database
-    .prepare("SELECT * FROM point_cloud_sources WHERE projectId = ? AND storageKey = ?")
+    .prepare("SELECT *, coordinateContext AS coordinateContextJson FROM point_cloud_sources WHERE projectId = ? AND storageKey = ?")
     .get(input.projectId, input.storageKey) as StoredPointCloudSource | undefined;
   if (existing) {
     if (existing.contentSha256 !== digest || existing.fileSizeBytes !== input.fileSizeBytes) {
@@ -390,13 +404,14 @@ export function createPointCloudSource(
     sourceExtension: input.sourceExtension,
     format: input.format,
     headerJson: input.headerJson,
+    coordinateContextJson: null,
     importedAt: new Date().toISOString(),
   };
   database
     .prepare(
       `INSERT INTO point_cloud_sources
-        (id, projectId, fileName, storageKey, contentSha256, fileSizeBytes, sourceExtension, format, headerJson, importedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, projectId, fileName, storageKey, contentSha256, fileSizeBytes, sourceExtension, format, headerJson, coordinateContext, importedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       source.id,
@@ -408,6 +423,7 @@ export function createPointCloudSource(
       source.sourceExtension,
       source.format,
       source.headerJson,
+      null,
       source.importedAt,
     );
   return source;
@@ -419,7 +435,7 @@ export function listProjectPointCloudSources(
 ): StoredPointCloudSource[] {
   return database
     .prepare(
-      `SELECT source.*,
+      `SELECT source.*, source.coordinateContext AS coordinateContextJson,
          (SELECT inspection.inspectionJson
           FROM point_cloud_inspections AS inspection
           WHERE inspection.sourceId = source.id
@@ -450,6 +466,29 @@ export function listProjectPointCloudSources(
        ORDER BY source.importedAt DESC, source.id ASC`,
     )
     .all(projectId) as StoredPointCloudSource[];
+}
+
+/** Save or clear a source-specific user declaration without touching source bytes. */
+export function setPointCloudSourceCoordinateContext(
+  database: BetterSqlite3.Database,
+  projectId: string,
+  sourceId: string,
+  coordinateContext: PointCloudCoordinateContext | null,
+): StoredPointCloudSource {
+  const source = database
+    .prepare("SELECT id FROM point_cloud_sources WHERE id = ? AND projectId = ?")
+    .get(sourceId, projectId) as { id: string } | undefined;
+  if (!source) throw new Error("Point-cloud source is not attached to the active project.");
+
+  const coordinateContextJson = coordinateContext === null
+    ? null
+    : JSON.stringify(POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA.parse(coordinateContext));
+  database
+    .prepare("UPDATE point_cloud_sources SET coordinateContext = ? WHERE id = ? AND projectId = ?")
+    .run(coordinateContextJson, sourceId, projectId);
+  return database
+    .prepare("SELECT *, coordinateContext AS coordinateContextJson FROM point_cloud_sources WHERE id = ? AND projectId = ?")
+    .get(sourceId, projectId) as StoredPointCloudSource;
 }
 
 export function createPointCloudInspection(
