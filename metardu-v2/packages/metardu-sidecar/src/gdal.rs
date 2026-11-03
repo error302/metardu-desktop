@@ -502,7 +502,7 @@ mod tests {
     #[test]
     fn test_generate_contours_rejects_nonpositive_interval() {
         let params = ContourParams {
-            dsm_path: "/etc/hostname".to_string(), // exists but not a GeoTIFF
+            dsm_path: "Cargo.toml".to_string(), // exists but not a GeoTIFF
             interval: 0.0,
             min_length: None,
             format: "geojson".to_string(),

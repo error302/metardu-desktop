@@ -41,20 +41,20 @@ jobs:
         run: |
           brew install llvm gdal
           echo "LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib" >> $GITHUB_ENV
-      - name: Build (Unix)
-        if: matrix.os != 'windows-latest'
+      - name: Build (Ubuntu)
+        if: matrix.os == 'ubuntu-22.04'
         working-directory: metardu-v2/packages/metardu-sidecar
         run: cargo build --release
-      - name: Build (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Build (Windows & macOS)
+        if: matrix.os != 'ubuntu-22.04'
         working-directory: metardu-v2/packages/metardu-sidecar
         run: cargo build --release --no-default-features --features "shell-out instrument"
-      - name: Test (Unix)
-        if: matrix.os != 'windows-latest'
+      - name: Test (Ubuntu)
+        if: matrix.os == 'ubuntu-22.04'
         working-directory: metardu-v2/packages/metardu-sidecar
         run: cargo test --release
-      - name: Test (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Test (Windows & macOS)
+        if: matrix.os != 'ubuntu-22.04'
         working-directory: metardu-v2/packages/metardu-sidecar
         run: cargo test --release --no-default-features --features "shell-out instrument"
 
@@ -93,6 +93,7 @@ jobs:
           npm run build --workspace @metardu/electron-integration
           npm run build --workspace @metardu/ipc-schemas
           npm run build --workspace @metardu/engine-flight-planning
+          npm run build --workspace @metardu/report-pdf
       - name: Type-check all packages
         working-directory: metardu-v2
         run: |
