@@ -1403,18 +1403,58 @@ fn point_cloud_structure(
         }));
     }
 
-    let laz_vlr = header
+    let mut laz_vlrs = header
         .vlrs()
         .iter()
-        .find(|vlr| las::laz::is_laszip_vlr(vlr))
-        .ok_or_else(|| {
-            HandlerError::InvalidParams("Compressed point format has no LASzip VLR.".into())
-        })?;
+        .filter(|vlr| las::laz::is_laszip_vlr(vlr));
+    let laz_vlr = laz_vlrs.next().ok_or_else(|| {
+        HandlerError::InvalidParams("Compressed point format has no LASzip VLR.".into())
+    })?;
+    if laz_vlrs.next().is_some() {
+        return Err(HandlerError::InvalidParams(
+            "Compressed point format must contain exactly one LASzip VLR.".into(),
+        ));
+    }
     let laz_vlr_data = &laz_vlr.data;
-    if laz_vlr_data.len() < 32 {
+    const LAZ_VLR_FIXED_BYTES: usize = 34;
+    const LAZ_ITEM_BYTES: usize = 6;
+    if laz_vlr_data.len() < LAZ_VLR_FIXED_BYTES {
         return Err(HandlerError::InvalidParams(
             "LASzip VLR is shorter than its required fields.".into(),
         ));
+    }
+    let item_count = usize::from(u16::from_le_bytes(
+        laz_vlr_data[32..34]
+            .try_into()
+            .expect("validated LASzip VLR fixed fields"),
+    ));
+    let expected_vlr_bytes = item_count
+        .checked_mul(LAZ_ITEM_BYTES)
+        .and_then(|items_bytes| LAZ_VLR_FIXED_BYTES.checked_add(items_bytes))
+        .ok_or_else(|| {
+            HandlerError::InvalidParams("LASzip VLR item-table length overflows.".into())
+        })?;
+    if laz_vlr_data.len() != expected_vlr_bytes {
+        return Err(HandlerError::InvalidParams(format!(
+            "LASzip VLR declares {item_count} item records and must contain exactly {expected_vlr_bytes} data bytes; found {}.",
+            laz_vlr_data.len()
+        )));
+    }
+    let laz_vlr = laz::LazVlr::read_from(laz_vlr_data.as_slice()).map_err(|error| {
+        HandlerError::InvalidParams(format!("LASzip VLR could not be decoded: {error}"))
+    })?;
+    let laz_point_record_bytes = laz_vlr
+        .items()
+        .iter()
+        .try_fold(0_u64, |total, item| {
+            total.checked_add(u64::from(item.size()))
+        })
+        .ok_or_else(|| HandlerError::InvalidParams("LASzip item byte total overflows.".into()))?;
+    if laz_point_record_bytes != u64::from(raw_header.point_data_record_length) {
+        return Err(HandlerError::InvalidParams(format!(
+            "LASzip item records describe {laz_point_record_bytes} point bytes, but the LAS header declares {}.",
+            raw_header.point_data_record_length
+        )));
     }
     let compressor = u16::from_le_bytes([laz_vlr_data[0], laz_vlr_data[1]]);
     let special_evlr_count = i64::from_le_bytes(
@@ -1431,8 +1471,27 @@ fn point_cloud_structure(
     add_vlr_gap_warning(&mut warnings, &vlr_extent);
     if (special_evlr_count, special_evlr_offset) != (-1, -1) {
         warnings.push(
-            "LASzip special EVLR references are present; their layout is outside this inspection scope.".to_string(),
+            "LASzip special EVLR references are non-default; LAZ 1.4 reserves these fields as unused, and their layout is outside this inspection scope.".to_string(),
         );
+    }
+
+    let point_format_id = header.point_format().to_u8().map_err(|error| {
+        HandlerError::InvalidParams(format!("Compressed point format is invalid: {error}"))
+    })?;
+    match compressor {
+        1 | 2 if point_format_id <= 5 => {}
+        3 if (6..=10).contains(&point_format_id) => {}
+        1 | 2 => {
+            return Err(HandlerError::InvalidParams(format!(
+                "LASzip compressor {compressor} is incompatible with point format {point_format_id}."
+            )));
+        }
+        3 => {
+            return Err(HandlerError::InvalidParams(format!(
+                "LASzip compressor 3 is incompatible with point format {point_format_id}."
+            )));
+        }
+        _ => {}
     }
 
     // LAZ pointwise streams have no chunk table or arithmetic end marker. The
@@ -1488,9 +1547,6 @@ fn point_cloud_structure(
         )));
     }
 
-    let laz_vlr = laz::LazVlr::read_from(laz_vlr_data.as_slice()).map_err(|error| {
-        HandlerError::InvalidParams(format!("LASzip VLR could not be decoded: {error}"))
-    })?;
     let pointer_end = point_start
         .checked_add(8)
         .ok_or_else(|| HandlerError::InvalidParams("LAZ chunk pointer offset overflows.".into()))?;
@@ -2463,6 +2519,23 @@ mod tests {
         panic!("generated LAZ fixture has no LASzip VLR");
     }
 
+    fn truncate_laz_vlr_payload(bytes: &mut Vec<u8>, new_length: usize) {
+        let data_offset = laz_vlr_data_offset(bytes);
+        let header_offset = data_offset - VLR_HEADER_BYTES as usize;
+        let old_length = usize::from(u16::from_le_bytes(
+            bytes[header_offset + 20..header_offset + 22]
+                .try_into()
+                .unwrap(),
+        ));
+        assert!(new_length < old_length);
+        let removed_length = old_length - new_length;
+        bytes.drain(data_offset + new_length..data_offset + old_length);
+        bytes[header_offset + 20..header_offset + 22]
+            .copy_from_slice(&(new_length as u16).to_le_bytes());
+        let point_data_offset = u32::from_le_bytes(bytes[96..100].try_into().unwrap());
+        bytes[96..100].copy_from_slice(&(point_data_offset - removed_length as u32).to_le_bytes());
+    }
+
     fn rewrite_single_chunk_as_pointwise_laz(path: &std::path::Path, with_evlrs: bool) {
         write_fixture(path, with_evlrs);
         let chunked_report = inspect_point_records(path).unwrap();
@@ -3342,6 +3415,138 @@ mod tests {
     }
 
     #[test]
+    fn rejects_laz_vlr_item_count_that_does_not_match_its_record_data() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("bad-item-count.laz");
+        write_fixture(&path, false);
+        let mut bytes = std::fs::read(&path).unwrap();
+        let laz_vlr_data = laz_vlr_data_offset(&bytes);
+        bytes[laz_vlr_data + 32..laz_vlr_data + 34].copy_from_slice(&0_u16.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+
+        let error = inspect_point_records(&path).unwrap_err().to_string();
+        assert!(
+            error.contains("must contain exactly 34 data bytes"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_truncated_laszip_fixed_fields_before_pointwise_layout_reporting() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("truncated-laszip-fixed-fields.laz");
+        write_fixture(&path, false);
+        let mut bytes = std::fs::read(&path).unwrap();
+        truncate_laz_vlr_payload(&mut bytes, 33);
+        std::fs::write(&path, bytes).unwrap();
+
+        let error = inspect_point_records(&path).unwrap_err().to_string();
+        assert!(
+            error.contains("shorter than its required fields"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_truncated_laszip_item_record_before_pointwise_layout_reporting() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("truncated-laszip-item-record.laz");
+        write_fixture(&path, false);
+        let mut bytes = std::fs::read(&path).unwrap();
+        let data_offset = laz_vlr_data_offset(&bytes);
+        let header_offset = data_offset - VLR_HEADER_BYTES as usize;
+        let data_length = usize::from(u16::from_le_bytes(
+            bytes[header_offset + 20..header_offset + 22]
+                .try_into()
+                .unwrap(),
+        ));
+        let item_count = u16::from_le_bytes(
+            bytes[data_offset + 32..data_offset + 34]
+                .try_into()
+                .unwrap(),
+        );
+        assert!(item_count > 0);
+        truncate_laz_vlr_payload(&mut bytes, data_length - 1);
+        std::fs::write(&path, bytes).unwrap();
+
+        let error = inspect_point_records(&path).unwrap_err().to_string();
+        assert!(error.contains("must contain exactly"), "{error}");
+        assert!(error.contains("item records"), "{error}");
+    }
+
+    #[test]
+    fn rejects_laz_item_sizes_that_do_not_match_the_declared_point_record_length() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("bad-item-size.laz");
+        write_fixture(&path, false);
+        let mut bytes = std::fs::read(&path).unwrap();
+        let laz_vlr_data = laz_vlr_data_offset(&bytes);
+        let item_size_offset = laz_vlr_data + 36;
+        let original_size = u16::from_le_bytes(
+            bytes[item_size_offset..item_size_offset + 2]
+                .try_into()
+                .unwrap(),
+        );
+        bytes[item_size_offset..item_size_offset + 2]
+            .copy_from_slice(&original_size.saturating_add(1).to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+
+        let error = inspect_point_records(&path).unwrap_err().to_string();
+        assert!(
+            error.contains("point bytes, but the LAS header declares"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_multiple_laszip_vlrs_in_a_compressed_source() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("duplicate-laszip-vlr.laz");
+        write_fixture(&path, false);
+        let mut bytes = std::fs::read(&path).unwrap();
+        let header_size = u16::from_le_bytes(bytes[94..96].try_into().unwrap()) as usize;
+        let vlr_count = u32::from_le_bytes(bytes[100..104].try_into().unwrap());
+        let mut cursor = header_size;
+        let mut duplicate_header = None;
+        for _ in 0..vlr_count {
+            let record_header = &bytes[cursor..cursor + VLR_HEADER_BYTES as usize];
+            let user_id = String::from_utf8_lossy(&record_header[2..18])
+                .trim_end_matches('\0')
+                .trim()
+                .to_owned();
+            let record_id = u16::from_le_bytes(record_header[18..20].try_into().unwrap());
+            let data_len = u16::from_le_bytes(record_header[20..22].try_into().unwrap()) as usize;
+            if user_id != "laszip encoded" || record_id != 22_204 {
+                duplicate_header = Some(cursor);
+                break;
+            }
+            cursor += VLR_HEADER_BYTES as usize + data_len;
+        }
+        let duplicate_header = duplicate_header.expect("fixture has another VLR to duplicate");
+        bytes[duplicate_header + 2..duplicate_header + 18].copy_from_slice(b"laszip encoded\0\0");
+        bytes[duplicate_header + 18..duplicate_header + 20]
+            .copy_from_slice(&22_204_u16.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+
+        let error = inspect_point_records(&path).unwrap_err().to_string();
+        assert!(error.contains("exactly one LASzip VLR"), "{error}");
+    }
+
+    #[test]
+    fn rejects_laz_compressor_incompatible_with_point_format() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("bad-compressor-point-format.laz");
+        write_fixture(&path, false);
+        let mut bytes = std::fs::read(&path).unwrap();
+        let laz_vlr_data = laz_vlr_data_offset(&bytes);
+        bytes[laz_vlr_data..laz_vlr_data + 2].copy_from_slice(&3_u16.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+
+        let error = inspect_point_records(&path).unwrap_err().to_string();
+        assert!(error.contains("incompatible with point format"), "{error}");
+    }
+
+    #[test]
     fn reports_pointwise_laz_region_boundary_without_inventing_stream_end() {
         for with_evlrs in [false, true] {
             let temp = tempdir().unwrap();
@@ -3422,7 +3627,7 @@ mod tests {
             .any(|warning| warning
                 .as_str()
                 .unwrap()
-                .contains("special EVLR references are present")));
+                .contains("special EVLR references are non-default")));
     }
 
     #[test]

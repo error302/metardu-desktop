@@ -4466,3 +4466,43 @@ Delivery Addendum:
 - Implementation commit: `83034c576edea86c6edcc5b8de7798b3c04c6e35` (`feat(extensions): install local community packages`). Its path-scoped commit excluded the pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and all unrelated untracked files.
 - Push completed to `https://github.com/error302/metardu-desktop.git`: `925077a..83034c5 codex/international-desktop-product-plan -> codex/international-desktop-product-plan`.
 - `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `83034c576edea86c6edcc5b8de7798b3c04c6e35`, matching the implementation commit at verification time.
+
+---
+Task ID: desktop-laszip-vlr-structure
+Agent: Codex — 2026-11-03
+Task: Fail closed on malformed LASzip VLR structure before LAZ point inspection.
+
+Work Log:
+- Compressed LAZ inspection now requires exactly one LASzip VLR, the exact 34-byte fixed prefix plus declared six-byte item records, aggregate item widths matching the LAS public-header point-record length, and a compressor family compatible with the point-format family. The check runs before pointwise and chunked branches and does not alter source bytes.
+- Added malformed fixtures for duplicate LASzip VLRs, a physically shortened fixed prefix, a physically shortened item table, an inconsistent declared item count, item widths that disagree with the public point-record length, and an incompatible compressor/format pair. Existing valid chunked and pointwise fixtures and the non-default special-EVLR incomplete result remain covered.
+- Updated `docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md` with the newly validated structural subset and remaining waveform, reserved-field, item-semantic, padding, producer-interoperability, and full-file conformance gaps. Corrected its extension status to reflect the local `.mdplug` installer/list/run already present while disclosing missing SDK, project/point-cloud capabilities, signatures, and catalog.
+- ADR-0022 and this scoped task brief capture the implementation boundary and acceptance evidence. No shared IPC or renderer contract changed.
+
+Verification:
+- Focused malformed-file run:
+  ~~~text
+  cargo test --manifest-path packages/metardu-sidecar/Cargo.toml --release --no-default-features --features instrument import::point_cloud::tests::rejects_
+  test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 208 filtered out
+  ~~~
+- Full sidecar suite:
+  ~~~text
+  cargo test --manifest-path packages/metardu-sidecar/Cargo.toml --release --no-default-features --features instrument --quiet
+  running 219 tests
+  test result: ok. 219 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+  ~~~
+- GDAL-free release build:
+  ~~~text
+  cargo build --manifest-path packages/metardu-sidecar/Cargo.toml --release --no-default-features --features instrument
+  warning: `metardu-sidecar` (bin "metardu-sidecar") generated 59 warnings
+      Finished `release` profile [optimized] target(s) in 6m 07s
+  ~~~
+- `rustfmt --edition 2021 --check packages/metardu-sidecar/src/import/point_cloud.rs` and `git diff --check` both exited 0. Git emitted only its existing Windows LF-to-CRLF notices.
+- The default GDAL-enabled build remains unavailable in this environment because `gdal-sys` requires `gdal_i.lib`, absent from `GDAL_LIB_DIR` and `GDAL_HOME\lib`; this machine limitation was already reproduced in the preceding desktop point-cloud task. The no-GDAL build and test do not cover GDAL.
+
+Evidence limits:
+- The checks validate this bounded LASzip VLR subset only. They do not establish full LAS 1.4 R16 or LAZ 1.4 conformance or producer interoperability. Non-default special-EVLR references remain incomplete; item ordering and semantic versions, other reserved fields, waveform extents, padding, and full-file layout remain outside validation.
+- The inspector does not interpret a CRS, units, epoch, vertical reference, or classification correctness and makes no positional-accuracy claim. It does not classify a cloud or write derived LAS/LAZ output; the LinkedIn classification example is still not supported by the current plugin ABI.
+- No Electron launch, real survey-cloud interoperability set, downstream CAD/GIS receipt, or field-workflow validation was performed in this task.
+
+Stage Summary:
+- The malformed LASzip metadata cases now fail before any bounded LAZ layout report, and the current no-GDAL Rust suite and release build pass. Broader standards, producer, CRS, derived-output, plugin capability, and field evidence gates remain active. Task-owned commit and Desktop-repository push will be recorded after delivery; unrelated staged and untracked work remains outside this task.
