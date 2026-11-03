@@ -4461,3 +4461,8 @@ Evidence limits:
 
 Stage Summary:
 - Offline package import/list/explicit-run path is implemented and locally verified at package-store, route, schema, Desktop, renderer-build, engine, and GDAL-free sidecar levels. The next LiDAR milestone needs a separate host-managed streaming capability, safe derived-output workflow, named classification method, and validation data. Only task-owned files will be committed; unrelated staged and untracked work remains excluded.
+
+Delivery Addendum:
+- Implementation commit: `83034c576edea86c6edcc5b8de7798b3c04c6e35` (`feat(extensions): install local community packages`). Its path-scoped commit excluded the pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and all unrelated untracked files.
+- Push completed to `https://github.com/error302/metardu-desktop.git`: `925077a..83034c5 codex/international-desktop-product-plan -> codex/international-desktop-product-plan`.
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `83034c576edea86c6edcc5b8de7798b3c04c6e35`, matching the implementation commit at verification time.
