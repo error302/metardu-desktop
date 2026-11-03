@@ -4505,4 +4505,10 @@ Evidence limits:
 - No Electron launch, real survey-cloud interoperability set, downstream CAD/GIS receipt, or field-workflow validation was performed in this task.
 
 Stage Summary:
-- The malformed LASzip metadata cases now fail before any bounded LAZ layout report, and the current no-GDAL Rust suite and release build pass. Broader standards, producer, CRS, derived-output, plugin capability, and field evidence gates remain active. Task-owned commit and Desktop-repository push will be recorded after delivery; unrelated staged and untracked work remains outside this task.
+- The malformed LASzip metadata cases now fail before any bounded LAZ layout report, and the current no-GDAL Rust suite and release build pass. Broader standards, producer, CRS, derived-output, plugin capability, and field evidence gates remain active. The task-owned commit and Desktop-repository push are recorded in the delivery addendum; unrelated staged and untracked work remains outside this task.
+
+Delivery Addendum:
+- Implementation commit `453f462e0e286bda311b6eb6c6ae63e56194d3e3` (`fix(point-cloud): validate LASzip VLR structure`) contains only the five task-owned source, plan, brief, ADR, and worklog paths.
+- Push completed to `https://github.com/error302/metardu-desktop.git`: `ee20ed1..453f462 codex/international-desktop-product-plan -> codex/international-desktop-product-plan`.
+- Immediately after that push, `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `453f462e0e286bda311b6eb6c6ae63e56194d3e3`, matching local `HEAD`.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside the implementation commit.

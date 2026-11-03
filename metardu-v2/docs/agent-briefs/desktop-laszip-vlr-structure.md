@@ -46,7 +46,7 @@ desktop-laszip-vlr-structure
 - [x] Update the international product plan with the exact validation gained and remaining LAS/LAZ gaps.
 - [x] Correct the stale extension statement about the implemented local `.mdplug` installer/runner.
 - [x] Append actual verification output and evidence limits to the root `worklog.md`.
-- [ ] Commit task-owned files only and push to `https://github.com/error302/metardu-desktop.git` on the current Desktop branch; verify remote tip.
+- [x] Commit task-owned files only and push to `https://github.com/error302/metardu-desktop.git` on the current Desktop branch; verify remote tip.
 
 ## Anti-hallucination clause
 
