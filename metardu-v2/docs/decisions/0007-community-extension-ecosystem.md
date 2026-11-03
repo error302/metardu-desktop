@@ -34,7 +34,7 @@ The contribution interface stays inside surveying and project delivery. It does 
 
 ### Execution and permission model
 
-- The current execution preview accepts a user-selected WebAssembly core module with ABI v1. The future installable extension package will add a manifest declaring publisher, version, compatible SDK, entry points, licence, required capabilities, and checksums.
+- The current execution preview accepts a user-selected WebAssembly core module with ABI v1. A local `.mdplug` v1 package now carries a strict manifest, one WebAssembly module, and licence text. Its publisher and licence metadata remain unverified claims; signatures, SDK compatibility declarations, required capabilities, and a catalog are not implemented.
 - The host gives a component no filesystem, environment, process, or network access by default. Data access is limited to the selected inputs passed through the SDK. Additional capabilities require a user-visible grant, have a narrow scope, and can be revoked.
 - ABI v1 modules receive bounded execution fuel, linear memory, table size, module size, and JSON input/output sizes. The sidecar traps a module that exceeds its execution or memory budget. Limits are defense in depth and are not a formal security audit or OS process isolation.
 - The extension host validates each input and output against versioned schemas. It writes results only as new project artifacts through the project engine; it cannot mutate source observations or bypass project history.
@@ -42,8 +42,8 @@ The contribution interface stays inside surveying and project delivery. It does 
 
 ### Package and offline model
 
-- The installable package is a versioned `.mdplug` archive containing a manifest, WebAssembly component, declared resources, licence, and integrity metadata. The installer rejects undeclared executable content and unsafe archive paths.
-- Extensions may be installed from a reviewed catalog or imported from a local file. Catalog access is optional; installation and compute workflows remain available offline.
+- The current `.mdplug` v1 package is a ZIP archive containing exactly `manifest.json`, `module.wasm`, and `LICENSE.txt`. The installer checks strict member names and sizes, stores exact bytes by a host-computed package SHA-256, and verifies the package and module digests before listing or execution. No member is extracted to a path.
+- A surveyor imports a package from a local file; a reviewed catalog, publisher authentication, signature checks, updates, and removals are not implemented. Import and ABI v1 execution remain available offline.
 - Each project records the extension ID, exact version, package digest, SDK version, granted capabilities, input artifact IDs, and output artifact IDs used to create derived work. A missing extension leaves prior artifacts readable and marks recomputation unavailable.
 - Updates are explicit and project-pinned. The app never silently substitutes a newer extension version into an existing computation.
 
@@ -72,13 +72,13 @@ Country packs follow `docs/invariants.md`: statutory content requires current pr
 ## Delivery sequence
 
 1. Define the SDK schemas, manifest, output/provenance contract, trust labels, threat model, and extension package format.
-2. ABI v1 now has a Wasmtime core-module execution preview, a typed renderer-to-main-to-sidecar path, and a local `.wasm` picker. It passes only user-entered JSON, has no project-store integration or package installer, and marks output Community / Draft. Focused runtime tests exercise imports, fuel, and output validation; memory-limit and cross-platform packaging evidence remain release gates.
+2. ABI v1 now has a Wasmtime core-module execution preview, a typed renderer-to-main-to-sidecar path, a local `.wasm` picker, and offline local `.mdplug` import/list/run. It passes only bounded explicit JSON, has no project-store integration, and marks output Community / Draft. Focused runtime and package-store tests exercise the current boundaries; memory-limit, malformed-module security review, signing, and cross-platform packaging remain release gates.
 3. Ship declarative project tools, forms, import/export adapters, and visualization contributions behind the stable SDK.
 4. Add selected-data analysis components with no ambient capabilities and durable project provenance.
 5. Add separately permissioned instrument and reference-data capabilities after their platform and evidence contracts are complete.
 6. Publish the developer kit, sample extensions, contribution guide, compatibility policy, security reporting path, and optional catalog governance.
 
-The `plugin.run` sidecar method and Desktop preview execute one explicitly selected module; module bytes are held in memory with expiry and are not installed or persisted. The preview does not expose project-store writes, provide a catalog, or auto-update packages. Each further implementation step requires a scoped task brief and evidence that its security, offline, provenance, and cross-platform requirements work.
+The `plugin.run` sidecar method and Desktop preview execute one explicitly selected module. Raw `.wasm` bytes are held in a short-lived cache; imported packages are stored by content digest and rechecked before each run. ABI v1 does not expose project-store writes, point-cloud chunks, a catalog, or automatic updates. Each further implementation step requires a scoped task brief and evidence that its security, offline, provenance, and cross-platform requirements work.
 
 ## Alternatives considered
 

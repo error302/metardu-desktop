@@ -29,6 +29,12 @@ import type {
   PointCloudSetSourceCoordinateContextResult,
 } from "../shared/point-cloud.js";
 import {
+  COMMUNITY_EXTENSION_PACKAGE_INSTALL_RESULT_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_LIST_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_RUN_INPUT_SCHEMA,
+  type CommunityExtensionPackageInstallResult,
+  type CommunityExtensionPackageList,
+  type CommunityExtensionPackageRunInput,
   PLUGIN_RUN_INPUT_SCHEMA,
   POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA,
   POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA,
@@ -149,6 +155,28 @@ const metarduApi = {
   },
   /** Restricted community WebAssembly preview; selected module bytes never enter the renderer. */
   plugins: {
+    /** Import a local .mdplug package. Importing validates and stores bytes; it does not execute them. */
+    installPackage: async (): Promise<CommunityExtensionPackageInstallResult> => {
+      const result = await ipcRenderer.invoke("metardu:plugins:installPackage");
+      const parsed = COMMUNITY_EXTENSION_PACKAGE_INSTALL_RESULT_SCHEMA.safeParse(result);
+      if (!parsed.success) throw new Error("Main process returned an invalid extension package install result.");
+      return parsed.data;
+    },
+    /** List local package summaries and any integrity issues without exposing file paths. */
+    listInstalled: async (): Promise<CommunityExtensionPackageList> => {
+      const result = await ipcRenderer.invoke("metardu:plugins:listInstalled");
+      const parsed = COMMUNITY_EXTENSION_PACKAGE_LIST_SCHEMA.safeParse(result);
+      if (!parsed.success) throw new Error("Main process returned an invalid extension package list.");
+      return parsed.data;
+    },
+    /** Run one installed package with explicit bounded JSON; no project capability is granted. */
+    runInstalled: async (request: CommunityExtensionPackageRunInput): Promise<unknown> => {
+      const parsed = COMMUNITY_EXTENSION_PACKAGE_RUN_INPUT_SCHEMA.safeParse(request);
+      if (!parsed.success) {
+        throw new Error(`Invalid installed extension request: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+      }
+      return ipcRenderer.invoke("metardu:plugins:runInstalled", parsed.data);
+    },
     pickModule: (): Promise<
       | { canceled: true }
       | { canceled: false; token: string; filename: string; sizeBytes: number; sha256: string; expiresAt: number; evictedPreviousSelection: boolean }

@@ -75,6 +75,8 @@ import {
 import { PointCloudChunkStreamController } from "./point-cloud-chunks.js";
 import { PointCloudPreviewController } from "./point-cloud-preview.js";
 import { parsePointCloudCoordinateContext } from "./point-cloud-coordinate-context.js";
+import { CommunityExtensionPackageStore, MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES } from "./community-extension-packages.js";
+import { registerCommunityExtensionPackageRoutes } from "./community-extension-routes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -170,6 +172,33 @@ interface SelectedPluginModule {
   expiresAt: number;
 }
 const selectedPluginModules = new Map<string, SelectedPluginModule>();
+
+function getCommunityExtensionPackageStore(): CommunityExtensionPackageStore {
+  return new CommunityExtensionPackageStore(app.getPath("userData"));
+}
+
+async function readCommunityExtensionPackage(filePath: string): Promise<Buffer> {
+  const file = await fs.promises.open(filePath, "r");
+  try {
+    const stat = await file.stat();
+    if (!stat.isFile() || stat.size < 22 || stat.size > MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES) {
+      throw new Error(`Community package must be a regular ZIP file no larger than ${MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES} bytes.`);
+    }
+    const bytes = Buffer.allocUnsafe(MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES + 1);
+    let readTotal = 0;
+    while (readTotal < bytes.length) {
+      const { bytesRead } = await file.read(bytes, readTotal, bytes.length - readTotal, readTotal);
+      if (bytesRead === 0) break;
+      readTotal += bytesRead;
+    }
+    if (readTotal > MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES) {
+      throw new Error(`Community package exceeds the ${MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES}-byte limit.`);
+    }
+    return Buffer.from(bytes.subarray(0, readTotal));
+  } finally {
+    await file.close();
+  }
+}
 
 function requirePointCloudSourceId(value: unknown): string {
   const parsed = POINT_CLOUD_SOURCE_ID_SCHEMA.safeParse(value);
@@ -408,6 +437,27 @@ function registerIpcHandlers(): void {
       module_base64: selected.bytes.toString("base64"),
       input: request.input,
     });
+  });
+
+  // Imported packages are local and offline. Import validates data but does
+  // not execute it. The bridge exposes only digests and metadata to the UI.
+  registerCommunityExtensionPackageRoutes({
+    register: (channel, handler) => ipcMain.handle(channel, async (event, ...args) => handler(event, ...args)),
+    installSelectedPackage: async () => {
+      if (!mainWindow) throw new Error("Desktop window is not available");
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: "Install a local community extension",
+        buttonLabel: "Install package",
+        properties: ["openFile"],
+        filters: [{ name: "METARDU extension packages", extensions: ["mdplug"] }],
+      });
+      if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+      const archiveBytes = await readCommunityExtensionPackage(result.filePaths[0]!);
+      const installed = await getCommunityExtensionPackageStore().install(archiveBytes);
+      return { canceled: false, ...installed };
+    },
+    store: getCommunityExtensionPackageStore(),
+    getSidecar: () => sidecar,
   });
 
   // ─── Integration & Export handlers (ADR-0005) ───────────────────

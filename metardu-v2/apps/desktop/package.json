@@ -37,15 +37,18 @@
     "lucide-react": "*",
     "ol": "^10.9.0",
     "pdf-lib": "^1.17.1",
-    "sharp": "^0.33.5"
+    "sharp": "^0.33.5",
+    "yauzl": "2.10.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.0.0",
     "@types/ol": "^6.5.3",
+    "@types/yauzl": "2.10.3",
     "electron": "33.4.11",
     "electron-builder": "^25.1.8",
+    "fflate": "0.8.3",
     "typescript": "^5.5.0",
     "vitest": "^2.1.0"
   },

@@ -4398,3 +4398,66 @@ Push Verification Addendum:
 - Push completed to `https://github.com/error302/metardu-desktop.git`: `7c5edcc..fe7c949 HEAD -> codex/international-desktop-product-plan`.
 - `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `fe7c949a804c3fa43c190c89e617bb19243573c4`, matching local `HEAD` at verification time.
 - The pre-existing staged deletion and unrelated untracked files remain outside the task commits.
+
+---
+Task ID: desktop-community-extension-package-v1
+Agent: Codex — 2026-11-03
+Task: Import, store, list, and explicitly run bounded offline community extension packages.
+
+Work Log:
+- Implemented `.mdplug` ZIP v1 with an exact root-member allowlist (`manifest.json`, `module.wasm`, `LICENSE.txt`), strict canonical manifest parsing, bounded decompression, SHA-256 module/package checks, and content-addressed local storage. Import does not execute code; list and run recheck package contents and hashes.
+- Added typed IPC schemas and a narrow preload API for install/list/run. Separated route registration for direct tests; tests prove package import does not call the sidecar and a storage integrity error prevents execution.
+- Updated Extensions view to make local package import/list/select/run the primary flow. The raw `.wasm` picker remains in a collapsed developer preview. Metadata and output remain Community / Draft.
+- Updated ABI v1, ADR-0007, ADR-0021, the international product plan, and this worklog. The LinkedIn LiDAR prototype remains a target example; current ABI v1 has no point-cloud or project-data access and does not classify clouds.
+- Added `yauzl` as a Desktop runtime dependency and `fflate`/`@types/yauzl` as development dependencies; `npm ls --workspace @metardu/desktop --depth=0` resolved them from the checked-in lockfile.
+
+Verification:
+- Focused package-store and route tests:
+  ~~~text
+  Test Files  2 passed (2)
+       Tests  10 passed (10)
+  ~~~
+- `npm test --workspace @metardu/desktop`:
+  ~~~text
+  Test Files  32 passed | 1 skipped (33)
+       Tests  316 passed | 7 skipped (323)
+  ~~~
+- `npm run test:ipc-schemas`:
+  ~~~text
+  Test Files  5 passed (5)
+       Tests  49 passed (49)
+  ~~~
+- `npm run build --workspace @metardu/ipc-schemas`, `npm run build --workspace @metardu/desktop`, `npx tsc --noEmit -p apps/desktop/tsconfig.json`, and `npx tsc --noEmit -p packages/engine/tsconfig.json` all exited 0. The two TypeScript no-emit checks produced no output.
+- `npm run build:renderer`:
+  ~~~text
+  ✓ 2477 modules transformed.
+  ✓ built in 5.00s
+  ~~~
+  Existing browser-externalization warnings remain for `node:zlib`, `fs`, `path`, and `util` imports.
+- Engine suite first failed in the sandbox because its local mock REST server could not connect to `127.0.0.1` (`EACCES`); rerunning with loopback permission passed:
+  ~~~text
+  Test Files  45 passed (45)
+       Tests  876 passed (876)
+  ~~~
+- `cargo build --release` and `cargo test --release` both failed in `gdal-sys` because this Windows environment has no `gdal_i.lib` in `GDAL_LIB_DIR` or `GDAL_HOME\lib`. With the supported GDAL-free instrument build:
+  ~~~text
+  cargo build --release --no-default-features --features instrument
+  warning: `metardu-sidecar` (bin "metardu-sidecar") generated 59 warnings
+      Finished `release` profile [optimized] target(s) in 5m 59s
+  cargo test --release --no-default-features --features instrument
+  test result: ok. 213 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+  ~~~
+- `npm run test:e2e --workspace @metardu/desktop -- e2e/smoke.spec.ts` (Vite/Chromium renderer smoke, not Electron):
+  ~~~text
+  14 passed (1.6m)
+  ~~~
+- The complete Playwright run passed 20 of 24 tests and failed 4 instrument-connection tests because their expected Live Mode controls were not found. All 14 app-shell smoke tests passed. No Electron/native preload launch check ran; the `scripts/electron-smoke.sh` path required by `AGENT.md` is absent in this checkout.
+- `git diff --check` is recorded after the final worklog update.
+
+Evidence limits:
+- `.mdplug` v1 is local-only. It has no publisher signature/authentication, catalog, SDK, package update/removal workflow, project or instrument capability, or point-cloud chunk capability. Publisher and licence fields are claims. Its 4 MiB JSON input cannot carry real LAS/LAZ/COPC clouds; this change does not implement or validate a LiDAR classifier.
+- Wasmtime ABI v1 output is Community / Draft, not a survey-grade or legally accepted result. The browser smoke suite does not prove the Electron preload/IPC runtime path.
+- Default GDAL-enabled Rust build/test remains unavailable due to the missing Windows GDAL import library. The instrument-feature build and tests do not cover GDAL.
+
+Stage Summary:
+- Offline package import/list/explicit-run path is implemented and locally verified at package-store, route, schema, Desktop, renderer-build, engine, and GDAL-free sidecar levels. The next LiDAR milestone needs a separate host-managed streaming capability, safe derived-output workflow, named classification method, and validation data. Only task-owned files will be committed; unrelated staged and untracked work remains excluded.

@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { AlertTriangle, Boxes, FileCode2, Play, ShieldAlert } from "lucide-react";
 
 type SelectedModule = Extract<
   Awaited<ReturnType<typeof window.metardu.plugins.pickModule>>,
   { canceled: false }
 >;
+type InstalledPackage = Awaited<ReturnType<typeof window.metardu.plugins.listInstalled>>["packages"][number];
 
 const fieldStyle: React.CSSProperties = {
   width: "100%",
@@ -20,6 +21,9 @@ const fieldStyle: React.CSSProperties = {
 
 export const ExtensionsView: React.FC = () => {
   const [module, setModule] = useState<SelectedModule | null>(null);
+  const [packages, setPackages] = useState<InstalledPackage[]>([]);
+  const [packageIssues, setPackageIssues] = useState<Array<{ packageSha256: string | null; message: string }>>([]);
+  const [selectedPackageSha256, setSelectedPackageSha256] = useState<string | null>(null);
   const [pluginId, setPluginId] = useState("community.example.tool");
   const [version, setVersion] = useState("0.1.0");
   const [input, setInput] = useState("{\n  \"message\": \"Hello surveyor\"\n}");
@@ -28,6 +32,56 @@ export const ExtensionsView: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const refreshPackages = async () => {
+    const listing = await window.metardu.plugins.listInstalled();
+    setPackages(listing.packages);
+    setPackageIssues(listing.issues);
+    if (selectedPackageSha256 && !listing.packages.some((pkg) => pkg.packageSha256 === selectedPackageSha256)) {
+      setSelectedPackageSha256(null);
+    }
+  };
+
+  useEffect(() => {
+    void refreshPackages().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+  }, []);
+
+  const installPackage = async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await window.metardu.plugins.installPackage();
+      if (result.canceled) return;
+      setSelectedPackageSha256(result.package.packageSha256);
+      setNotice(`${result.package.name} imported locally. Import does not run it; review the publisher claim and licence before use.`);
+      await refreshPackages();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runInstalledPackage = async () => {
+    if (!selectedPackageSha256) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    setOutputText("");
+    try {
+      const parsedInput: unknown = JSON.parse(input);
+      const result = await window.metardu.plugins.runInstalled({ packageSha256: selectedPackageSha256, input: parsedInput });
+      const formatted = JSON.stringify(result, null, 2);
+      const maxPreviewCharacters = 500_000;
+      setOutputWasTruncated(formatted.length > maxPreviewCharacters);
+      setOutputText(formatted.slice(0, maxPreviewCharacters));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const selectModule = async () => {
     setError(null);
@@ -74,10 +128,10 @@ export const ExtensionsView: React.FC = () => {
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14, height: "100%", overflow: "auto" }}>
       <header style={{ borderBottom: "1px solid var(--border-default)", paddingBottom: 10 }}>
         <h2 style={{ margin: 0, fontSize: "var(--text-xl)", color: "var(--accent-primary)", fontFamily: "var(--font-mono)" }}>
-          Community Extensions — Preview
+          Community Extensions
         </h2>
         <div style={{ marginTop: 4, color: "var(--text-secondary)", fontSize: "var(--text-xs)" }}>
-          Run one locally selected WebAssembly tool using an explicit JSON input.
+          Import offline .mdplug packages and run ABI v1 tools with explicit JSON input.
         </div>
       </header>
 
@@ -91,7 +145,47 @@ export const ExtensionsView: React.FC = () => {
       <section style={{ display: "flex", flexDirection: "column", gap: 10, padding: 14, background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", borderRadius: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Boxes size={17} color="var(--accent-primary)" />
-          <h3 style={{ margin: 0, color: "var(--text-primary)", fontSize: 13 }}>Select a WebAssembly module</h3>
+          <h3 style={{ margin: 0, color: "var(--text-primary)", fontSize: 13 }}>Installed local packages</h3>
+          <button onClick={installPackage} disabled={busy} style={{ marginLeft: "auto", border: "1px solid var(--accent-primary)", borderRadius: 4, padding: "7px 10px", color: "var(--accent-primary)", background: "transparent", cursor: busy ? "wait" : "pointer", fontSize: 11 }}>
+            Import .mdplug
+          </button>
+          <button onClick={() => void refreshPackages().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))} disabled={busy} style={{ border: "1px solid var(--border-default)", borderRadius: 4, padding: "7px 10px", color: "var(--text-secondary)", background: "transparent", cursor: busy ? "wait" : "pointer", fontSize: 11 }}>
+            Refresh
+          </button>
+        </div>
+        {packages.length === 0 ? (
+          <div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>No packages installed. Importing validates and stores a package without executing it.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {packages.map((pkg) => {
+              const selected = pkg.packageSha256 === selectedPackageSha256;
+              return (
+                <button key={pkg.packageSha256} onClick={() => setSelectedPackageSha256(pkg.packageSha256)} style={{ textAlign: "left", padding: 10, background: selected ? "rgba(59, 130, 246, 0.10)" : "var(--bg-primary)", border: `1px solid ${selected ? "var(--accent-primary)" : "var(--border-subtle)"}`, borderRadius: 4, color: "var(--text-primary)", cursor: "pointer" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 700 }}>
+                    <FileCode2 size={14} color="var(--accent-primary)" /> {pkg.name} <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>v{pkg.version}</span>
+                    <span style={{ marginLeft: "auto", color: "#EAB308", fontSize: 10 }}>Community / Draft</span>
+                  </div>
+                  <div style={{ marginTop: 5, color: "var(--text-secondary)", fontSize: 10 }}>{pkg.description}</div>
+                  <div style={{ marginTop: 5, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", fontSize: 9, overflowWrap: "anywhere" }}>{pkg.id} · publisher claim: {pkg.publisherName} · licence claim: {pkg.licenseId}</div>
+                  <div style={{ marginTop: 3, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", fontSize: 9, overflowWrap: "anywhere" }}>Package SHA-256 · {pkg.packageSha256}</div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {packageIssues.map((issue, index) => (
+          <div key={`${issue.packageSha256 ?? "store"}-${index}`} role="alert" style={{ padding: 8, border: "1px solid #EF4444", borderRadius: 4, color: "#FCA5A5", fontSize: 10, overflowWrap: "anywhere" }}>
+            Package store issue{issue.packageSha256 ? ` · ${issue.packageSha256}` : ""}: {issue.message}
+          </div>
+        ))}
+      </section>
+
+      <details style={{ padding: 12, background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", borderRadius: 4 }}>
+        <summary style={{ color: "var(--text-secondary)", fontSize: 11, cursor: "pointer" }}>Developer preview · select a raw .wasm module</summary>
+        <section style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Boxes size={17} color="var(--accent-primary)" />
+          <h3 style={{ margin: 0, color: "var(--text-primary)", fontSize: 13 }}>Temporary raw-module preview</h3>
           <button onClick={selectModule} disabled={busy} style={{ marginLeft: "auto", border: "1px solid var(--accent-primary)", borderRadius: 4, padding: "7px 10px", color: "var(--accent-primary)", background: "transparent", cursor: busy ? "wait" : "pointer", fontSize: 11 }}>
             Choose .wasm file
           </button>
@@ -108,9 +202,9 @@ export const ExtensionsView: React.FC = () => {
         ) : (
           <div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>No module selected. Desktop never installs it from this preview.</div>
         )}
-      </section>
+        </section>
 
-      <section style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(140px, 1fr)", gap: 10 }}>
+      <section style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(140px, 1fr)", gap: 10, marginTop: 12 }}>
         <label style={{ color: "var(--text-secondary)", fontSize: 11 }}>
           Claimed plugin ID (unverified)
           <input value={pluginId} onChange={(event) => setPluginId(event.target.value)} maxLength={511} style={{ ...fieldStyle, marginTop: 5 }} />
@@ -120,6 +214,10 @@ export const ExtensionsView: React.FC = () => {
           <input value={version} onChange={(event) => setVersion(event.target.value)} maxLength={64} style={{ ...fieldStyle, marginTop: 5 }} />
         </label>
       </section>
+      <button onClick={runModule} disabled={!module || busy} style={{ display: "inline-flex", alignItems: "center", gap: 7, alignSelf: "flex-start", marginTop: 10, border: "none", borderRadius: 4, padding: "9px 14px", background: module && !busy ? "var(--accent-primary)" : "var(--bg-primary)", color: module && !busy ? "var(--bg-primary)" : "var(--text-disabled)", cursor: module && !busy ? "pointer" : "not-allowed", fontWeight: 700, fontSize: 12 }}>
+        <Play size={14} /> {busy ? "Running…" : "Run raw module as Community / Draft"}
+      </button>
+      </details>
 
       <label style={{ color: "var(--text-secondary)", fontSize: 11 }}>
         JSON input · maximum 4 MiB
@@ -127,8 +225,8 @@ export const ExtensionsView: React.FC = () => {
       </label>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <button onClick={runModule} disabled={!module || busy} style={{ display: "inline-flex", alignItems: "center", gap: 7, border: "none", borderRadius: 4, padding: "9px 14px", background: module && !busy ? "var(--accent-primary)" : "var(--bg-tertiary)", color: module && !busy ? "var(--bg-primary)" : "var(--text-disabled)", cursor: module && !busy ? "pointer" : "not-allowed", fontWeight: 700, fontSize: 12 }}>
-          <Play size={14} /> {busy ? "Running…" : "Run as Community / Draft"}
+        <button onClick={runInstalledPackage} disabled={!selectedPackageSha256 || busy} style={{ display: "inline-flex", alignItems: "center", gap: 7, border: "none", borderRadius: 4, padding: "9px 14px", background: selectedPackageSha256 && !busy ? "var(--accent-primary)" : "var(--bg-tertiary)", color: selectedPackageSha256 && !busy ? "var(--bg-primary)" : "var(--text-disabled)", cursor: selectedPackageSha256 && !busy ? "pointer" : "not-allowed", fontWeight: 700, fontSize: 12 }}>
+          <Play size={14} /> {busy ? "Running…" : "Run selected package"}
         </button>
         <span style={{ fontSize: 10, color: "var(--text-tertiary)" }}>No network, file, database, instrument, or project capability is granted.</span>
       </div>

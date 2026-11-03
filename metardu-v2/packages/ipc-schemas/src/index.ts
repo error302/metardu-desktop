@@ -50,8 +50,24 @@ import {
   validateCogoSidecarParams,
   validateSidecarParams,
 } from "./namespaces/cogo.js";
-export { MAX_COMMUNITY_PLUGIN_INPUT_BYTES, PLUGIN_RUN_INPUT_SCHEMA } from "./namespaces/plugins.js";
-export type { PluginRunInput } from "./namespaces/plugins.js";
+export {
+  MAX_COMMUNITY_PLUGIN_INPUT_BYTES,
+  COMMUNITY_EXTENSION_MANIFEST_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_SHA256_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_SUMMARY_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_INSTALL_RESULT_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_LIST_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_RUN_INPUT_SCHEMA,
+  PLUGIN_RUN_INPUT_SCHEMA,
+} from "./namespaces/plugins.js";
+export type {
+  PluginRunInput,
+  CommunityExtensionManifest,
+  CommunityExtensionPackageSummary,
+  CommunityExtensionPackageInstallResult,
+  CommunityExtensionPackageList,
+  CommunityExtensionPackageRunInput,
+} from "./namespaces/plugins.js";
 export {
   PROJECT_COORDINATE_CONTEXT_SCHEMA,
   PROJECT_HORIZONTAL_UNIT_SCHEMA,
