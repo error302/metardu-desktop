@@ -46,10 +46,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node 20
+      - name: Setup Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: metardu-v2/package-lock.json
 
@@ -137,10 +137,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node 20
+      - name: Setup Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: metardu-v2/package-lock.json
 
@@ -227,10 +227,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node 20
+      - name: Setup Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: metardu-v2/package-lock.json
 
@@ -258,7 +258,7 @@ jobs:
         working-directory: metardu-v2/packages/metardu-sidecar
         env:
           LIBCLANG_PATH: /opt/homebrew/opt/llvm/lib
-        run: cargo build --release
+        run: cargo build --release --no-default-features --features "shell-out instrument"
 
       - name: Build renderer + desktop
         working-directory: metardu-v2

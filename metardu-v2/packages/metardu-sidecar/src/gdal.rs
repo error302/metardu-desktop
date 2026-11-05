@@ -41,6 +41,7 @@ fn default_format() -> String {
 
 /// A single contour line with its elevation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct Contour {
     /// Elevation in meters
     pub elevation: f64,
@@ -502,7 +503,7 @@ mod tests {
     #[test]
     fn test_generate_contours_rejects_nonpositive_interval() {
         let params = ContourParams {
-            dsm_path: "/etc/hostname".to_string(), // exists but not a GeoTIFF
+            dsm_path: "Cargo.toml".to_string(), // exists but not a GeoTIFF
             interval: 0.0,
             min_length: None,
             format: "geojson".to_string(),
