@@ -26,6 +26,7 @@ use super::serial::InstrumentRecord;
 
 /// RTCM message parsed from the NTRIP stream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct RTCMMessage {
     /// RTCM message type (e.g., 1001, 1004, 1005, 1006, 1077, 1087, 1097, 1127, etc.)
     pub message_type: u16,
@@ -41,6 +42,7 @@ pub struct RTCMMessage {
 
 /// GPS reference station position from RTCM 1005/1006.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct StationPosition {
     pub x: f64,  // ECEF X (meters)
     pub y: f64,  // ECEF Y (meters)

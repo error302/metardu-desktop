@@ -59,6 +59,7 @@ gdal-bindings = ["dep:gdal", "dep:geojson"]
 shell-out = []
 # Enable live instrument connection (serial + BLE + NTRIP)
 instrument = ["dep:tokio-serial", "dep:btleplug"]
+mavsdk = []
 
 [dev-dependencies]
 assert_matches = "1.5"

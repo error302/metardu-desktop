@@ -17,6 +17,7 @@ pub enum IntersectionError {
     #[error("Geometry is ambiguous (two valid solutions; call the *_two_solutions variant)")]
     Ambiguous,
     #[error("Inputs out of range: {0}")]
+    #[allow(dead_code)]
     OutOfRange(String),
 }
 

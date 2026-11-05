@@ -148,9 +148,13 @@ pub struct NtripConnectParams {
     /// If not provided, some casters return the nearest mountpoint.
     pub nmea_position: Option<String>,
     /// Forward corrections to this serial port (e.g., the instrument's data port).
+
+    #[allow(dead_code)]
     pub forward_to_port: Option<String>,
     /// Baud rate for the forward port.
     #[serde(default = "default_baud")]
+
+    #[allow(dead_code)]
     pub forward_baud_rate: u32,
 }
 
@@ -194,7 +198,7 @@ pub async fn handle_connect(
             let conn_id = uuid::Uuid::new_v4().to_string();
             info!(port = %p.port, baud = p.baud_rate, conn_id = %conn_id, "opening serial connection");
 
-            let (abort_handle, mut rx) = serial::open_serial_stream(
+            let (_abort_handle, mut rx) = serial::open_serial_stream(
                 &p.port, p.baud_rate, &p.protocol, p.data_bits, p.stop_bits, &p.parity,
             ).await
                 .map_err(|e| HandlerError::Internal(format!("Failed to open {}: {}", p.port, e)))?;
@@ -254,7 +258,7 @@ pub async fn handle_connect(
             let conn_id = uuid::Uuid::new_v4().to_string();
             info!(device_name = %p.device_name, conn_id = %conn_id, "connecting BLE device");
 
-            let (abort_handle, mut rx) = ble::open_ble_stream(
+            let (_abort_handle, mut rx) = ble::open_ble_stream(
                 &p.device_name,
                 p.device_address.as_deref(),
                 p.service_uuid.as_deref(),
@@ -313,7 +317,7 @@ pub async fn handle_connect(
             let conn_id = uuid::Uuid::new_v4().to_string();
             info!(caster = %p.caster_url, mountpoint = %p.mountpoint, conn_id = %conn_id, "connecting NTRIP caster");
 
-            let (abort_handle, mut rx) = ntrip::open_ntrip_stream(
+            let (_abort_handle, mut rx) = ntrip::open_ntrip_stream(
                 &p.caster_url,
                 &p.mountpoint,
                 p.username.as_deref(),

@@ -143,6 +143,7 @@ pub struct MissionUploadResult {
 
 /// Drone state for the connection manager.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct DroneState {
     /// True if the drone is connected
     pub connected: bool,
@@ -211,6 +212,7 @@ impl MockDroneLink {
     }
 
     /// Simulate a telemetry update (called by a background thread in tests).
+    #[allow(dead_code)]
     pub fn simulate_telemetry(&self, telemetry: DroneTelemetry) {
         let mut t = self.telemetry.lock().unwrap();
         *t = Some(telemetry);

@@ -41,6 +41,7 @@ fn default_format() -> String {
 
 /// A single contour line with its elevation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct Contour {
     /// Elevation in meters
     pub elevation: f64,
