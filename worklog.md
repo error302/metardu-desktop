@@ -4512,3 +4512,31 @@ Delivery Addendum:
 - Push completed to `https://github.com/error302/metardu-desktop.git`: `ee20ed1..453f462 codex/international-desktop-product-plan -> codex/international-desktop-product-plan`.
 - Immediately after that push, `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `453f462e0e286bda311b6eb6c6ae63e56194d3e3`, matching local `HEAD`.
 - The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside the implementation commit.
+
+---
+Task ID: desktop-portable-project-bundle-v1
+Agent: Codex — 2026-11-05
+Task: Add offline, portable project backup and recovery for persisted projects and linked point-cloud sources.
+
+Work Log:
+- Added a versioned `.mdp` directory bundle with a bounded JSON manifest, SHA-256 manifest sidecar, and hash-named LAS/LAZ source files. Export streams source bytes with constant memory, checks recorded size and digest, inspects each source header through the Rust sidecar, compares the persisted project/source/inspection snapshot again, and only then renames its temporary folder into place.
+- Added native-folder-picker export and restore routes to the main process. IPC inputs contain only validated UUIDs; progress and cancellation are scoped by operation ID. The renderer can never submit an arbitrary path.
+- Restore checks the exact member list, regular files/directories, manifest structure, manifest digest, source sizes and source digests; it re-inspects staged bytes before publishing. Verified sources are placed in the existing content-addressed store. One SQLite transaction creates a new project identity, new source and inspection IDs, all links, and the active-project pointer. Database failure rolls the project rows back; any objects already published remain harmless content-addressed orphans.
+- Preserved stored project/source JSON, coordinate declaration text, inspection history, output and timestamps. Restore applies no CRS interpretation or coordinate conversion. The Projects panel now exposes backup/restore, progress and cancellation, and clearly identifies bundles as unencrypted local files. V1 does not include transient viewport samples, plugins, settings, instrument profiles, or future project-linked asset types.
+- Fixed two existing point-cloud renderer type-check issues (browser timer handle type and failed-status discriminant narrowing) so the full renderer type check can pass without changing workflow behavior.
+
+Verification:
+- `npm run build --workspace @metardu/ipc-schemas` and `npm run build --workspace @metardu/desktop`: passed; the latter also bundled the sandbox preload successfully.
+- `npx tsc -p tsconfig.renderer-check.json`: passed.
+- `npm test --workspace @metardu/desktop`: 39 test files passed, 1 skipped; 359 tests passed, 7 skipped. This final run includes 10 bundle tests and the SQLite round-trip/rollback cases. The seven skipped cases are the existing sidecar IPC round-trip checks requiring a built sidecar.
+- `npm run build:renderer`: passed; 2,481 modules transformed. Vite reported browser-externalization warnings for Node modules referenced by engine and `better-sqlite3` dependencies.
+- Electron smoke gate check: both root and `metardu-v2/scripts/electron-smoke.sh` are absent. No Electron process/native dialog runtime smoke ran.
+- Bundle tests use synthetic byte fixtures and an injected header-inspector double; they prove file streaming, consistency checks, cleanup/cancellation, path/membership rejection, and raw-row preservation, not interoperability with field-produced LAS/LAZ files. SQLite tests use a temporary in-memory database.
+
+Evidence limits:
+- Bundle checksums detect accidental corruption and bind restored bytes to the manifest; they do not authenticate a publisher or provide confidentiality. Users must store the unencrypted bundle securely.
+- This is backup/recovery and transfer support only. It does not validate a CRS, datum, units, vertical reference, survey accuracy, point classification, legal acceptance, or export suitability. Real-surveyor review, real LAS/LAZ producer coverage, large-file performance, and a native Electron run remain future evidence gates.
+- The `scripts/electron-smoke.sh` gate required by `AGENT.md` is unavailable in this checkout. The renderer build and static checks do not replace it.
+
+Stage Summary:
+- The current persisted project and point-cloud record set can now be exported to and restored from an offline `.mdp` folder, subject to the stated asset scope. Source bytes and stored declarations are retained without coordinate transformation. Broader instrument, CAD/GIS handoff, CRS-operation, plugin-processing, classification, field, and native runtime claims remain separate work.

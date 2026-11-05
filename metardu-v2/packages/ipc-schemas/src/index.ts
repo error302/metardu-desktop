@@ -113,6 +113,28 @@ export type {
   PointCloudSetSourceCoordinateContextInput,
   PointCloudSetSourceCoordinateContextResult,
 } from "./namespaces/point-cloud.js";
+export {
+  PROJECT_BUNDLE_CANCEL_INPUT_SCHEMA,
+  PROJECT_BUNDLE_CANCEL_RESULT_SCHEMA,
+  PROJECT_BUNDLE_EXPORT_INPUT_SCHEMA,
+  PROJECT_BUNDLE_EXPORT_RESULT_SCHEMA,
+  PROJECT_BUNDLE_IMPORT_INPUT_SCHEMA,
+  PROJECT_BUNDLE_IMPORT_RESULT_SCHEMA,
+  PROJECT_BUNDLE_MAX_MANIFEST_BYTES,
+  PROJECT_BUNDLE_OPERATION_ID_SCHEMA,
+  PROJECT_BUNDLE_PROGRESS_SCHEMA,
+  PROJECT_BUNDLE_SNAPSHOT_SCHEMA,
+} from "./namespaces/project-bundle.js";
+export type {
+  ProjectBundleCancelInput,
+  ProjectBundleCancelResult,
+  ProjectBundleExportInput,
+  ProjectBundleExportResult,
+  ProjectBundleImportInput,
+  ProjectBundleImportResult,
+  ProjectBundleProgress,
+  ProjectBundleSnapshot,
+} from "./namespaces/project-bundle.js";
 
 // ─── Aggregate registry ────────────────────────────────────────────
 

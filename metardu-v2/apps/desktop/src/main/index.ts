@@ -1148,6 +1148,11 @@ function registerIpcHandlers(): void {
   console.log("[main] Registering project IPC...");
   registerProjectIpcHandlers(() => mainWindow, () => {
     void pointCloudChunkStreamController.cancelActiveStreams();
+  }, async (sourcePath) => {
+    if (!sidecar || !sidecar.isRunning()) {
+      throw new Error("Rust sidecar is not running; point-cloud header inspection is unavailable.");
+    }
+    return sidecar.call<PointCloudHeaderDetails>("pointcloud.inspect_header", { path: sourcePath });
   });
   console.log("[main] All IPC handlers registered successfully");
 }

@@ -26,8 +26,18 @@
  *   metardu:projects:undoRedoState (broadcast → renderer)
  */
 
-import { app, ipcMain, type BrowserWindow } from "electron";
+import { app, dialog, ipcMain, type BrowserWindow } from "electron";
 import * as path from "node:path";
+import {
+  PROJECT_BUNDLE_CANCEL_INPUT_SCHEMA,
+  PROJECT_BUNDLE_CANCEL_RESULT_SCHEMA,
+  PROJECT_BUNDLE_EXPORT_INPUT_SCHEMA,
+  PROJECT_BUNDLE_EXPORT_RESULT_SCHEMA,
+  PROJECT_BUNDLE_IMPORT_INPUT_SCHEMA,
+  PROJECT_BUNDLE_IMPORT_RESULT_SCHEMA,
+  PROJECT_BUNDLE_PROGRESS_SCHEMA,
+  type ProjectBundleProgress,
+} from "@metardu/ipc-schemas";
 import {
   getDatabase,
   configureDatabasePath,
@@ -40,14 +50,36 @@ import {
   deleteProjectFromDb,
   setActiveProjectId,
   importFromJson,
+  getProjectBundleSnapshot,
+  restoreProjectBundleSnapshot,
   type ProjectStoreState,
   type CreateProjectInput,
   type UpdateProjectInput,
   type StoredProject,
 } from "./database.js";
+import { pointCloudObjectPath, publishPointCloudObject } from "./point-cloud-store.js";
+import {
+  exportProjectBundleDirectory,
+  removeProjectBundleStaging,
+  stageProjectBundleDirectory,
+} from "./project-bundle.js";
+import type { PointCloudHeaderDetails } from "../shared/point-cloud.js";
 import { UndoRedoManager } from "./undo-redo.js";
 
 let undoRedo: UndoRedoManager | null = null;
+const projectBundleOperations = new Map<string, AbortController>();
+
+function parseBundleInput<T>(schema: { safeParse(value: unknown): { success: boolean; data?: T; error?: { issues: Array<{ message: string }> } } }, input: unknown): T {
+  const parsed = schema.safeParse(input);
+  if (!parsed.success || parsed.data === undefined) {
+    throw new Error(parsed.error?.issues.map((issue) => issue.message).join("; ") || "Project bundle request is invalid.");
+  }
+  return parsed.data;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "AbortError" || error.message.includes("cancelled"));
+}
 
 function getUndoRedo(): UndoRedoManager {
   if (!undoRedo) undoRedo = new UndoRedoManager();
@@ -94,6 +126,7 @@ function migrateJsonIfNeeded(): void {
 export function registerProjectIpcHandlers(
   getWindow: () => BrowserWindow | null,
   onActiveProjectChanged?: () => void | Promise<void>,
+  inspectPointCloudHeader?: (sourcePath: string) => Promise<PointCloudHeaderDetails>,
 ): void {
   configureDatabasePath(path.join(app.getPath("userData"), "metardu.db"));
   console.log("[projects] Initializing database...");
@@ -235,6 +268,157 @@ export function registerProjectIpcHandlers(
 
   ipcMain.handle("metardu:projects:undoRedoState", () => {
     return getUndoRedo().getState();
+  });
+
+  // ── Portable project backup and recovery ──────────────────────
+
+  const sendBundleProgress = (progress: ProjectBundleProgress): void => {
+    const validated = PROJECT_BUNDLE_PROGRESS_SCHEMA.parse(progress);
+    const win = getWindow();
+    if (win && !win.isDestroyed()) win.webContents.send("metardu:projects:bundleProgress", validated);
+  };
+
+  ipcMain.handle("metardu:projects:bundleExport", async (_event, untrustedInput: unknown) => {
+    const input = parseBundleInput(PROJECT_BUNDLE_EXPORT_INPUT_SCHEMA, untrustedInput);
+    if (projectBundleOperations.has(input.operationId)) throw new Error("A project bundle operation with this identifier is already running.");
+    if (!inspectPointCloudHeader) throw new Error("Point-cloud header inspection is unavailable; start the local survey sidecar and try again.");
+    const controller = new AbortController();
+    projectBundleOperations.set(input.operationId, controller);
+    try {
+      const project = getProject(getDatabase(), input.projectId);
+      if (!project) throw new Error("The selected project no longer exists.");
+      const window = getWindow();
+      if (!window || window.isDestroyed()) throw new Error("The Desktop window is not available.");
+      const selected = await dialog.showOpenDialog(window, {
+        title: `Choose a folder for the ${project.name} project bundle`,
+        properties: ["openDirectory", "createDirectory"],
+      });
+      if (selected.canceled || !selected.filePaths[0] || controller.signal.aborted) {
+        return PROJECT_BUNDLE_EXPORT_RESULT_SCHEMA.parse({ canceled: true });
+      }
+
+      const result = await exportProjectBundleDirectory({
+        operationId: input.operationId,
+        signal: controller.signal,
+        onProgress: sendBundleProgress,
+        destinationParent: selected.filePaths[0],
+        snapshot: getProjectBundleSnapshot(getDatabase(), input.projectId),
+        getCurrentSnapshot: () => getProjectBundleSnapshot(getDatabase(), input.projectId),
+        resolveSourcePath: (storageKey) => pointCloudObjectPath(app.getPath("userData"), storageKey),
+        inspectHeader: inspectPointCloudHeader,
+      });
+      // The final directory is already published; stop accepting cancellation now.
+      projectBundleOperations.delete(input.operationId);
+      return PROJECT_BUNDLE_EXPORT_RESULT_SCHEMA.parse({ canceled: false, ...result });
+    } catch (error) {
+      if (isAbortError(error)) return PROJECT_BUNDLE_EXPORT_RESULT_SCHEMA.parse({ canceled: true });
+      throw error;
+    } finally {
+      projectBundleOperations.delete(input.operationId);
+    }
+  });
+
+  ipcMain.handle("metardu:projects:bundleImport", async (_event, untrustedInput: unknown) => {
+    const input = parseBundleInput(PROJECT_BUNDLE_IMPORT_INPUT_SCHEMA, untrustedInput);
+    if (projectBundleOperations.has(input.operationId)) throw new Error("A project bundle operation with this identifier is already running.");
+    if (!inspectPointCloudHeader) throw new Error("Point-cloud header inspection is unavailable; start the local survey sidecar and try again.");
+    const controller = new AbortController();
+    projectBundleOperations.set(input.operationId, controller);
+    let stagedBundle: Awaited<ReturnType<typeof stageProjectBundleDirectory>> | null = null;
+    try {
+      const window = getWindow();
+      if (!window || window.isDestroyed()) throw new Error("The Desktop window is not available.");
+      const selected = await dialog.showOpenDialog(window, {
+        title: "Select a METARDU Desktop project bundle folder",
+        properties: ["openDirectory"],
+      });
+      if (selected.canceled || !selected.filePaths[0] || controller.signal.aborted) {
+        return PROJECT_BUNDLE_IMPORT_RESULT_SCHEMA.parse({ canceled: true });
+      }
+
+      stagedBundle = await stageProjectBundleDirectory({
+        operationId: input.operationId,
+        signal: controller.signal,
+        onProgress: sendBundleProgress,
+        bundlePath: selected.filePaths[0],
+        userDataPath: app.getPath("userData"),
+        inspectHeader: inspectPointCloudHeader,
+      });
+
+      const totalSourceBytes = BigInt(stagedBundle.totalBytes);
+      const totalWorkBytes = (totalSourceBytes * 2n).toString();
+      const sourceCount = stagedBundle.stagedSources.length;
+      let publishedSourceBytes = 0n;
+      const sourcesByKey = new Map(stagedBundle.stagedSources.map((source) => [
+        `${source.contentSha256}.${source.sourceExtension}`,
+        source,
+      ]));
+      for (let index = 0; index < stagedBundle.snapshot.pointCloudSources.length; index += 1) {
+        if (controller.signal.aborted) throw Object.assign(new Error("Project bundle operation was cancelled."), { name: "AbortError" });
+        const source = stagedBundle.snapshot.pointCloudSources[index]!;
+        const staged = sourcesByKey.get(source.storageKey);
+        if (!staged) throw new Error("A verified point-cloud source is missing from the bundle staging set.");
+        const published = await publishPointCloudObject(staged, app.getPath("userData"));
+        if (published.storageKey !== source.storageKey) throw new Error("Published source key differs from the verified bundle manifest.");
+        publishedSourceBytes += BigInt(source.fileSizeBytes);
+        sendBundleProgress({
+          operationId: input.operationId,
+          operation: "import",
+          phase: "publishing",
+          completedBytes: (totalSourceBytes + publishedSourceBytes).toString(),
+          totalBytes: totalWorkBytes,
+          completedFiles: index + 1,
+          totalFiles: sourceCount,
+        });
+      }
+      if (controller.signal.aborted) throw Object.assign(new Error("Project bundle operation was cancelled."), { name: "AbortError" });
+
+      // All bytes are verified and published. Once SQLite restore begins, cancellation is no longer accepted.
+      projectBundleOperations.delete(input.operationId);
+      const database = getDatabase();
+      const previousActiveProjectId = getActiveProjectId(database);
+      const restoredProject = restoreProjectBundleSnapshot(database, stagedBundle.snapshot);
+      // The generic project undo log cannot safely delete and recreate linked source rows.
+      // Record the active-project switch so undo never targets an older unrelated action.
+      getUndoRedo().recordOperation(
+        "setActive",
+        restoredProject.id,
+        { activeProjectId: previousActiveProjectId } as unknown as StoredProject,
+        { activeProjectId: restoredProject.id } as unknown as StoredProject,
+      );
+      await onActiveProjectChanged?.();
+      broadcastChanged(getWindow);
+      sendBundleProgress({
+        operationId: input.operationId,
+        operation: "import",
+        phase: "complete",
+        completedBytes: totalWorkBytes,
+        totalBytes: totalWorkBytes,
+        completedFiles: sourceCount,
+        totalFiles: sourceCount,
+      });
+      return PROJECT_BUNDLE_IMPORT_RESULT_SCHEMA.parse({
+        canceled: false,
+        project: { id: restoredProject.id, name: restoredProject.name },
+        sourceCount,
+        totalBytes: stagedBundle.totalBytes,
+      });
+    } catch (error) {
+      if (isAbortError(error)) return PROJECT_BUNDLE_IMPORT_RESULT_SCHEMA.parse({ canceled: true });
+      throw error;
+    } finally {
+      if (stagedBundle) {
+        await removeProjectBundleStaging(stagedBundle.stagingDirectory, app.getPath("userData")).catch(() => undefined);
+      }
+      projectBundleOperations.delete(input.operationId);
+    }
+  });
+
+  ipcMain.handle("metardu:projects:bundleCancel", (_event, untrustedInput: unknown) => {
+    const input = parseBundleInput(PROJECT_BUNDLE_CANCEL_INPUT_SCHEMA, untrustedInput);
+    const controller = projectBundleOperations.get(input.operationId);
+    if (controller) controller.abort();
+    return PROJECT_BUNDLE_CANCEL_RESULT_SCHEMA.parse({ accepted: Boolean(controller) });
   });
 
   // ── Lifecycle ───────────────────────────────────────────────

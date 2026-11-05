@@ -565,7 +565,7 @@ export const PointCloudView: React.FC = () => {
     const jobId = inspectionJob?.jobId;
     if (!jobId) return;
     let stopped = false;
-    let timer: ReturnType<typeof window.setTimeout> | undefined;
+    let timer: number | undefined;
 
     const poll = async () => {
       try {
@@ -590,7 +590,7 @@ export const PointCloudView: React.FC = () => {
           );
         } else if (status.status === "cancelled") {
           setNotice("Point-record inspection was cancelled. No partial report was saved.");
-        } else {
+        } else if (status.status === "failed") {
           setError(status.message);
         }
         setInspectionJob((current) => current?.jobId === jobId ? null : current);
@@ -614,7 +614,7 @@ export const PointCloudView: React.FC = () => {
     if (!jobId) return;
     let stopped = false;
     let settled = false;
-    let timer: ReturnType<typeof window.setTimeout> | undefined;
+    let timer: number | undefined;
 
     const poll = async () => {
       try {
@@ -641,7 +641,7 @@ export const PointCloudView: React.FC = () => {
           );
         } else if (status.status === "cancelled") {
           setNotice("Point-cloud preview cancelled. The partial sample was discarded.");
-        } else {
+        } else if (status.status === "failed") {
           setError(status.message);
         }
         setPreviewJob((current) => current?.jobId === jobId ? null : current);

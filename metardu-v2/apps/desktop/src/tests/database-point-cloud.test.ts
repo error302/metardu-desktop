@@ -9,8 +9,10 @@ import {
   createProjectInDb,
   deleteProjectFromDb,
   getDatabase,
+  getProjectBundleSnapshot,
   listProjectPointCloudSources,
   migrateDatabase,
+  restoreProjectBundleSnapshot,
   setPointCloudSourceCoordinateContext,
 } from "../main/database.js";
 
@@ -24,6 +26,89 @@ afterEach(() => {
 });
 
 describe("point-cloud project source records", () => {
+  it("round-trips saved project, declarations, source, and inspection rows with new local identities", () => {
+    configureDatabasePath(":memory:");
+    const database = getDatabase();
+    const project = createProjectInDb(database, {
+      name: "Portable project",
+      description: "Preserved output and source evidence",
+      countryCode: "",
+      surveyType: "topographic",
+      sourceView: "PointCloudView",
+      output: { boundaries: [{ label: "control", vertices: [] }] },
+      planSheet: { sheetSize: "A3", orientation: "landscape" },
+    });
+    const digest = "b".repeat(64);
+    const source = createPointCloudSource(database, {
+      projectId: project.id,
+      fileName: "control.laz",
+      storageKey: `${digest}.laz`,
+      contentSha256: digest,
+      fileSizeBytes: "12345",
+      sourceExtension: "laz",
+      format: "LAZ",
+      headerJson: JSON.stringify({ version: "1.4", format: "LAZ" }),
+    });
+    database.prepare("UPDATE projects SET coordinateContext = ? WHERE id = ?").run("legacy raw project declaration", project.id);
+    database.prepare("UPDATE point_cloud_sources SET coordinateContext = ? WHERE id = ?").run("legacy raw source declaration", source.id);
+    createPointCloudInspection(database, {
+      sourceId: source.id,
+      sourceSha256: digest,
+      readerVersion: "las-rs 0.11.2",
+      inspectionJson: JSON.stringify({ readerVersion: "las-rs 0.11.2", decodedPointCount: "15" }),
+    });
+
+    const before = getProjectBundleSnapshot(database, project.id);
+    const restored = restoreProjectBundleSnapshot(database, before);
+    const restoredSnapshot = getProjectBundleSnapshot(database, restored.id);
+
+    expect(restored.id).not.toBe(project.id);
+    expect(restoredSnapshot.project.name).toBe(before.project.name);
+    expect(restoredSnapshot.project.outputJson).toBe(before.project.outputJson);
+    expect(restoredSnapshot.project.planSheetJson).toBe(before.project.planSheetJson);
+    expect(restoredSnapshot.project.coordinateContextJson).toBe("legacy raw project declaration");
+    expect(restoredSnapshot.pointCloudSources).toHaveLength(1);
+    expect(restoredSnapshot.pointCloudSources[0]?.id).not.toBe(source.id);
+    expect(restoredSnapshot.pointCloudSources[0]?.projectId).toBe(restored.id);
+    expect(restoredSnapshot.pointCloudSources[0]?.storageKey).toBe(source.storageKey);
+    expect(restoredSnapshot.pointCloudSources[0]?.coordinateContextJson).toBe("legacy raw source declaration");
+    expect(restoredSnapshot.pointCloudSources[0]?.inspections).toHaveLength(1);
+    expect(restoredSnapshot.pointCloudSources[0]?.inspections[0]?.id).not.toBe(before.pointCloudSources[0]?.inspections[0]?.id);
+    expect(database.prepare("SELECT projectId FROM active_project WHERE id = 1").get()).toEqual({ projectId: restored.id });
+    expect(database.prepare("SELECT COUNT(*) AS count FROM projects").get()).toEqual({ count: 2 });
+  });
+
+  it("rolls back project creation when a linked source insert fails", () => {
+    configureDatabasePath(":memory:");
+    const database = getDatabase();
+    const project = createProjectInDb(database, {
+      name: "Atomic bundle source",
+      countryCode: "",
+      surveyType: "topographic",
+      sourceView: "PointCloudView",
+    });
+    const digest = "c".repeat(64);
+    const source = createPointCloudSource(database, {
+      projectId: project.id,
+      fileName: "atomic.las",
+      storageKey: `${digest}.las`,
+      contentSha256: digest,
+      fileSizeBytes: "10",
+      sourceExtension: "las",
+      format: "LAS",
+      headerJson: "{}",
+    });
+    const snapshot = getProjectBundleSnapshot(database, project.id);
+    database.exec(`CREATE TRIGGER reject_restored_source BEFORE INSERT ON point_cloud_sources
+      BEGIN SELECT RAISE(ABORT, 'forced source row failure'); END;`);
+
+    expect(() => restoreProjectBundleSnapshot(database, snapshot)).toThrow(/forced source row failure/);
+    expect(database.prepare("SELECT COUNT(*) AS count FROM projects").get()).toEqual({ count: 1 });
+    expect(database.prepare("SELECT COUNT(*) AS count FROM point_cloud_sources").get()).toEqual({ count: 1 });
+    expect(database.prepare("SELECT projectId FROM active_project WHERE id = 1").get()).toEqual({ projectId: project.id });
+    expect(database.prepare("SELECT id FROM point_cloud_sources WHERE id = ?").get(source.id)).toEqual({ id: source.id });
+  });
+
   it("migrates v2 while preserving projects and creates a source table", () => {
     const database = new Database(":memory:") as BetterSqlite3.Database;
     try {

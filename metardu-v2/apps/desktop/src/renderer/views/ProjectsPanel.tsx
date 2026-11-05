@@ -26,6 +26,11 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Plus, FolderOpen, Folder, Pencil, Trash2, Check, X, Loader2, Star, FolderArchive, Sparkles, ChevronRight, Eye, EyeOff } from "lucide-react";
 import {
   PROJECT_COORDINATE_CONTEXT_SCHEMA,
+  type ProjectBundleExportInput,
+  type ProjectBundleExportResult,
+  type ProjectBundleImportInput,
+  type ProjectBundleImportResult,
+  type ProjectBundleProgress,
   type ProjectCoordinateContext,
   type ProjectHorizontalUnit,
 } from "@metardu/ipc-schemas";
@@ -170,6 +175,27 @@ function getProjectsApi(): unknown {
   return (window as unknown as { metardu?: { projects?: unknown } }).metardu?.projects;
 }
 
+type ProjectBundleApi = {
+  exportBundle: (input: ProjectBundleExportInput) => Promise<ProjectBundleExportResult>;
+  importBundle: (input: ProjectBundleImportInput) => Promise<ProjectBundleImportResult>;
+  cancelBundle: (operationId: string) => Promise<{ accepted: boolean }>;
+  onBundleProgress: (callback: (progress: ProjectBundleProgress) => void) => () => void;
+};
+
+function formatBundleBytes(value: string): string {
+  const bytes = Number(BigInt(value));
+  if (!Number.isFinite(bytes) || bytes < 0) return "unknown size";
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let size = bytes;
+  let unit = -1;
+  do {
+    size /= 1024;
+    unit += 1;
+  } while (size >= 1024 && unit < units.length - 1);
+  return `${size.toFixed(1)} ${units[unit]}`;
+}
+
 export const ProjectsPanel: React.FC = () => {
   const {
     projects,
@@ -203,12 +229,68 @@ export const ProjectsPanel: React.FC = () => {
   const [schemeExporting, setSchemeExporting] = useState(false);
   const [schemeResult, setSchemeResult] = useState<string | null>(null);
   const [schemeError, setSchemeError] = useState<string | null>(null);
+  const [bundleOperation, setBundleOperation] = useState<{
+    operationId: string;
+    mode: "export" | "import";
+    projectName?: string;
+    progress: ProjectBundleProgress | null;
+  } | null>(null);
+  const [bundleResult, setBundleResult] = useState<string | null>(null);
+  const [bundleError, setBundleError] = useState<string | null>(null);
   // Rename double-commit guard: blur fires after Enter/click commit, and
   // blur fires again on unmount — this ref stops the second write. Reset
   // in startRename, latched on commit/cancel.
   const committingRef = useRef(false);
 
   const electronMode = getProjectsApi() !== undefined;
+
+  const runBundleOperation = useCallback(async (mode: "export" | "import", projectId?: string, projectName?: string) => {
+    const api = (window as unknown as { metardu?: { projects?: Partial<ProjectBundleApi> } }).metardu?.projects;
+    if (!api?.onBundleProgress || !api.cancelBundle || !api.exportBundle || !api.importBundle) {
+      setBundleError("Project bundle recovery is unavailable in this Desktop build.");
+      return;
+    }
+    const operationId = window.crypto.randomUUID();
+    setBundleResult(null);
+    setBundleError(null);
+    setBundleOperation({ operationId, mode, projectName, progress: null });
+    const unsubscribe = api.onBundleProgress((progress) => {
+      if (progress.operationId === operationId) {
+        setBundleOperation((current) => current?.operationId === operationId ? { ...current, progress } : current);
+      }
+    });
+    try {
+      if (mode === "export") {
+        if (!projectId) throw new Error("Select a project before exporting its bundle.");
+        const result = await api.exportBundle({ operationId, projectId });
+        setBundleResult(result.canceled
+          ? "Project bundle export cancelled."
+          : `Saved ${result.sourceCount} point-cloud source${result.sourceCount === 1 ? "" : "s"} (${formatBundleBytes(result.totalBytes)}) to ${result.bundlePath}.`);
+      } else {
+        const result = await api.importBundle({ operationId });
+        setBundleResult(result.canceled
+          ? "Project bundle restore cancelled."
+          : `Restored “${result.project.name}” as a new local project with ${result.sourceCount} point-cloud source${result.sourceCount === 1 ? "" : "s"}.`);
+      }
+    } catch (operationError) {
+      setBundleError((operationError as Error).message);
+    } finally {
+      unsubscribe();
+      setBundleOperation((current) => current?.operationId === operationId ? null : current);
+    }
+  }, []);
+
+  const cancelBundleOperation = useCallback(async () => {
+    if (!bundleOperation) return;
+    const api = (window as unknown as { metardu?: { projects?: Partial<ProjectBundleApi> } }).metardu?.projects;
+    if (!api?.cancelBundle) return;
+    try {
+      const response = await api.cancelBundle(bundleOperation.operationId);
+      if (!response.accepted) setBundleResult("The operation is finishing and can no longer be cancelled.");
+    } catch (operationError) {
+      setBundleError((operationError as Error).message);
+    }
+  }, [bundleOperation]);
 
   useEffect(() => {
     setActiveCoordinateContextForm(coordinateContextFormFromSaved(activeProject?.coordinateContext));
@@ -477,15 +559,64 @@ export const ProjectsPanel: React.FC = () => {
 
   return (
     <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "20px" }}>
-      <div>
-        <h2 style={{ fontSize: "18px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "4px" }}>
-          Projects
-        </h2>
-        <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-          Every workflow run saves into the active project. Switch projects to keep
-          surveys organized, then push them to metardu web from the Sync panel.
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 360px" }}>
+          <h2 style={{ fontSize: "18px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "4px" }}>
+            Projects
+          </h2>
+          <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+            Every workflow run saves into the active project. Switch projects to keep
+            surveys organized, then push them to metardu web from the Sync panel.
+          </p>
+        </div>
+        <button
+          onClick={() => void runBundleOperation("import")}
+          disabled={Boolean(bundleOperation)}
+          style={primaryButton(Boolean(bundleOperation))}
+          title="Restore a verified local project bundle as a new project"
+        >
+          {bundleOperation?.mode === "import" ? <Loader2 size={15} /> : <FolderOpen size={15} />}
+          Restore project bundle
+        </button>
+        <p style={{ flex: "1 1 100%", margin: 0, fontSize: 11, lineHeight: 1.45, color: "var(--text-tertiary)" }}>
+          A bundle contains saved project data, linked LAS/LAZ files, and their inspection history. Bundles are unencrypted local files; store them securely. Restore creates a new local project and does not transform coordinates or verify CRS declarations.
         </p>
       </div>
+
+      {(bundleOperation || bundleError || bundleResult) && (
+        <div
+          role={bundleError ? "alert" : "status"}
+          style={{ border: `1px solid ${bundleError ? "var(--border-error)" : "var(--border-default)"}`, borderRadius: 9, padding: "12px 14px", background: "var(--bg-secondary)" }}
+        >
+          {bundleOperation && (() => {
+            const progress = bundleOperation.progress;
+            const total = progress ? BigInt(progress.totalBytes) : 0n;
+            const completed = progress ? BigInt(progress.completedBytes) : 0n;
+            const phase = progress?.phase ?? "preparing";
+            const percent = phase === "publishing" && progress
+              ? progress.totalFiles > 0 ? Math.floor(progress.completedFiles * 100 / progress.totalFiles) : 100
+              : total > 0n ? Math.min(100, Number(completed * 100n / total)) : 0;
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ flex: "1 1 360px", minWidth: 220 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>
+                    {bundleOperation.mode === "export" ? `Backing up ${bundleOperation.projectName ?? "project"}` : "Restoring project bundle"} · {phase}
+                  </div>
+                  <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)" }}>
+                    {progress
+                      ? `${formatBundleBytes(progress.completedBytes)} of ${formatBundleBytes(progress.totalBytes)} · ${progress.completedFiles}/${progress.totalFiles} source files`
+                      : "Choose a folder in the file dialog to continue."}
+                  </div>
+                  {progress && <progress value={percent} max={100} style={{ display: "block", width: "100%", height: 6, marginTop: 8 }} />}
+                </div>
+                <button onClick={() => void cancelBundleOperation()} style={tinyButton(false)}>Cancel</button>
+              </div>
+            );
+          })()}
+          {bundleError && <p style={{ margin: 0, color: "var(--text-error)", fontSize: 12 }}>{bundleError}</p>}
+          {!bundleError && bundleResult && <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: 12 }}>{bundleResult}</p>}
+        </div>
+      )}
 
       {/* ─── Create ─────────────────────────────────────────────── */}
       <div style={{ border: "1px solid var(--border-default)", borderRadius: "10px", padding: "16px", background: "var(--bg-secondary)" }}>
@@ -788,6 +919,18 @@ export const ProjectsPanel: React.FC = () => {
                     <td style={td}>{new Date(p.updatedAt).toLocaleString()}</td>
                     <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
                       <span style={{ display: "inline-flex", gap: "6px", alignItems: "center" }}>
+                        <button
+                          onClick={() => void runBundleOperation("export", p.id, p.name)}
+                          disabled={Boolean(bundleOperation)}
+                          title="Create a portable project recovery bundle"
+                          aria-label={`Export ${p.name} project bundle`}
+                          style={tinyButton(Boolean(bundleOperation))}
+                        >
+                          {bundleOperation?.mode === "export" && bundleOperation.projectName === p.name
+                            ? <Loader2 size={12} />
+                            : <FolderArchive size={12} />}
+                          <span>Bundle</span>
+                        </button>
                         {!isActive && (
                           <button
                             onClick={() => void handleSetActive(p.id)}

@@ -40,6 +40,18 @@ import {
   POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA,
   POINT_CLOUD_PREVIEW_START_INPUT_SCHEMA,
   POINT_CLOUD_SOURCE_ID_SCHEMA,
+  PROJECT_BUNDLE_CANCEL_INPUT_SCHEMA,
+  PROJECT_BUNDLE_CANCEL_RESULT_SCHEMA,
+  PROJECT_BUNDLE_EXPORT_INPUT_SCHEMA,
+  PROJECT_BUNDLE_EXPORT_RESULT_SCHEMA,
+  PROJECT_BUNDLE_IMPORT_INPUT_SCHEMA,
+  PROJECT_BUNDLE_IMPORT_RESULT_SCHEMA,
+  PROJECT_BUNDLE_PROGRESS_SCHEMA,
+  type ProjectBundleExportInput,
+  type ProjectBundleExportResult,
+  type ProjectBundleImportInput,
+  type ProjectBundleImportResult,
+  type ProjectBundleProgress,
   POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA,
   POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA,
   validateSidecarParams,
@@ -767,6 +779,32 @@ const metarduApi = {
       ipcRenderer.invoke("metardu:projects:getActive"),
     get: (id: string): Promise<StoredProject | null> =>
       ipcRenderer.invoke("metardu:projects:get", id),
+    exportBundle: async (untrustedInput: ProjectBundleExportInput): Promise<ProjectBundleExportResult> => {
+      const input = PROJECT_BUNDLE_EXPORT_INPUT_SCHEMA.parse(untrustedInput);
+      return PROJECT_BUNDLE_EXPORT_RESULT_SCHEMA.parse(
+        await ipcRenderer.invoke("metardu:projects:bundleExport", input),
+      );
+    },
+    importBundle: async (untrustedInput: ProjectBundleImportInput): Promise<ProjectBundleImportResult> => {
+      const input = PROJECT_BUNDLE_IMPORT_INPUT_SCHEMA.parse(untrustedInput);
+      return PROJECT_BUNDLE_IMPORT_RESULT_SCHEMA.parse(
+        await ipcRenderer.invoke("metardu:projects:bundleImport", input),
+      );
+    },
+    cancelBundle: async (operationId: string): Promise<{ accepted: boolean }> => {
+      const input = PROJECT_BUNDLE_CANCEL_INPUT_SCHEMA.parse({ operationId });
+      return PROJECT_BUNDLE_CANCEL_RESULT_SCHEMA.parse(
+        await ipcRenderer.invoke("metardu:projects:bundleCancel", input),
+      );
+    },
+    onBundleProgress: (callback: (progress: ProjectBundleProgress) => void): (() => void) => {
+      const listener = (_event: unknown, untrustedProgress: unknown): void => {
+        const parsed = PROJECT_BUNDLE_PROGRESS_SCHEMA.safeParse(untrustedProgress);
+        if (parsed.success) callback(parsed.data);
+      };
+      ipcRenderer.on("metardu:projects:bundleProgress", listener);
+      return () => ipcRenderer.off("metardu:projects:bundleProgress", listener);
+    },
     /** Subscribe to project store changes (toolbar + views stay live). Returns unsubscribe. */
     onChanged: (callback: (state: ProjectStoreState) => void): (() => void) => {
       const listener = (_event: unknown, state: ProjectStoreState): void => callback(state);

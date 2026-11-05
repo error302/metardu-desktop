@@ -25,10 +25,13 @@
  */
 
 import Database from "better-sqlite3";
+import { randomUUID } from "node:crypto";
 import type BetterSqlite3 from "better-sqlite3";
 import {
   POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA,
+  PROJECT_BUNDLE_SNAPSHOT_SCHEMA,
   PROJECT_COORDINATE_CONTEXT_SCHEMA,
+  type ProjectBundleSnapshot,
   type PointCloudCoordinateContext,
   type ProjectCoordinateContext,
 } from "@metardu/ipc-schemas";
@@ -466,6 +469,139 @@ export function listProjectPointCloudSources(
        ORDER BY source.importedAt DESC, source.id ASC`,
     )
     .all(projectId) as StoredPointCloudSource[];
+}
+
+/** Capture the raw persisted project, source, and inspection rows for a portable bundle. */
+export function getProjectBundleSnapshot(
+  database: BetterSqlite3.Database,
+  projectId: string,
+): ProjectBundleSnapshot {
+  const project = database
+    .prepare(
+      `SELECT id, name, description, countryCode, crsSrid,
+              coordinateContext AS coordinateContextJson, surveyType, sourceView,
+              output AS outputJson, planSheet AS planSheetJson, createdAt, updatedAt, version
+       FROM projects WHERE id = ?`,
+    )
+    .get(projectId) as ProjectBundleSnapshot["project"] | undefined;
+  if (!project) throw new Error("Project no longer exists.");
+
+  const sources = database
+    .prepare(
+      `SELECT id, projectId, fileName, storageKey, contentSha256, fileSizeBytes,
+              sourceExtension, format, headerJson,
+              coordinateContext AS coordinateContextJson, importedAt
+       FROM point_cloud_sources
+       WHERE projectId = ?
+       ORDER BY importedAt ASC, id ASC`,
+    )
+    .all(projectId) as Array<Omit<ProjectBundleSnapshot["pointCloudSources"][number], "inspections">>;
+  const inspections = database
+    .prepare(
+      `SELECT inspection.id, inspection.sourceId, inspection.sourceSha256,
+              inspection.readerVersion, inspection.inspectionJson, inspection.inspectedAt
+       FROM point_cloud_inspections AS inspection
+       INNER JOIN point_cloud_sources AS source ON source.id = inspection.sourceId
+       WHERE source.projectId = ?
+       ORDER BY inspection.sourceId ASC, inspection.inspectedAt ASC, inspection.id ASC`,
+    )
+    .all(projectId) as ProjectBundleSnapshot["pointCloudSources"][number]["inspections"];
+  const inspectionsBySource = new Map<string, typeof inspections>();
+  for (const inspection of inspections) {
+    const records = inspectionsBySource.get(inspection.sourceId) ?? [];
+    records.push(inspection);
+    inspectionsBySource.set(inspection.sourceId, records);
+  }
+
+  return PROJECT_BUNDLE_SNAPSHOT_SCHEMA.parse({
+    format: "metardu-project-bundle",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    project,
+    pointCloudSources: sources.map((source) => ({
+      ...source,
+      inspections: inspectionsBySource.get(source.id) ?? [],
+    })),
+  });
+}
+
+/** Restore verified project rows with new local identities in one SQLite transaction. */
+export function restoreProjectBundleSnapshot(
+  database: BetterSqlite3.Database,
+  untrustedSnapshot: ProjectBundleSnapshot,
+): StoredProject {
+  const snapshot = PROJECT_BUNDLE_SNAPSHOT_SCHEMA.parse(untrustedSnapshot);
+  const restoredProjectId = randomUUID();
+  const sourceIds = new Map(snapshot.pointCloudSources.map((source) => [source.id, randomUUID()]));
+
+  const restore = database.transaction(() => {
+    const project = snapshot.project;
+    database.prepare(
+      `INSERT INTO projects
+        (id, name, description, countryCode, crsSrid, coordinateContext, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      restoredProjectId,
+      project.name,
+      project.description,
+      project.countryCode,
+      project.crsSrid,
+      project.coordinateContextJson,
+      project.surveyType,
+      project.sourceView,
+      project.outputJson,
+      project.planSheetJson,
+      project.createdAt,
+      project.updatedAt,
+      project.version,
+    );
+
+    const insertSource = database.prepare(
+      `INSERT INTO point_cloud_sources
+        (id, projectId, fileName, storageKey, contentSha256, fileSizeBytes,
+         sourceExtension, format, headerJson, coordinateContext, importedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const insertInspection = database.prepare(
+      `INSERT INTO point_cloud_inspections
+        (id, sourceId, sourceSha256, readerVersion, inspectionJson, inspectedAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    for (const source of snapshot.pointCloudSources) {
+      const restoredSourceId = sourceIds.get(source.id);
+      if (!restoredSourceId) throw new Error("Bundle source identity map is incomplete.");
+      insertSource.run(
+        restoredSourceId,
+        restoredProjectId,
+        source.fileName,
+        source.storageKey,
+        source.contentSha256,
+        source.fileSizeBytes,
+        source.sourceExtension,
+        source.format,
+        source.headerJson,
+        source.coordinateContextJson,
+        source.importedAt,
+      );
+      for (const inspection of source.inspections) {
+        insertInspection.run(
+          randomUUID(),
+          restoredSourceId,
+          inspection.sourceSha256,
+          inspection.readerVersion,
+          inspection.inspectionJson,
+          inspection.inspectedAt,
+        );
+      }
+    }
+
+    setActiveProjectId(database, restoredProjectId);
+    const restored = getProject(database, restoredProjectId);
+    if (!restored) throw new Error("Restored project could not be read back from SQLite.");
+    return restored;
+  });
+
+  return restore();
 }
 
 /** Save or clear a source-specific user declaration without touching source bytes. */
