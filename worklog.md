@@ -4540,3 +4540,32 @@ Evidence limits:
 
 Stage Summary:
 - The current persisted project and point-cloud record set can now be exported to and restored from an offline `.mdp` folder, subject to the stated asset scope. Source bytes and stored declarations are retained without coordinate transformation. Broader instrument, CAD/GIS handoff, CRS-operation, plugin-processing, classification, field, and native runtime claims remain separate work.
+
+---
+Task ID: public-map-reference-layer-v1
+Agent: Codex - 6 November 2026
+Task: Add an explicit, visual-only public cadastral map layer and document the international workflow boundary.
+
+Work Log:
+- Added a hidden-by-default Netherlands Kadaster/PDOK WMS cadastral-boundary layer. It is only added after user opt-in, and map tile load/error state is visible.
+- The overlay is separate from survey features and is not persisted, used in calculations, or included in plan exports. UI shows provider, attribution/licence, freshness statement, and the custodian's approximate-map use limit.
+- Integrated PDOK into the single finite renderer CSP while retaining named OSM, Esri, and OpenTopoMap image hosts. Renderer `connect-src` remains self-only; no generic HTTPS or wildcard source is allowed.
+- Added tests for source metadata, hidden state, WMS parameters, and CSP constraints. Extended the international product plan with the deliverable-first workflow prompted by engineering survey production examples: data intake, CRS/control/provenance, feature extraction and breaklines, deliverable completeness QA, coordinated outputs, staged issue management, and native-Revit interoperability gates.
+- Added ADR-0024 and the provider task brief. Public-provider workflow remains a visual pilot; no global source catalogue, downloads, offline pinning, or new survey computations are claimed.
+
+Verification (renderer/source only; not field or professional acceptance):
+~~~text
+npx tsc -p tsconfig.renderer-check.json --noEmit: passed with exit code 0.
+npm run build:renderer: passed; 2,482 modules transformed. Existing browser-externalization warnings remain for node:zlib, fs, path, and util.
+npm exec --workspace @metardu/desktop -- vitest run src/tests/map-reference-sources.test.ts: 1 file passed, 3 tests passed.
+npm test --workspace @metardu/desktop: 40 files passed, 1 skipped; 362 tests passed, 7 skipped.
+Production artifact CSP audit: exactly one policy; PDOK image host allowed; no generic HTTPS or wildcard image source; connect-src 'self'.
+git diff --check: passed.
+~~~
+- The local machine could not resolve the PDOK host during implementation. A live WMS response and actual Electron display are therefore not proven.
+- Kadaster says the map shows the global/approximate position of cadastral boundaries and has no exact boundaries or dimensions; public use requires the attribution CC-BY Kadaster NL. Recheck provider metadata as the service evolves.
+
+Stage Summary and limits:
+- This enables visual context for one national provider. It does not yet support queryable parcel features, downloads, offline reference packages, legal boundary work, title/ownership lookups, or other countries.
+- Real WMS response, native Electron runtime acceptance, broad packaging/security gates, receiving-CAD checks, and professional field validation remain separate work.
+- The task-owned paths and isolated MapView/worklog entries were staged after the approval service cooldown. The unrelated staged frontend deletion and concurrent topographic work remain outside this change.

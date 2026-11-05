@@ -15,7 +15,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Map as OlMap, View, Feature } from "ol";
 import { Tile, Vector as VectorLayer } from "ol/layer";
-import { OSM, XYZ } from "ol/source";
+import { OSM, TileWMS, XYZ } from "ol/source";
 import { Vector as VectorSource } from "ol/source";
 import { LineString as OlLineString, Point, Polygon as OlPolygon } from "ol/geom";
 import { Style, Fill, Stroke, Circle as CircleStyle, Text as TextStyle } from "ol/style";
@@ -27,6 +27,10 @@ import "ol/ol.css";
 import { useSurveyState } from "../SurveyStateContext.js";
 import { extractMapGeometry, summarizeGeometry, type MapUncertainty } from "../map-geometry.js";
 import { buildSurveyMapSvg, SHEET_SIZES_PT, type SurveyMapSvgResult } from "../map-svg.js";
+import {
+  createNetherlandsCadastralReferenceLayer,
+  NETHERLANDS_CADASTRAL_REFERENCE,
+} from "../map-reference-sources.js";
 import { crsLabelFor, getPlanSheet } from "../countries.js";
 import { ellipseRingDegrees, formatUncertainty } from "../ellipse.js";
 import {
@@ -102,6 +106,7 @@ export const MapView: React.FC = () => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<OlMap | null>(null);
   const tileLayerRef = useRef<Tile | null>(null);
+  const publicReferenceLayerRef = useRef<Tile | null>(null);
   const vectorSourceRef = useRef<VectorSource | null>(null);
   const selectionSourceRef = useRef<VectorSource | null>(null);
   const measureSourceRef = useRef<VectorSource | null>(null);
@@ -126,6 +131,8 @@ export const MapView: React.FC = () => {
 
   // Layer Toggles
   const [showLayersMenu, setShowLayersMenu] = useState(false);
+  const [showPublicReference, setShowPublicReference] = useState(false);
+  const [publicReferenceStatus, setPublicReferenceStatus] = useState("Off — no PDOK map request sent.");
   const [layerVisibility, setLayerVisibility] = useState({
     boundaries: true,
     beacons: true,
@@ -185,13 +192,39 @@ export const MapView: React.FC = () => {
     });
 
     const tileLayer = new Tile({ source: getBasemapSource(basemap) });
+    const publicReferenceLayer = createNetherlandsCadastralReferenceLayer();
+    const publicReferenceSource = publicReferenceLayer.getSource() as TileWMS | null;
+    let loadedReferenceTiles = 0;
+    let failedReferenceTiles = 0;
+    const onReferenceTileStart = () => {
+      setPublicReferenceStatus("Contacting PDOK for the visible map area…");
+    };
+    const onReferenceTileEnd = () => {
+      loadedReferenceTiles += 1;
+      setPublicReferenceStatus(
+        failedReferenceTiles > 0
+          ? "Some PDOK map tiles loaded; others failed. Check connection and provider status."
+          : "PDOK map image received. This layer is a visual reference only.",
+      );
+    };
+    const onReferenceTileError = () => {
+      failedReferenceTiles += 1;
+      setPublicReferenceStatus(
+        loadedReferenceTiles > 0
+          ? "Some PDOK map tiles failed to load. Check connection and provider status."
+          : "PDOK did not return a map image. Check connection and provider status.",
+      );
+    };
+    publicReferenceSource?.on("tileloadstart", onReferenceTileStart);
+    publicReferenceSource?.on("tileloadend", onReferenceTileEnd);
+    publicReferenceSource?.on("tileloaderror", onReferenceTileError);
     const initialCountryCode = activeProject?.countryCode ?? surveyState?.countryCode;
     const initialCenter = getDefaultCenter(initialCountryCode);
     const hasKnownCountryCenter = Boolean(initialCountryCode && COUNTRY_CENTERS[initialCountryCode]);
 
     const map = new OlMap({
       target: mapRef.current,
-      layers: [tileLayer, vectorLayer, selectionLayer, measureLayer],
+      layers: [tileLayer, publicReferenceLayer, vectorLayer, selectionLayer, measureLayer],
       view: new View({
         center: initialCenter,
         zoom: hasKnownCountryCenter ? 14 : 2,
@@ -202,6 +235,7 @@ export const MapView: React.FC = () => {
 
     mapInstance.current = map;
     tileLayerRef.current = tileLayer;
+    publicReferenceLayerRef.current = publicReferenceLayer;
     vectorSourceRef.current = vectorSource;
     selectionSourceRef.current = selectionSource;
     measureSourceRef.current = measureSource;
@@ -271,9 +305,13 @@ export const MapView: React.FC = () => {
 
     return () => {
       resizeObserver.disconnect();
+      publicReferenceSource?.un("tileloadstart", onReferenceTileStart);
+      publicReferenceSource?.un("tileloadend", onReferenceTileEnd);
+      publicReferenceSource?.un("tileloaderror", onReferenceTileError);
       map.setTarget(undefined);
       mapInstance.current = null;
       tileLayerRef.current = null;
+      publicReferenceLayerRef.current = null;
       vectorSourceRef.current = null;
       selectionSourceRef.current = null;
       measureSourceRef.current = null;
@@ -284,6 +322,15 @@ export const MapView: React.FC = () => {
   useEffect(() => {
     tileLayerRef.current?.setSource(getBasemapSource(basemap));
   }, [basemap]);
+
+  useEffect(() => {
+    publicReferenceLayerRef.current?.setVisible(showPublicReference);
+    if (!showPublicReference) {
+      setPublicReferenceStatus("Off — no new PDOK map requests will be made.");
+    } else {
+      setPublicReferenceStatus("Enabled — contacting PDOK as map tiles are needed.");
+    }
+  }, [showPublicReference]);
 
   // Load and Reproject Survey Geometry
   const refreshGeometry = useCallback(async () => {
@@ -704,6 +751,34 @@ export const MapView: React.FC = () => {
               <input type="checkbox" checked={layerVisibility.errorEllipses} onChange={(e) => setLayerVisibility((p) => ({ ...p, errorEllipses: e.target.checked }))} />
               95% Error Ellipses
             </label>
+            <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: "8px", marginTop: "2px", display: "flex", flexDirection: "column", gap: "6px" }}>
+              <div style={{ fontWeight: "bold", color: "var(--accent-primary)" }}>Public reference data</div>
+              <div style={{ color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                Selecting this sends map-viewport requests to PDOK. It is online map imagery and is not stored in project records, used in survey calculations, or included in plan exports.
+              </div>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: "6px" }}>
+                <input
+                  type="checkbox"
+                  checked={showPublicReference}
+                  onChange={(event) => setShowPublicReference(event.target.checked)}
+                  style={{ marginTop: "1px" }}
+                />
+                <span>{NETHERLANDS_CADASTRAL_REFERENCE.title} · {NETHERLANDS_CADASTRAL_REFERENCE.custodian}</span>
+              </label>
+              <div style={{ color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                {NETHERLANDS_CADASTRAL_REFERENCE.useLimit}
+              </div>
+              <div style={{ color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                {NETHERLANDS_CADASTRAL_REFERENCE.refreshStatement}
+              </div>
+              <div style={{ color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                {NETHERLANDS_CADASTRAL_REFERENCE.license}. Source: {NETHERLANDS_CADASTRAL_REFERENCE.providerPageUrl}
+              </div>
+              <div role="status" aria-live="polite" style={{ color: showPublicReference ? "var(--accent-primary)" : "var(--text-secondary)" }}>
+                {publicReferenceStatus}
+              </div>
+              {showPublicReference && <div style={{ color: "var(--text-secondary)" }}>Internet connection required for this layer.</div>}
+            </div>
           </div>
         )}
 
