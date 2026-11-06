@@ -4597,3 +4597,45 @@ Stage Summary and limits:
 - METARDU can now display one public cadastral reference for the Netherlands and one queryable public primary-parcel reference for New Zealand, with conservative limits and main-process network boundaries.
 - This is not a country catalogue, offline/downloaded reference package, complete New Zealand cadastre, legal-boundary service, survey-control dataset, or global jurisdiction workflow. Verify actual LINZ key configuration, provider response and native UI on a real device before release.
 - Preserve the unrelated staged frontend deletion, the user's concurrent topographic/export changes, and untracked recovery/geodesy files; stage only this task's paths and isolated hunks.
+
+---
+Task ID: deliverable-readiness-engine-v1
+Agent: Codex - 6 November 2026
+Task: Add a country-neutral deliverable completeness gate for project-defined survey outputs.
+
+Work Log:
+- Added a reusable engine evaluator for profile-defined coordinate references, feature reviews, QA checks, and deliverable artifacts. Missing required evidence blocks readiness; declared references, warnings, and explicitly allowed not-applicable features remain visible for surveyor review.
+- Re-exported the evaluator from the workflow and engine APIs, added a scoped task brief, and documented the implementation boundary in the international product plan.
+- Kept requirements practice/client-defined. The evaluator does not inspect geometry or spatial coverage, compute accuracy, validate hash bytes, persist profiles, show a UI, or approve professional work.
+
+Verification (engine/unit and type checks; not UI, field, or professional acceptance):
+~~~text
+npm exec --workspace @metardu/engine-flight-planning -- vitest run src/workflows/tests/deliverable-readiness.test.ts
+Test Files  1 passed (1)
+Tests       9 passed (9)
+
+npx tsc --noEmit (packages/engine): exit 0; no output.
+npx tsc --noEmit (apps/desktop): exit 0; no output.
+
+npm test (packages/engine, with local loopback access):
+Test Files  47 passed (47)
+Tests       894 passed (894)
+Duration    7.22s
+
+npm test in the default sandbox initially failed 15 SyncClient mock-server tests with connect EACCES 127.0.0.1; rerunning with local loopback access passed the full suite.
+
+cargo build --release (default features): failed because gdal-sys requires Windows gdal_i.lib, which is not installed.
+cargo test --release (default features): failed for the same missing gdal_i.lib.
+cargo build --release --no-default-features --features instrument:
+warning: `metardu-sidecar` (bin "metardu-sidecar") generated 59 warnings
+Finished `release` profile [optimized] target(s) in 3m 17s
+cargo test --release --no-default-features --features instrument:
+test result: ok. 219 passed; 0 failed; 0 ignored; 0 measured; finished in 0.19s
+
+git diff --check: passed.
+~~~
+
+Stage Summary and limits:
+- METARDU can now evaluate whether a configured survey deliverable package has the references, feature-review records, QA evidence, and required files declared by its profile before presenting it for surveyor review.
+- Profiles are not yet stored in projects and the evaluator is not connected to a delivery QA screen or export/issue flow. Output hashes are syntax-checked only. Default GDAL-enabled sidecar build remains unavailable on this machine; the instrument-enabled non-GDAL build and tests passed.
+- Next: persist versioned client profiles and evidence, connect the evaluator to a delivery QA view and manifest, then validate real CAD/GIS receiving workflows and professional review.

@@ -34,6 +34,25 @@ export {
 } from "./topographic.js";
 
 export {
+  assessDeliverableReadiness,
+  type CoordinateReferenceField,
+  type DeliverableRequirement,
+  type FeatureRequirement,
+  type OutputRequirement,
+  type DeliverableProfile,
+  type ReferenceValue,
+  type DeliverableReferenceContext,
+  type FeatureReview,
+  type QualityCheckReview,
+  type IncludedArtifact,
+  type DeliverableReadinessInput,
+  type DeliverableReadinessState,
+  type DeliverableIssueSeverity,
+  type DeliverableReadinessIssue,
+  type DeliverableReadinessAssessment,
+} from "./deliverable-readiness.js";
+
+export {
   runEngineeringWorkflow,
   type DesignSurface,
   type Alignment,

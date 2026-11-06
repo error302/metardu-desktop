@@ -121,6 +121,8 @@ For each job, METARDU should guide the surveyor through: (1) data intake from th
 
 The QA step must ask whether the information is sufficient to design from, not only whether input coordinates passed a numeric check. A dense point cloud does not prove that kerbs, crowns, drainage channels, crossfalls, curves, embankments, utilities, or building details were classified and represented completely. The app should show missing/unchecked feature classes and spatial gaps, allow a qualified surveyor to record overrides with reasons, and block a “complete” status when required checks have not been performed. Point-class automation and surface algorithms remain method-specific, separately validated work.
 
+The engine now has a country-neutral readiness assessor that checks a practice/client-defined profile against reference context, feature reviews, QA records, and the outputs declared in a delivery package. It reports blockers and review exceptions and stops at “ready for surveyor review.” This first slice does not inspect spatial coverage or geometry, verify output bytes, persist profiles, or provide the delivery QA screen; those remain integration work.
+
 Support production that overlaps field capture and office processing through explicit job stages, queues, and versioned partial outputs. A new capture batch must invalidate only the downstream results that depend on it, show the affected deliverables, and preserve the prior issued package. Native Revit authoring/export is a separate interoperability gate; start with verified exchange formats and receiving-application round trips before promising a native Revit workflow.
 
 ### Quality states
