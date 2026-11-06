@@ -4668,3 +4668,32 @@ Stage Summary and limits:
 - A project can now retain an editable deliverable checklist and QA review through the local database and portable bundle workflow. Starter profiles reduce setup time for several common global survey job types.
 - This is the first project workflow layer, not end-to-end processing automation. Data ingest/processing, measured spatial completeness, automated residual/coverage checks, actual-byte manifest hashing, coordinated output generation, deadline/stage orchestration, and recipient validation remain separate product gates.
 - Only the task-owned paths and this appended worklog entry are to be committed. Preserve the pre-existing staged frontend deletion and concurrent topographic, export, dependency, and recovery work.
+
+---
+Task ID: topographic-feature-code-evidence-v1
+Agent: Codex - 6 November 2026
+Task: Connect country-neutral Delivery QA feature requirements to saved topographic point-code evidence.
+
+Work Log:
+- Added optional, bounded, case-insensitively unique project/practice point-code mappings to feature requirements.
+- Added a pure engine summarizer for retained unadjusted topographic draft TIN vertices. Delivery QA recomputes counts from the active project's current TopographicView output and blocks a required mapped feature when code evidence is unavailable/invalid or no mapped code is present.
+- Kept feature review and evidence references separate from code presence. The UI shows coded-vertex counts and a filterable table capped at 250 visible code groups. A match does not assert geometry, curve sampling, breaklines, density, coverage, CRS applicability, residuals, or accuracy.
+- Preserved optional allowed not-applicable behavior. No global point-code dictionary or jurisdiction assumptions were added.
+
+Verification (source/build only; not native runtime, field, or professional acceptance):
+~~~text
+Focused engine readiness/evidence tests: 2 files, 19 passed.
+Focused IPC schema test: 1 file, 4 passed.
+Full IPC schema suite: 6 files, 53 passed.
+Full engine suite with local loopback access: 48 files, 904 passed. The default sandbox first denied 127.0.0.1 mock-server access; rerun with loopback access passed.
+Full Desktop suite: 42 files, 370 passed, 7 skipped.
+npx tsc --noEmit (engine and Desktop): passed.
+npx tsc -p tsconfig.renderer-check.json --noEmit: passed after the final UI adjustment.
+Engine, IPC schema, Desktop, and renderer builds: passed. Renderer transformed 2,490 modules; existing browser-externalization warnings for node:zlib, fs, path, and util remain.
+git diff --check: passed.
+~~~
+- No Electron smoke was run because the required smoke script is absent. No independent geometry/coverage inspection, receiving-CAD/GIS round trip, real field survey, or professional review was performed. The master plan file noted by AGENT.md was absent from this checkout.
+
+Stage Summary and limits:
+- A saved topographic draft now supplies limited code-presence evidence to a project's configured delivery checklist. It is an incremental review aid, not end-to-end survey processing or automated feature-completeness QA.
+- Preserve the pre-existing staged frontend deletion and all concurrent topographic, map, export, dependency, recovery, and worklog changes. Commit only this task's files/hunks and this task's worklog entry.

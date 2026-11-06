@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { PROJECT_DELIVERABLE_REVIEW_SCHEMA } from "../namespaces/project-deliverable-review.js";
+import {
+  PROJECT_DELIVERABLE_REVIEW_SCHEMA,
+  type ProjectDeliverableReview,
+} from "../namespaces/project-deliverable-review.js";
 
-function reviewFixture() {
+function reviewFixture(): ProjectDeliverableReview {
   return {
     profile: {
       id: "office-topo-v1",
@@ -48,5 +51,14 @@ describe("PROJECT_DELIVERABLE_REVIEW_SCHEMA", () => {
     const unknownKey = reviewFixture() as ReturnType<typeof reviewFixture> & { secret: string };
     unknownKey.secret = "not part of the project review contract";
     expect(PROJECT_DELIVERABLE_REVIEW_SCHEMA.safeParse(unknownKey).success).toBe(false);
+  });
+
+  it("accepts unique project-local source codes and rejects duplicate codes without case sensitivity", () => {
+    const mappedFeature = reviewFixture();
+    mappedFeature.profile.features[0]!.sourceCodes = ["KERB", "KERB_TOP"];
+    expect(PROJECT_DELIVERABLE_REVIEW_SCHEMA.safeParse(mappedFeature).success).toBe(true);
+
+    mappedFeature.profile.features[0]!.sourceCodes = ["KERB", "kerb"];
+    expect(PROJECT_DELIVERABLE_REVIEW_SCHEMA.safeParse(mappedFeature).success).toBe(false);
   });
 });

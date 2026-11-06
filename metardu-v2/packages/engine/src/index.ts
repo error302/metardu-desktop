@@ -305,6 +305,9 @@ export {
   type DeliverableIssueSeverity,
   type DeliverableReadinessIssue,
   type DeliverableReadinessAssessment,
+  summarizeTopographicPointCodes,
+  type TopographicPointCodeCount,
+  type TopographicPointCodeEvidence,
   // Engineering (Phase 9B)
   runEngineeringWorkflow,
   type DesignSurface,

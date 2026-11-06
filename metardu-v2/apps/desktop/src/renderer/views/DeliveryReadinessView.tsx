@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ClipboardCheck, Plus, Save, Trash2 } from "lucide-react";
 import {
   assessDeliverableReadiness,
+  summarizeTopographicPointCodes,
   type CoordinateReferenceField,
   type DeliverableReadinessAssessment,
   type ReferenceValue,
+  type TopographicPointCodeEvidence,
 } from "@metardu/engine-flight-planning";
 import {
   PROJECT_DELIVERABLE_REVIEW_SCHEMA,
@@ -99,9 +101,12 @@ function newProjectReview(projectId: string, projectName: string): ProjectDelive
   };
 }
 
-function assessmentFor(review: ProjectDeliverableReview): { assessment?: DeliverableReadinessAssessment; error?: string } {
+function assessmentFor(
+  review: ProjectDeliverableReview,
+  topographicPointCodes?: TopographicPointCodeEvidence,
+): { assessment?: DeliverableReadinessAssessment; error?: string } {
   try {
-    return { assessment: assessDeliverableReadiness(review) };
+    return { assessment: assessDeliverableReadiness({ ...review, ...(topographicPointCodes ? { topographicPointCodes } : {}) }) };
   } catch (cause) {
     return { error: cause instanceof Error ? cause.message : "The profile could not be assessed." };
   }
@@ -140,6 +145,7 @@ export const DeliveryReadinessView: React.FC = () => {
   const [baseline, setBaseline] = useState("");
   const [saving, setSaving] = useState(false);
   const [starterId, setStarterId] = useState(WORKFLOW_STARTERS[0].id);
+  const [pointCodeFilter, setPointCodeFilter] = useState("");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -161,7 +167,29 @@ export const DeliveryReadinessView: React.FC = () => {
     () => draft ? PROJECT_DELIVERABLE_REVIEW_SCHEMA.safeParse(draft) : null,
     [draft],
   );
-  const evaluation = useMemo(() => draft ? assessmentFor(draft) : null, [draft]);
+  const topographicPointCodes = useMemo(
+    () => activeProject?.sourceView === "TopographicView"
+      ? summarizeTopographicPointCodes(activeProject.output)
+      : undefined,
+    [activeProject?.sourceView, activeProject?.output],
+  );
+  const topographicCodeCountMap = useMemo(
+    () => topographicPointCodes?.state === "available"
+      ? new Map(topographicPointCodes.codeCounts.map(({ code, vertexCount }) => [code.toUpperCase(), vertexCount]))
+      : undefined,
+    [topographicPointCodes],
+  );
+  const filteredPointCodes = useMemo(() => {
+    if (topographicPointCodes?.state !== "available") return { visible: [], matchCount: 0 };
+    const query = pointCodeFilter.trim().toUpperCase();
+    const matching = topographicPointCodes.codeCounts
+      .filter(({ code }) => !query || code.toUpperCase().includes(query))
+    return { visible: matching.slice(0, 250), matchCount: matching.length };
+  }, [topographicPointCodes, pointCodeFilter]);
+  const evaluation = useMemo(
+    () => draft ? assessmentFor(draft, topographicPointCodes) : null,
+    [draft, topographicPointCodes],
+  );
 
   const edit = (update: (current: ProjectDeliverableReview) => ProjectDeliverableReview) => {
     setDraft((current) => current ? update(current) : current);
@@ -394,6 +422,43 @@ export const DeliveryReadinessView: React.FC = () => {
         </div>
       </section>
 
+      {activeProject.sourceView === "TopographicView" && (
+        <section className="enterprise-panel" aria-labelledby="delivery-code-evidence-heading">
+          <div className="enterprise-panel-header"><span className="enterprise-panel-title" id="delivery-code-evidence-heading">Topographic point-code evidence</span></div>
+          <div className="enterprise-panel-body">
+            {topographicPointCodes?.state === "available" ? (
+              <>
+                <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginBottom: 10 }}>
+                  <span><strong>{topographicPointCodes.vertexCount.toLocaleString()}</strong> retained TIN vertices</span>
+                  <span><strong>{topographicPointCodes.codedVertexCount.toLocaleString()}</strong> with a point code</span>
+                  <span><strong>{topographicPointCodes.codeCounts.length.toLocaleString()}</strong> distinct codes</span>
+                </div>
+                <label style={{ ...labelStyle, maxWidth: 420, marginBottom: 9 }}>
+                  Find a project point code
+                  <input value={pointCodeFilter} maxLength={120} onChange={(event) => setPointCodeFilter(event.target.value)} style={controlStyle} />
+                </label>
+                {topographicPointCodes.codeCounts.length > 0 ? (
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead><tr><th scope="col" style={{ textAlign: "left" }}>Code in retained draft</th><th scope="col" style={{ textAlign: "right" }}>Vertices</th></tr></thead>
+                      <tbody>{filteredPointCodes.visible.map(({ code, vertexCount }) => <tr key={code}><td style={{ padding: "5px 8px", borderTop: "1px solid var(--border-default)" }}>{code}</td><td style={{ padding: "5px 8px", textAlign: "right", borderTop: "1px solid var(--border-default)" }}>{vertexCount.toLocaleString()}</td></tr>)}</tbody>
+                    </table>
+                    <p style={{ color: "var(--text-tertiary)", fontSize: "var(--text-xs)" }}>
+                      Showing {filteredPointCodes.visible.length.toLocaleString()} of {filteredPointCodes.matchCount.toLocaleString()} matching code groups (maximum 250 shown).
+                    </p>
+                  </div>
+                ) : <p>No point codes are present in the retained topographic draft.</p>}
+              </>
+            ) : (
+              <p role="alert" style={{ color: "var(--status-warning)" }}>{topographicPointCodes?.message ?? "Topographic point-code evidence is unavailable."}</p>
+            )}
+            <p style={{ color: "var(--text-tertiary)", fontSize: "var(--text-xs)", marginBottom: 0 }}>
+              Code counts only show which labels appear in the saved draft. They do not confirm feature geometry, curve sampling, breaklines, coverage, or accuracy. A surveyor must still review the evidence.
+            </p>
+          </div>
+        </section>
+      )}
+
       <section className="enterprise-panel" aria-labelledby="delivery-features-heading">
         <div className="enterprise-panel-header">
           <span className="enterprise-panel-title" id="delivery-features-heading">Feature classes to capture and review</span>
@@ -414,6 +479,31 @@ export const DeliveryReadinessView: React.FC = () => {
                   <label><input type="checkbox" checked={feature.required} onChange={(event) => edit((current) => ({ ...current, profile: { ...current.profile, features: current.profile.features.map((item) => item.id === feature.id ? { ...item, required: event.target.checked } : item) } }))} /> Required by this profile</label>
                   <label><input type="checkbox" checked={!!feature.allowNotApplicable} onChange={(event) => edit((current) => ({ ...current, profile: { ...current.profile, features: current.profile.features.map((item) => item.id === feature.id ? { ...item, allowNotApplicable: event.target.checked } : item) } }))} /> Allow a reasoned not-applicable exception</label>
                 </div>
+                <label style={{ ...labelStyle, marginTop: 9 }}>
+                  Optional topographic point codes for this feature (comma-separated; any listed code indicates presence)
+                  <input
+                    value={feature.sourceCodes?.join(", ") ?? ""}
+                    maxLength={12_200}
+                    placeholder="e.g. KERB, KERB_TOP"
+                    onChange={(event) => edit((current) => ({
+                      ...current,
+                      profile: {
+                        ...current.profile,
+                        features: current.profile.features.map((item) => item.id === feature.id
+                          ? { ...item, sourceCodes: event.target.value.split(",").map((code) => code.trim()).filter(Boolean) }
+                          : item),
+                      },
+                    }))}
+                    style={controlStyle}
+                  />
+                  {feature.sourceCodes?.length ? (
+                    <span style={{ color: "var(--text-tertiary)", fontSize: "var(--text-xs)" }}>
+                      {topographicPointCodes?.state === "available"
+                        ? `${feature.sourceCodes.reduce((count, code) => count + (topographicCodeCountMap?.get(code.toUpperCase()) ?? 0), 0).toLocaleString()} retained vertices match these codes.`
+                        : "Mapped codes require a retained topographic draft before presence can be checked."}
+                    </span>
+                  ) : <span style={{ color: "var(--text-tertiary)", fontSize: "var(--text-xs)" }}>No point-code presence check is configured for this feature.</span>}
+                </label>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 9, marginTop: 9 }}>
                   <label style={labelStyle}>Evidence reference<input value={review?.evidenceReferences?.[0] ?? ""} maxLength={500} onChange={(event) => edit((current) => ({ ...current, featureReviews: current.featureReviews.map((item) => item.requirementId === feature.id ? { ...item, evidenceReferences: event.target.value.trim() ? [event.target.value] : [] } : item) }))} style={controlStyle} /></label>
                   <label style={labelStyle}>Reason or review note<input value={review?.reason ?? ""} maxLength={2000} onChange={(event) => edit((current) => ({ ...current, featureReviews: current.featureReviews.map((item) => item.requirementId === feature.id ? { ...item, reason: event.target.value } : item) }))} style={controlStyle} /></label>

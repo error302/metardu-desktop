@@ -9,7 +9,11 @@ export const PROJECT_DELIVERABLE_REVIEW_SCHEMA = z.object({
     id: ID,
     name: LABEL,
     referenceFields: z.array(z.enum(["horizontal-crs", "vertical-reference", "linear-unit", "coordinate-epoch"])).max(4),
-    features: z.array(REQUIREMENT.extend({ allowNotApplicable: z.boolean().optional() })).max(250),
+    features: z.array(REQUIREMENT.extend({
+      allowNotApplicable: z.boolean().optional(),
+      /** Optional project-local codes whose presence is checked against a retained topo draft. */
+      sourceCodes: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+    })).max(250),
     checks: z.array(REQUIREMENT).max(250),
     outputs: z.array(REQUIREMENT.extend({ format: LABEL })).max(250),
   }).strict(),
@@ -46,6 +50,15 @@ export const PROJECT_DELIVERABLE_REVIEW_SCHEMA = z.object({
   };
   unique(review.profile.referenceFields, ["profile", "referenceFields"], "Reference field");
   unique(review.profile.features.map(({ id }) => id), ["profile", "features"], "Feature");
+  review.profile.features.forEach((feature, index) => {
+    if (feature.sourceCodes) {
+      unique(
+        feature.sourceCodes.map((code) => code.toUpperCase()),
+        ["profile", "features", index, "sourceCodes"],
+        "Feature source code",
+      );
+    }
+  });
   unique(review.profile.checks.map(({ id }) => id), ["profile", "checks"], "Check");
   unique(review.profile.outputs.map(({ id }) => id), ["profile", "outputs"], "Output");
   unique(review.featureReviews.map(({ requirementId }) => requirementId), ["featureReviews"], "Feature review");

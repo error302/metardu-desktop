@@ -190,4 +190,64 @@ describe("assessDeliverableReadiness", () => {
     expect(result.issues.map(({ code }) => code)).toContain("PROFILE_HORIZONTAL_CRS_REQUIRED");
     expect(result.issues.map(({ code }) => code)).toContain("PROFILE_NO_REQUIRED_CHECK");
   });
+
+  it("blocks required mapped features when the code is absent from the retained topographic draft", () => {
+    const input = completeInput();
+    input.profile.features[0] = { ...input.profile.features[0]!, sourceCodes: ["KERB", "KERB_TOP"] };
+    input.topographicPointCodes = {
+      state: "available",
+      vertexCount: 4,
+      codedVertexCount: 2,
+      codeCounts: [{ code: "DRAIN", vertexCount: 2 }],
+    };
+
+    const result = assessDeliverableReadiness(input);
+
+    expect(result.state).toBe("blocked");
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      code: "FEATURE_POINT_CODES_NOT_OBSERVED",
+      severity: "blocker",
+      itemId: "kerbs",
+    }));
+  });
+
+  it("requires retained topographic evidence for a mapped required feature", () => {
+    const input = completeInput();
+    input.profile.features[0] = { ...input.profile.features[0]!, sourceCodes: ["KERB"] };
+
+    const result = assessDeliverableReadiness(input);
+
+    expect(result.state).toBe("blocked");
+    expect(result.issues.map(({ code }) => code)).toContain("FEATURE_POINT_CODE_EVIDENCE_UNAVAILABLE");
+  });
+
+  it("accepts a matching code as presence evidence while retaining manual feature review", () => {
+    const input = completeInput();
+    input.profile.features[0] = { ...input.profile.features[0]!, sourceCodes: ["kerb"] };
+    input.topographicPointCodes = {
+      state: "available",
+      vertexCount: 4,
+      codedVertexCount: 2,
+      codeCounts: [{ code: "KERB", vertexCount: 2 }],
+    };
+
+    expect(assessDeliverableReadiness(input).state).toBe("ready-for-surveyor-review");
+  });
+
+  it("allows a reasoned not-applicable exception without topographic code evidence", () => {
+    const input = completeInput();
+    input.profile.features[1] = { ...input.profile.features[1]!, sourceCodes: ["DRAIN"] };
+    input.featureReviews[1] = { requirementId: "drainage", status: "not-applicable", reason: "No drainage feature is in scope." };
+
+    const result = assessDeliverableReadiness(input);
+
+    expect(result.state).toBe("review-required");
+    expect(result.issues.map(({ code }) => code)).not.toContain("FEATURE_POINT_CODE_EVIDENCE_UNAVAILABLE");
+  });
+
+  it("rejects duplicate point-code mappings case-insensitively", () => {
+    const input = completeInput();
+    input.profile.features[0] = { ...input.profile.features[0]!, sourceCodes: ["KERB", "kerb"] };
+    expect(() => assessDeliverableReadiness(input)).toThrow("duplicate source code");
+  });
 });

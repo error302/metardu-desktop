@@ -53,6 +53,12 @@ export {
 } from "./deliverable-readiness.js";
 
 export {
+  summarizeTopographicPointCodes,
+  type TopographicPointCodeCount,
+  type TopographicPointCodeEvidence,
+} from "./topographic-feature-evidence.js";
+
+export {
   runEngineeringWorkflow,
   type DesignSurface,
   type Alignment,

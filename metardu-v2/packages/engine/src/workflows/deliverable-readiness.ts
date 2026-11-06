@@ -9,6 +9,9 @@
  * approve a professional deliverable.
  */
 
+import { MAX_TOPOGRAPHIC_TIN_POINTS } from "./topographic.js";
+import type { TopographicPointCodeEvidence } from "./topographic-feature-evidence.js";
+
 export type CoordinateReferenceField = "horizontal-crs" | "vertical-reference" | "linear-unit" | "coordinate-epoch";
 
 export interface DeliverableRequirement {
@@ -20,6 +23,8 @@ export interface DeliverableRequirement {
 export interface FeatureRequirement extends DeliverableRequirement {
   /** A reviewed feature may be marked not applicable only when this is true. */
   allowNotApplicable?: boolean;
+  /** Optional client/practice point codes to check for presence in a retained topographic draft. */
+  sourceCodes?: string[];
 }
 
 export interface OutputRequirement extends DeliverableRequirement {
@@ -80,6 +85,8 @@ export interface DeliverableReadinessInput {
   featureReviews: FeatureReview[];
   qualityChecks: QualityCheckReview[];
   artifacts: IncludedArtifact[];
+  /** Derived from the active project's retained TopographicView output; never persisted as review evidence. */
+  topographicPointCodes?: TopographicPointCodeEvidence;
 }
 
 export type DeliverableReadinessState = "blocked" | "review-required" | "ready-for-surveyor-review";
@@ -97,6 +104,8 @@ export interface DeliverableReadinessIssue {
     | "FEATURE_REVIEW_INCOMPLETE"
     | "FEATURE_EVIDENCE_MISSING"
     | "FEATURE_NOT_APPLICABLE"
+    | "FEATURE_POINT_CODE_EVIDENCE_UNAVAILABLE"
+    | "FEATURE_POINT_CODES_NOT_OBSERVED"
     | "CHECK_NOT_RUN"
     | "CHECK_FAILED"
     | "CHECK_WARNING"
@@ -159,6 +168,50 @@ function nonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function indexTopographicPointCodeEvidence(value: unknown): { counts?: Map<string, number>; message: string } {
+  if (value === undefined) return { message: "No retained topographic draft is available for the mapped point codes." };
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { message: "Retained topographic point-code evidence is malformed." };
+  }
+  const evidence = value as Record<string, unknown>;
+  if (evidence.state !== "available") {
+    return {
+      message: typeof evidence.message === "string" && evidence.message.trim()
+        ? evidence.message
+        : "Retained topographic point-code evidence is unavailable.",
+    };
+  }
+  if (!Number.isSafeInteger(evidence.vertexCount) || (evidence.vertexCount as number) < 3
+    || (evidence.vertexCount as number) > MAX_TOPOGRAPHIC_TIN_POINTS
+    || !Number.isSafeInteger(evidence.codedVertexCount) || (evidence.codedVertexCount as number) < 0
+    || (evidence.codedVertexCount as number) > (evidence.vertexCount as number)
+    || !Array.isArray(evidence.codeCounts)
+    || evidence.codeCounts.length > (evidence.vertexCount as number)) {
+    return { message: "Retained topographic point-code summary has invalid counts." };
+  }
+  const counts = new Map<string, number>();
+  let summedCount = 0;
+  for (const item of evidence.codeCounts) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return { message: "Retained topographic point-code summary contains an invalid code record." };
+    }
+    const record = item as Record<string, unknown>;
+    if (!nonEmpty(record.code) || record.code.length > 120
+      || !Number.isSafeInteger(record.vertexCount) || (record.vertexCount as number) <= 0
+      || (record.vertexCount as number) > (evidence.vertexCount as number)) {
+      return { message: "Retained topographic point-code summary contains an invalid code count." };
+    }
+    const normalized = record.code.trim().toUpperCase();
+    if (counts.has(normalized)) return { message: "Retained topographic point-code summary contains duplicate codes." };
+    counts.set(normalized, record.vertexCount as number);
+    summedCount += record.vertexCount as number;
+  }
+  if (summedCount !== evidence.codedVertexCount) {
+    return { message: "Retained topographic point-code totals do not reconcile." };
+  }
+  return { counts, message: "" };
+}
+
 /**
  * Assess whether the package is complete enough for a surveyor's final review.
  * It intentionally never returns an approved, accurate, or legally complete state.
@@ -169,6 +222,21 @@ export function assessDeliverableReadiness(input: DeliverableReadinessInput): De
     throw new Error("Deliverable profile must have a non-empty id and name.");
   }
   assertUniqueIds(profile.features, "Profile features");
+  for (const feature of profile.features) {
+    if (feature.sourceCodes === undefined) continue;
+    if (!Array.isArray(feature.sourceCodes) || feature.sourceCodes.length > 100) {
+      throw new Error(`Feature '${feature.id}' source codes must be an array of at most 100 items.`);
+    }
+    const codes = new Set<string>();
+    for (const code of feature.sourceCodes) {
+      if (!nonEmpty(code) || code.trim().length > 120) {
+        throw new Error(`Feature '${feature.id}' source codes must be non-empty strings of at most 120 characters.`);
+      }
+      const normalized = code.trim().toUpperCase();
+      if (codes.has(normalized)) throw new Error(`Feature '${feature.id}' contains duplicate source code '${code}'.`);
+      codes.add(normalized);
+    }
+  }
   assertUniqueIds(profile.checks, "Profile checks");
   assertUniqueIds(profile.outputs, "Profile outputs");
   if (profile.features.some(({ allowNotApplicable }) => allowNotApplicable !== undefined && typeof allowNotApplicable !== "boolean")) {
@@ -213,6 +281,7 @@ export function assessDeliverableReadiness(input: DeliverableReadinessInput): De
   const add = (code: DeliverableReadinessIssue["code"], severity: DeliverableIssueSeverity, itemId: string, message: string) => {
     issues.push({ code, severity, itemId, message });
   };
+  const topographicPointCodeEvidence = indexTopographicPointCodeEvidence(input.topographicPointCodes);
 
   if (!profile.referenceFields.includes("horizontal-crs")) {
     add("PROFILE_HORIZONTAL_CRS_REQUIRED", "blocker", profile.id, "Every survey delivery profile must require an explicit horizontal coordinate reference; a local grid may be named without an EPSG code.");
@@ -239,8 +308,36 @@ export function assessDeliverableReadiness(input: DeliverableReadinessInput): De
   }
 
   for (const requirement of profile.features) {
+    const featureReview = featureReviews.get(requirement.id);
+    const mappedCodes = requirement.sourceCodes ?? [];
+    const isAllowedNotApplicable = featureReview?.status === "not-applicable"
+      && requirement.allowNotApplicable
+      && nonEmpty(featureReview.reason);
+    if (requirement.required && mappedCodes.length > 0 && !isAllowedNotApplicable) {
+      if (!topographicPointCodeEvidence.counts) {
+        add(
+          "FEATURE_POINT_CODE_EVIDENCE_UNAVAILABLE",
+          "blocker",
+          requirement.id,
+          `Mapped point codes for '${requirement.label}' cannot be checked: ${topographicPointCodeEvidence.message}`,
+        );
+      } else {
+        const matchingVertices = mappedCodes.reduce(
+          (total, code) => total + (topographicPointCodeEvidence.counts!.get(code.trim().toUpperCase()) ?? 0),
+          0,
+        );
+        if (matchingVertices === 0) {
+          add(
+            "FEATURE_POINT_CODES_NOT_OBSERVED",
+            "blocker",
+            requirement.id,
+            `None of the mapped point codes (${mappedCodes.join(", ")}) for required feature '${requirement.label}' appear in the retained topographic draft.`,
+          );
+        }
+      }
+    }
     if (!requirement.required) continue;
-    const review = featureReviews.get(requirement.id);
+    const review = featureReview;
     if (!review) {
       add("FEATURE_REVIEW_MISSING", "blocker", requirement.id, `Required feature '${requirement.label}' has no review record.`);
     } else if (review.status === "not-started" || review.status === "in-progress") {
