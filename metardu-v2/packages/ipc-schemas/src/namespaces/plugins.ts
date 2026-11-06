@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const MAX_COMMUNITY_PLUGIN_INPUT_BYTES = 4 * 1024 * 1024;
 
-function isBoundedJsonValue(root: unknown): boolean {
+export function isBoundedCommunityPluginJsonValue(root: unknown): boolean {
   const pending: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }];
   const visited = new WeakSet<object>();
   let nodes = 0;
@@ -41,6 +41,11 @@ function isBoundedJsonValue(root: unknown): boolean {
     return false;
   }
 }
+
+export const COMMUNITY_PLUGIN_JSON_VALUE_SCHEMA = z.unknown().refine(
+  isBoundedCommunityPluginJsonValue,
+  "Input must be bounded JSON (maximum 4 MiB, 64 levels, and 100,000 values).",
+);
 
 const claimedPluginId = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?){1,7}$/;
 const version = /^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$/;
@@ -95,14 +100,14 @@ export const COMMUNITY_EXTENSION_PACKAGE_LIST_SCHEMA = z.object({
 
 export const COMMUNITY_EXTENSION_PACKAGE_RUN_INPUT_SCHEMA = z.object({
   packageSha256: COMMUNITY_EXTENSION_PACKAGE_SHA256_SCHEMA,
-  input: z.unknown().refine(isBoundedJsonValue, "Input must be bounded JSON (maximum 4 MiB, 64 levels, and 100,000 values)."),
+  input: COMMUNITY_PLUGIN_JSON_VALUE_SCHEMA,
 }).strict();
 
 export const PLUGIN_RUN_INPUT_SCHEMA = z.object({
   moduleToken: z.string().regex(moduleToken),
   pluginId: z.string().regex(claimedPluginId).max(511),
   version: z.string().regex(version),
-  input: z.unknown().refine(isBoundedJsonValue, "Input must be bounded JSON (maximum 4 MiB, 64 levels, and 100,000 values)."),
+  input: COMMUNITY_PLUGIN_JSON_VALUE_SCHEMA,
 }).strict();
 
 export type PluginRunInput = z.infer<typeof PLUGIN_RUN_INPUT_SCHEMA>;

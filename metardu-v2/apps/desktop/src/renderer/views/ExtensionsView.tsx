@@ -1,11 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { AlertTriangle, Boxes, FileCode2, Play, ShieldAlert } from "lucide-react";
+import { useSurveyState } from "../SurveyStateContext.js";
+import { buildCommunityProjectOutputInput } from "../community-project-input.js";
 
 type SelectedModule = Extract<
   Awaited<ReturnType<typeof window.metardu.plugins.pickModule>>,
   { canceled: false }
 >;
 type InstalledPackage = Awaited<ReturnType<typeof window.metardu.plugins.listInstalled>>["packages"][number];
+type ProjectInputSource = { projectId: string; projectVersion: number; projectName: string; sourceView: string; surveyType: string; byteLength: number };
+
+const DEFAULT_PLUGIN_INPUT = "{\n  \"message\": \"Hello surveyor\"\n}";
 
 const fieldStyle: React.CSSProperties = {
   width: "100%",
@@ -20,13 +25,15 @@ const fieldStyle: React.CSSProperties = {
 };
 
 export const ExtensionsView: React.FC = () => {
+  const { activeProject } = useSurveyState();
   const [module, setModule] = useState<SelectedModule | null>(null);
   const [packages, setPackages] = useState<InstalledPackage[]>([]);
   const [packageIssues, setPackageIssues] = useState<Array<{ packageSha256: string | null; message: string }>>([]);
   const [selectedPackageSha256, setSelectedPackageSha256] = useState<string | null>(null);
   const [pluginId, setPluginId] = useState("community.example.tool");
   const [version, setVersion] = useState("0.1.0");
-  const [input, setInput] = useState("{\n  \"message\": \"Hello surveyor\"\n}");
+  const [input, setInput] = useState(DEFAULT_PLUGIN_INPUT);
+  const [inputSource, setInputSource] = useState<ProjectInputSource | null>(null);
   const [outputText, setOutputText] = useState("");
   const [outputWasTruncated, setOutputWasTruncated] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -45,6 +52,37 @@ export const ExtensionsView: React.FC = () => {
   useEffect(() => {
     void refreshPackages().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
   }, []);
+
+  const loadActiveProjectOutput = () => {
+    setError(null);
+    setNotice(null);
+    if (!activeProject) {
+      setError("Select a project before loading saved workflow output.");
+      return;
+    }
+    const built = buildCommunityProjectOutputInput(activeProject);
+    if (!built.ok) {
+      setError(built.message);
+      return;
+    }
+    if (input !== DEFAULT_PLUGIN_INPUT && !window.confirm(
+      "Replace the current extension JSON input with a snapshot of this project's saved workflow output? The extension will receive that snapshot only when you explicitly run it.",
+    )) return;
+
+    setInput(built.value.json);
+    setInputSource({
+      projectId: activeProject.id,
+      projectVersion: activeProject.version,
+      projectName: activeProject.name,
+      sourceView: built.value.sourceView,
+      surveyType: built.value.surveyType,
+      byteLength: built.value.byteLength,
+    });
+    setOutputText("");
+    setOutputWasTruncated(false);
+    setError(null);
+    setNotice(`Loaded ${built.value.byteLength.toLocaleString()} bytes of saved ${built.value.surveyType} output as an explicit extension input.`);
+  };
 
   const installPackage = async () => {
     setBusy(true);
@@ -219,16 +257,51 @@ export const ExtensionsView: React.FC = () => {
       </button>
       </details>
 
-      <label style={{ color: "var(--text-secondary)", fontSize: 11 }}>
-        JSON input · maximum 4 MiB
-        <textarea value={input} onChange={(event) => setInput(event.target.value)} rows={8} spellCheck={false} style={{ ...fieldStyle, display: "block", marginTop: 5, resize: "vertical", lineHeight: 1.5 }} />
-      </label>
+      <div style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
+          <label htmlFor="community-plugin-json-input">JSON input · maximum 4 MiB</label>
+          <button
+            type="button"
+            onClick={loadActiveProjectOutput}
+            disabled={busy || !activeProject || activeProject.output === null || activeProject.output === undefined}
+            style={{ marginLeft: "auto", border: "1px solid var(--accent-primary)", borderRadius: 4, padding: "6px 9px", color: "var(--accent-primary)", background: "transparent", cursor: busy ? "wait" : "pointer", fontSize: 10 }}
+          >
+            Load active project output
+          </button>
+        </div>
+        <div style={{ marginBottom: 7, color: "var(--text-tertiary)", fontSize: 10, lineHeight: 1.45 }}>
+          {activeProject?.output !== null && activeProject?.output !== undefined
+            ? `Current project: ${activeProject.name}. Load its saved workflow result as a point-in-time input; the project remains unchanged.`
+            : "No saved workflow output is available in the active project. Run or open a workflow result first."}
+        </div>
+        {inputSource && (
+          <div role="status" style={{ marginBottom: 7, padding: 8, border: "1px solid var(--border-default)", borderRadius: 4, color: "var(--text-secondary)", lineHeight: 1.45 }}>
+            Snapshot loaded from <strong>{inputSource.projectName}</strong> · {inputSource.surveyType} / {inputSource.sourceView} · {inputSource.byteLength.toLocaleString()} bytes.{activeProject?.id !== inputSource.projectId || activeProject.version !== inputSource.projectVersion ? " The active project has changed since this snapshot was loaded." : " This is a point-in-time snapshot."} Only saved workflow output and declared coordinate context are included; coordinate context is not verified, and linked files and point-cloud source bytes are not included.
+          </div>
+        )}
+        <textarea
+          id="community-plugin-json-input"
+          value={input}
+          disabled={busy}
+          onChange={(event) => {
+            setError(null);
+            setNotice(null);
+            setInput(event.target.value);
+            setInputSource(null);
+            setOutputText("");
+            setOutputWasTruncated(false);
+          }}
+          rows={8}
+          spellCheck={false}
+          style={{ ...fieldStyle, display: "block", marginTop: 5, resize: "vertical", lineHeight: 1.5 }}
+        />
+      </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button onClick={runInstalledPackage} disabled={!selectedPackageSha256 || busy} style={{ display: "inline-flex", alignItems: "center", gap: 7, border: "none", borderRadius: 4, padding: "9px 14px", background: selectedPackageSha256 && !busy ? "var(--accent-primary)" : "var(--bg-tertiary)", color: selectedPackageSha256 && !busy ? "var(--bg-primary)" : "var(--text-disabled)", cursor: selectedPackageSha256 && !busy ? "pointer" : "not-allowed", fontWeight: 700, fontSize: 12 }}>
           <Play size={14} /> {busy ? "Running…" : "Run selected package"}
         </button>
-        <span style={{ fontSize: 10, color: "var(--text-tertiary)" }}>No network, file, database, instrument, or project capability is granted.</span>
+        <span style={{ fontSize: 10, color: "var(--text-tertiary)" }}>Extensions receive only this JSON when you explicitly run them. No live project, linked file, network, database, or instrument access is granted.</span>
       </div>
 
       {notice && <div role="status" style={{ padding: 10, border: "1px solid var(--border-default)", borderRadius: 4, color: "var(--text-secondary)", fontSize: 11 }}>{notice}</div>}

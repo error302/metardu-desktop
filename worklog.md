@@ -4697,3 +4697,35 @@ git diff --check: passed.
 Stage Summary and limits:
 - A saved topographic draft now supplies limited code-presence evidence to a project's configured delivery checklist. It is an incremental review aid, not end-to-end survey processing or automated feature-completeness QA.
 - Preserve the pre-existing staged frontend deletion and all concurrent topographic, map, export, dependency, recovery, and worklog changes. Commit only this task's files/hunks and this task's worklog entry.
+
+---
+Task ID: community-extension-project-output-input-v1
+Agent: Codex - 6 November 2026
+Task: Connect local community extensions to bounded saved project workflow output.
+
+Work Log:
+- Exported the existing bounded-JSON validator for reuse by renderer preflight and IPC. ABI v1 size, depth, and value-count checks remain unchanged.
+- Added the `metardu-project-output-input/v1` wrapper with the saved output, survey type, source view, declared country code, declared horizontal CRS, and declared coordinate context/state. Project name/ID, linked files, point-cloud source bytes, and live project access are excluded.
+- Added a user-triggered “Load active project output” action. It confirms replacement of non-default JSON, reports the point-in-time project/version and byte count, warns on project changes, clears the association on manual edits, and rejects invalid or oversized input without truncation.
+- ABI v1 remains no-import Wasm. Results remain Community / Draft previews and are not persisted as project artifacts.
+
+Verification (focused source/build evidence; no native runtime or field acceptance):
+~~~text
+npm run build --workspace @metardu/ipc-schemas: passed.
+npm exec --workspace @metardu/ipc-schemas -- vitest run src/tests/plugins.test.ts:
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+npm exec --workspace @metardu/desktop -- vitest run src/tests/community-project-input.test.ts:
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+npx tsc --noEmit (apps/desktop): passed with no output.
+npx tsc -p tsconfig.renderer-check.json --noEmit (metardu-v2 root): passed with no output.
+npm run build:renderer: passed. Existing browser-externalization warnings for node:zlib, fs, path, and util remain.
+git diff --check: passed.
+~~~
+- No Electron smoke was run because `scripts/electron-smoke.sh` is absent. No native app interaction, plugin method validation, saved-artifact persistence, large-cloud processing, receiving-system round trip, or field/professional review was performed.
+
+Stage Summary and limits:
+- Surveyors can now explicitly pass a small saved project output to a local community tool without granting the tool project-store or filesystem access. The core remains country-neutral and preserves declared-versus-verified context.
+- Inputs above the v1 limit are not processed. Chunked LAS/LAZ/COPC processing, durable project-linked plugin artifacts and provenance, publisher verification, and method review remain required gates.
+- Preserve the pre-existing staged frontend deletion and concurrent topographic, map, export, dependency, recovery, and worklog changes. Commit only this task's files/hunks and this task's appended worklog entry.

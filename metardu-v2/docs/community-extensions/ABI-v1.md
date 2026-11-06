@@ -48,6 +48,12 @@ The host writes the serialized input JSON at the pointer returned by `metardu_pl
 
 The UI truncates only the displayed preview for large results; it does not rewrite the result. ABI v1 does not import project files, process LAS/LAZ/COPC datasets, or write project artifacts. JSON is limited to 4 MiB, so a point-cloud classifier cannot pass a real cloud through this interface. Do not use this preview as evidence of survey accuracy or legal acceptance.
 
+## Explicit saved-project output input
+
+The Extensions view can copy the active project's current saved workflow output into the JSON input using the wrapper `metardu-project-output-input/v1`. The wrapper includes survey type, source view, the project's declared country code, declared horizontal CRS code, declared coordinate context and its declaration state, plus the saved output. It excludes project name/ID, linked source-file bytes, and live project access. The surveyor must confirm replacement of non-default JSON input and still explicitly run the extension. The usual 4 MiB, 64-level, and 100,000-value bounds apply; an oversized or non-JSON output is rejected whole, never truncated. Coordinate fields remain declarations, not verified operations or quality evidence.
+
+This lets a local tool operate on a small saved vector/workflow result without changing ABI v1's no-import rule. The extension receives only that one JSON snapshot for that run. Results remain preview-only and are not saved as project artifacts. Large point clouds, raster windows, binary datasets, durable derived artifacts, and recomputation provenance still require a separate brokered API and project storage design.
+
 ## Tiny example
 
 `examples/community-plugins/hello-surveyor.wat` returns a small JSON status object. With WABT installed, compile it using:
