@@ -8,6 +8,7 @@ type SelectedModule = Extract<
   { canceled: false }
 >;
 type InstalledPackage = Awaited<ReturnType<typeof window.metardu.plugins.listInstalled>>["packages"][number];
+type SavedArtifact = Awaited<ReturnType<typeof window.metardu.plugins.listProjectArtifacts>>[number];
 type ProjectInputSource = { projectId: string; projectVersion: number; projectName: string; sourceView: string; surveyType: string; byteLength: number };
 
 const DEFAULT_PLUGIN_INPUT = "{\n  \"message\": \"Hello surveyor\"\n}";
@@ -28,6 +29,7 @@ export const ExtensionsView: React.FC = () => {
   const { activeProject } = useSurveyState();
   const [module, setModule] = useState<SelectedModule | null>(null);
   const [packages, setPackages] = useState<InstalledPackage[]>([]);
+  const [savedArtifacts, setSavedArtifacts] = useState<SavedArtifact[]>([]);
   const [packageIssues, setPackageIssues] = useState<Array<{ packageSha256: string | null; message: string }>>([]);
   const [selectedPackageSha256, setSelectedPackageSha256] = useState<string | null>(null);
   const [pluginId, setPluginId] = useState("community.example.tool");
@@ -52,6 +54,18 @@ export const ExtensionsView: React.FC = () => {
   useEffect(() => {
     void refreshPackages().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
   }, []);
+
+  useEffect(() => {
+    if (!activeProject) {
+      setSavedArtifacts([]);
+      return;
+    }
+    let current = true;
+    void window.metardu.plugins.listProjectArtifacts(activeProject.id)
+      .then((artifacts) => { if (current) setSavedArtifacts(artifacts); })
+      .catch((cause) => { if (current) setError(cause instanceof Error ? cause.message : String(cause)); });
+    return () => { current = false; };
+  }, [activeProject?.id]);
 
   const loadActiveProjectOutput = () => {
     setError(null);
@@ -114,6 +128,37 @@ export const ExtensionsView: React.FC = () => {
       const maxPreviewCharacters = 500_000;
       setOutputWasTruncated(formatted.length > maxPreviewCharacters);
       setOutputText(formatted.slice(0, maxPreviewCharacters));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runInstalledPackageAndSave = async () => {
+    if (!selectedPackageSha256 || !activeProject) return;
+    if (inputSource && (inputSource.projectId !== activeProject.id || inputSource.projectVersion !== activeProject.version)) {
+      setError("This saved-project input is stale or belongs to another project. Reload the intended project's output before saving a result.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    setOutputText("");
+    try {
+      const parsedInput: unknown = JSON.parse(input);
+      const saved = await window.metardu.plugins.runInstalledAndSave({
+        projectId: activeProject.id,
+        expectedProjectVersion: activeProject.version,
+        packageSha256: selectedPackageSha256,
+        input: parsedInput,
+      });
+      const formatted = JSON.stringify(saved.result, null, 2);
+      const maxPreviewCharacters = 500_000;
+      setOutputWasTruncated(formatted.length > maxPreviewCharacters);
+      setOutputText(formatted.slice(0, maxPreviewCharacters));
+      setNotice(`Saved ${saved.artifact.pluginName} output as a Community / Draft artifact for ${activeProject.name} at project version ${saved.artifact.projectVersion}.`);
+      setSavedArtifacts(await window.metardu.plugins.listProjectArtifacts(activeProject.id));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -303,6 +348,51 @@ export const ExtensionsView: React.FC = () => {
         </button>
         <span style={{ fontSize: 10, color: "var(--text-tertiary)" }}>Extensions receive only this JSON when you explicitly run them. No live project, linked file, network, database, or instrument access is granted.</span>
       </div>
+
+      <section style={{ padding: 12, background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", borderRadius: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={runInstalledPackageAndSave} disabled={!selectedPackageSha256 || !activeProject || busy || (!!inputSource && (inputSource.projectId !== activeProject?.id || inputSource.projectVersion !== activeProject?.version))} style={{ display: "inline-flex", alignItems: "center", gap: 7, border: "none", borderRadius: 4, padding: "9px 14px", background: selectedPackageSha256 && activeProject && !busy ? "var(--accent-primary)" : "var(--bg-primary)", color: selectedPackageSha256 && activeProject && !busy ? "var(--bg-primary)" : "var(--text-disabled)", cursor: selectedPackageSha256 && activeProject && !busy ? "pointer" : "not-allowed", fontWeight: 700, fontSize: 12 }}>
+            <Play size={14} /> {busy ? "Running…" : "Run and save to active project"}
+          </button>
+          <span style={{ color: "var(--text-secondary)", fontSize: 10, lineHeight: 1.45 }}>
+            Saves only the host-checked JSON input and output, package/module digests, plugin claims, project version, timestamp, and Community / Draft state. No source files or point-cloud bytes are passed to this extension.
+          </span>
+        </div>
+        <h3 style={{ margin: "14px 0 7px", color: "var(--text-primary)", fontSize: 12 }}>
+          Saved project artifacts{activeProject ? ` · ${activeProject.name}` : ""} · {savedArtifacts.length}
+        </h3>
+        {!activeProject ? (
+          <div style={{ color: "var(--text-tertiary)", fontSize: 10 }}>Select a project to see its saved extension artifacts.</div>
+        ) : savedArtifacts.length === 0 ? (
+          <div style={{ color: "var(--text-tertiary)", fontSize: 10 }}>No community extension outputs have been saved to this project.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {savedArtifacts.map((artifact) => (
+              <details key={artifact.id} style={{ padding: 9, background: "var(--bg-primary)", border: "1px solid var(--border-subtle)", borderRadius: 4 }}>
+                <summary style={{ color: "var(--text-primary)", fontSize: 11, cursor: "pointer" }}>
+                  {artifact.pluginName} v{artifact.pluginVersion} · project version {artifact.projectVersion} · {new Date(artifact.createdAt).toLocaleString()} · Community / Draft
+                </summary>
+                <div style={{ marginTop: 7, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", fontSize: 9, lineHeight: 1.5, overflowWrap: "anywhere" }}>
+                  Artifact ID: {artifact.id} · Project ID: {artifact.projectId}<br />
+                  Claimed ID: {artifact.pluginId} · Publisher claim: {artifact.publisherName} · Licence claim: {artifact.licenseId}<br />
+                  Package SHA-256: {artifact.packageSha256}<br />
+                  Module SHA-256: {artifact.moduleSha256}<br />
+                  Input SHA-256: {artifact.inputSha256}<br />
+                  Output SHA-256: {artifact.outputSha256}
+                </div>
+                <details style={{ marginTop: 8 }}>
+                  <summary style={{ color: "var(--text-secondary)", fontSize: 10, cursor: "pointer" }}>View exact saved input JSON</summary>
+                  <pre style={{ margin: "6px 0 0", maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere", color: "var(--text-primary)", fontSize: 9 }}>{JSON.stringify(JSON.parse(artifact.inputJson), null, 2)}</pre>
+                </details>
+                <details style={{ marginTop: 8 }}>
+                  <summary style={{ color: "var(--text-secondary)", fontSize: 10, cursor: "pointer" }}>View saved output JSON</summary>
+                  <pre style={{ margin: "6px 0 0", maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere", color: "var(--text-primary)", fontSize: 9 }}>{JSON.stringify(JSON.parse(artifact.outputJson), null, 2)}</pre>
+                </details>
+              </details>
+            ))}
+          </div>
+        )}
+      </section>
 
       {notice && <div role="status" style={{ padding: 10, border: "1px solid var(--border-default)", borderRadius: 4, color: "var(--text-secondary)", fontSize: 11 }}>{notice}</div>}
       {error && <div role="alert" style={{ padding: 10, border: "1px solid #EF4444", borderRadius: 4, color: "#FCA5A5", background: "rgba(239, 68, 68, 0.08)", fontSize: 11, overflowWrap: "anywhere" }}><AlertTriangle size={13} style={{ verticalAlign: "-2px", marginRight: 6 }} />{error}</div>}

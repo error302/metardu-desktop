@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  COMMUNITY_EXTENSION_PROJECT_ARTIFACT_SCHEMA,
+  MAX_COMMUNITY_EXTENSION_ARTIFACT_PROJECT_BYTES,
+  MAX_COMMUNITY_EXTENSION_ARTIFACTS_PER_PROJECT,
+} from "./plugins.js";
 import { PROJECT_DELIVERABLE_REVIEW_SCHEMA } from "./project-deliverable-review.js";
 
 export const PROJECT_BUNDLE_OPERATION_ID_SCHEMA = z.string().uuid();
@@ -93,11 +98,39 @@ const SOURCE_ROW_SCHEMA = z.object({
 
 export const PROJECT_BUNDLE_SNAPSHOT_SCHEMA = z.object({
   format: z.literal("metardu-project-bundle"),
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   exportedAt: z.string().datetime(),
   project: PROJECT_ROW_SCHEMA,
   pointCloudSources: z.array(SOURCE_ROW_SCHEMA).max(10_000),
+  communityExtensionArtifacts: z.array(COMMUNITY_EXTENSION_PROJECT_ARTIFACT_SCHEMA)
+    .max(MAX_COMMUNITY_EXTENSION_ARTIFACTS_PER_PROJECT).optional(),
 }).strict().superRefine((bundle, context) => {
+  if (bundle.version === 1 && bundle.communityExtensionArtifacts !== undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["communityExtensionArtifacts"], message: "Project bundle v1 cannot contain community extension artifacts." });
+  }
+  if (bundle.version === 2 && bundle.communityExtensionArtifacts === undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["communityExtensionArtifacts"], message: "Project bundle v2 must include its community extension artifact list." });
+  }
+  let extensionPayloadBytes = 0;
+  const artifactIds = new Set<string>();
+  for (const [index, artifact] of (bundle.communityExtensionArtifacts ?? []).entries()) {
+    extensionPayloadBytes += new TextEncoder().encode(artifact.inputJson).byteLength
+      + new TextEncoder().encode(artifact.outputJson).byteLength;
+    if (artifact.projectId !== bundle.project.id) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["communityExtensionArtifacts", index, "projectId"], message: "Community artifact is not linked to the bundled project." });
+    }
+    if (artifact.projectVersion > bundle.project.version) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["communityExtensionArtifacts", index, "projectVersion"], message: "Community artifact references a project version newer than the bundled project." });
+    }
+    if (artifactIds.has(artifact.id)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["communityExtensionArtifacts", index, "id"], message: "Duplicate community extension artifact identity." });
+    }
+    artifactIds.add(artifact.id);
+  }
+  if (extensionPayloadBytes > MAX_COMMUNITY_EXTENSION_ARTIFACT_PROJECT_BYTES) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["communityExtensionArtifacts"], message: "Community extension artifacts exceed the project bundle payload limit." });
+  }
+
   const sourceIds = new Set<string>();
   const storageKeys = new Set<string>();
   for (const [index, source] of bundle.pointCloudSources.entries()) {

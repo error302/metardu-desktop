@@ -25,10 +25,13 @@
  */
 
 import Database from "better-sqlite3";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type BetterSqlite3 from "better-sqlite3";
 import {
   POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_ARTIFACT_SCHEMA,
+  MAX_COMMUNITY_EXTENSION_ARTIFACT_PROJECT_BYTES,
+  MAX_COMMUNITY_EXTENSION_ARTIFACTS_PER_PROJECT,
   PROJECT_BUNDLE_SNAPSHOT_SCHEMA,
   PROJECT_COORDINATE_CONTEXT_SCHEMA,
   PROJECT_DELIVERABLE_REVIEW_SCHEMA,
@@ -36,6 +39,7 @@ import {
   type PointCloudCoordinateContext,
   type ProjectCoordinateContext,
   type ProjectDeliverableReview,
+  type CommunityExtensionProjectArtifact,
 } from "@metardu/ipc-schemas";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -158,9 +162,13 @@ export interface StoredPointCloudInspection {
   inspectedAt: string;
 }
 
+export type StoredCommunityExtensionArtifact = CommunityExtensionProjectArtifact;
+
+export const COMMUNITY_EXTENSION_ARTIFACT_PROJECT_BYTE_LIMIT = MAX_COMMUNITY_EXTENSION_ARTIFACT_PROJECT_BYTES;
+
 // ─── Schema ──────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 const POINT_CLOUD_SOURCE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS point_cloud_sources (
@@ -194,6 +202,30 @@ const POINT_CLOUD_INSPECTION_SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_point_cloud_inspections_source
     ON point_cloud_inspections(sourceId, inspectedAt DESC, id DESC);
+`;
+
+const COMMUNITY_EXTENSION_ARTIFACT_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS community_extension_artifacts (
+    id TEXT PRIMARY KEY,
+    projectId TEXT NOT NULL,
+    projectVersion INTEGER NOT NULL CHECK (projectVersion >= 0),
+    pluginId TEXT NOT NULL,
+    pluginVersion TEXT NOT NULL,
+    pluginName TEXT NOT NULL,
+    publisherName TEXT NOT NULL,
+    licenseId TEXT NOT NULL,
+    packageSha256 TEXT NOT NULL CHECK (length(packageSha256) = 64),
+    moduleSha256 TEXT NOT NULL CHECK (length(moduleSha256) = 64),
+    inputJson TEXT NOT NULL,
+    inputSha256 TEXT NOT NULL CHECK (length(inputSha256) = 64),
+    outputJson TEXT NOT NULL,
+    outputSha256 TEXT NOT NULL CHECK (length(outputSha256) = 64),
+    trustState TEXT NOT NULL CHECK (trustState = 'community-draft'),
+    createdAt TEXT NOT NULL,
+    FOREIGN KEY (projectId) REFERENCES projects(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_community_extension_artifacts_project
+    ON community_extension_artifacts(projectId, createdAt DESC, id DESC);
 `;
 
 const SCHEMA_SQL = `
@@ -245,6 +277,7 @@ const SCHEMA_SQL = `
 
   ${POINT_CLOUD_SOURCE_SCHEMA_SQL}
   ${POINT_CLOUD_INSPECTION_SCHEMA_SQL}
+  ${COMMUNITY_EXTENSION_ARTIFACT_SCHEMA_SQL}
 `;
 
 // ─── Database singleton ──────────────────────────────────────────
@@ -369,6 +402,13 @@ export function migrateDatabase(database: BetterSqlite3.Database): void {
       database.prepare("UPDATE schema_version SET version = ?").run(7);
     })();
   }
+
+  if (current < 8) {
+    database.transaction(() => {
+      database.exec(COMMUNITY_EXTENSION_ARTIFACT_SCHEMA_SQL);
+      database.prepare("UPDATE schema_version SET version = ?").run(8);
+    })();
+  }
 }
 
 // ─── Project CRUD ────────────────────────────────────────────────
@@ -487,6 +527,66 @@ export function listProjectPointCloudSources(
     .all(projectId) as StoredPointCloudSource[];
 }
 
+function assertCommunityExtensionArtifactDigests(artifact: CommunityExtensionProjectArtifact): void {
+  const inputDigest = createHash("sha256").update(artifact.inputJson, "utf8").digest("hex");
+  const outputDigest = createHash("sha256").update(artifact.outputJson, "utf8").digest("hex");
+  if (inputDigest !== artifact.inputSha256 || outputDigest !== artifact.outputSha256) {
+    throw new Error("Community extension artifact JSON does not match its recorded SHA-256 digest.");
+  }
+}
+
+export function listCommunityExtensionProjectArtifacts(
+  database: BetterSqlite3.Database,
+  projectId: string,
+): StoredCommunityExtensionArtifact[] {
+  const rows = database
+    .prepare("SELECT * FROM community_extension_artifacts WHERE projectId = ? ORDER BY createdAt DESC, id DESC LIMIT ?")
+    .all(projectId, MAX_COMMUNITY_EXTENSION_ARTIFACTS_PER_PROJECT) as StoredCommunityExtensionArtifact[];
+  return rows.map((row) => {
+    const artifact = COMMUNITY_EXTENSION_PROJECT_ARTIFACT_SCHEMA.parse(row);
+    assertCommunityExtensionArtifactDigests(artifact);
+    return artifact;
+  });
+}
+
+/** Persist a host-created extension result only while the project is still at the run's source version. */
+export function saveCommunityExtensionProjectArtifact(
+  database: BetterSqlite3.Database,
+  untrustedArtifact: StoredCommunityExtensionArtifact,
+): StoredCommunityExtensionArtifact {
+  const artifact = COMMUNITY_EXTENSION_PROJECT_ARTIFACT_SCHEMA.parse(untrustedArtifact);
+  assertCommunityExtensionArtifactDigests(artifact);
+  const project = getProject(database, artifact.projectId);
+  if (!project) throw new Error("The target project no longer exists.");
+  if (project.version !== artifact.projectVersion) {
+    throw new Error("The project changed while the extension ran; its result was not saved. Re-run it against the current project.");
+  }
+
+  const storage = database.prepare(
+    `SELECT COUNT(*) AS count,
+            COALESCE(SUM(length(CAST(inputJson AS BLOB)) + length(CAST(outputJson AS BLOB))), 0) AS payloadBytes
+     FROM community_extension_artifacts WHERE projectId = ?`,
+  ).get(artifact.projectId) as { count: number; payloadBytes: number };
+  const artifactBytes = Buffer.byteLength(artifact.inputJson, "utf8") + Buffer.byteLength(artifact.outputJson, "utf8");
+  if (storage.count >= MAX_COMMUNITY_EXTENSION_ARTIFACTS_PER_PROJECT
+    || storage.payloadBytes + artifactBytes > MAX_COMMUNITY_EXTENSION_ARTIFACT_PROJECT_BYTES) {
+    throw new Error("This project has reached its saved community artifact limit. Export or archive the project before adding more results.");
+  }
+
+  database.prepare(
+    `INSERT INTO community_extension_artifacts
+      (id, projectId, projectVersion, pluginId, pluginVersion, pluginName, publisherName, licenseId,
+       packageSha256, moduleSha256, inputJson, inputSha256, outputJson, outputSha256, trustState, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    artifact.id, artifact.projectId, artifact.projectVersion, artifact.pluginId, artifact.pluginVersion,
+    artifact.pluginName, artifact.publisherName, artifact.licenseId, artifact.packageSha256, artifact.moduleSha256,
+    artifact.inputJson, artifact.inputSha256, artifact.outputJson, artifact.outputSha256, artifact.trustState,
+    artifact.createdAt,
+  );
+  return artifact;
+}
+
 /** Capture the raw persisted project, source, and inspection rows for a portable bundle. */
 export function getProjectBundleSnapshot(
   database: BetterSqlite3.Database,
@@ -529,15 +629,18 @@ export function getProjectBundleSnapshot(
     inspectionsBySource.set(inspection.sourceId, records);
   }
 
+  const communityExtensionArtifacts = listCommunityExtensionProjectArtifacts(database, projectId);
+
   return PROJECT_BUNDLE_SNAPSHOT_SCHEMA.parse({
     format: "metardu-project-bundle",
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     project,
     pointCloudSources: sources.map((source) => ({
       ...source,
       inspections: inspectionsBySource.get(source.id) ?? [],
     })),
+    communityExtensionArtifacts,
   });
 }
 
@@ -547,6 +650,8 @@ export function restoreProjectBundleSnapshot(
   untrustedSnapshot: ProjectBundleSnapshot,
 ): StoredProject {
   const snapshot = PROJECT_BUNDLE_SNAPSHOT_SCHEMA.parse(untrustedSnapshot);
+  const extensionArtifacts = snapshot.communityExtensionArtifacts ?? [];
+  for (const artifact of extensionArtifacts) assertCommunityExtensionArtifactDigests(artifact);
   const restoredProjectId = randomUUID();
   const sourceIds = new Map(snapshot.pointCloudSources.map((source) => [source.id, randomUUID()]));
 
@@ -584,6 +689,12 @@ export function restoreProjectBundleSnapshot(
         (id, sourceId, sourceSha256, readerVersion, inspectionJson, inspectedAt)
        VALUES (?, ?, ?, ?, ?, ?)`,
     );
+    const insertExtensionArtifact = database.prepare(
+      `INSERT INTO community_extension_artifacts
+        (id, projectId, projectVersion, pluginId, pluginVersion, pluginName, publisherName, licenseId,
+         packageSha256, moduleSha256, inputJson, inputSha256, outputJson, outputSha256, trustState, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
     for (const source of snapshot.pointCloudSources) {
       const restoredSourceId = sourceIds.get(source.id);
       if (!restoredSourceId) throw new Error("Bundle source identity map is incomplete.");
@@ -610,6 +721,15 @@ export function restoreProjectBundleSnapshot(
           inspection.inspectedAt,
         );
       }
+    }
+
+    for (const artifact of extensionArtifacts) {
+      insertExtensionArtifact.run(
+        randomUUID(), restoredProjectId, artifact.projectVersion, artifact.pluginId, artifact.pluginVersion,
+        artifact.pluginName, artifact.publisherName, artifact.licenseId, artifact.packageSha256, artifact.moduleSha256,
+        artifact.inputJson, artifact.inputSha256, artifact.outputJson, artifact.outputSha256, artifact.trustState,
+        artifact.createdAt,
+      );
     }
 
     setActiveProjectId(database, restoredProjectId);

@@ -4063,6 +4063,49 @@ Verification:
 - A fresh instrument-feature release build was still running at this entry; its final output is recorded in the verification addendum.
 
 Evidence limits: Type-level and fixture tests do not establish interoperability with a live receiver or field accuracy. Rejected records preserve the received line for review but do not explain which parser/checksum condition failed. The default-feature Rust test/build gate remains constrained by the missing GDAL Windows import library.
+Task ID: community-extension-project-artifact-v1
+Agent: Codex - 6 November 2026
+Task: Save bounded community extension outputs as portable, project-linked draft artifacts.
+
+Work Log:
+- Added a host-validated project artifact schema and bounded run/list IPC. The host records canonical input/output JSON, exact package/module digests, input/output SHA-256, plugin metadata claims, project ID/version, timestamp, and immutable Community / Draft state.
+- Added a SQLite v8 migration and version-checked persistence. The project version is checked both before extension execution and immediately before storing the result. Per-project stored extension JSON is capped at 32 MiB and 10,000 artifacts.
+- Added a user-triggered “Run and save to active project” action and a project artifact viewer in Community Extensions.
+- Advanced project bundles to v2 with artifact JSON/digest checks and v1 import compatibility.
+- Added ADR-0029 and a scoped implementation brief. No survey method or accuracy is inferred from a saved artifact or its digests.
+
+Verification (build/typecheck only; no runtime or field acceptance):
+~~~text
+npm run build --workspace @metardu/ipc-schemas
+> @metardu/ipc-schemas@0.1.0 build
+> tsc -p tsconfig.json
+exit code 0.
+
+npm exec --workspace @metardu/desktop -- tsc --noEmit
+exit code 0; no output.
+
+npx tsc -p tsconfig.renderer-check.json --noEmit
+exit code 0; no output.
+
+npm run build --workspace @metardu/desktop
+> @metardu/desktop@0.2.0 build
+> tsc -p tsconfig.json && node ../../scripts/build-desktop-preload.mjs
+Sandboxed preload bundled; only Electron remains external.
+
+npm run build:renderer
+vite v8.1.5 building client environment for production...
+✓ 2491 modules transformed.
+✓ built in 2.05s
+Existing browser-externalization warnings for node:zlib, fs, path, and util remain.
+
+git diff --check: exit code 0; no whitespace diagnostics.
+~~~
+- Tests were not run. No Electron runtime smoke, SQLite migration exercise, run/save UI interaction, bundle round trip, source-data processing, geometry/coverage/residual check, recipient-system round trip, real survey, or professional review was performed.
+
+Stage Summary and limits:
+- Small bounded JSON extension results can now be retained with project/version and digest provenance and preserved in a portable project bundle. The community module still receives only explicit JSON and has no live project, file, network, database, point-cloud, or instrument access.
+- This is a persistence step toward extensible international survey workflows, not the complete capture-to-delivery automation described by the example practice. Automated feature geometry, curve sampling, breaklines, coverage, control residuals, actual deliverable-file verification, large LiDAR processing, CAD/GIS/BIM recipient checks, and human professional review remain separate gates.
+- Preserve the staged frontend deletion and all concurrent work. Commit only the artifact feature paths and this task's worklog append.
 
 Stage Summary:
 - Source and focused verification are complete locally. Commit and Desktop-branch push evidence will be appended after delivery.

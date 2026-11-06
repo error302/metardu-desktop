@@ -65,7 +65,21 @@ function sourceTotalBytes(snapshot: ProjectBundleSnapshot): bigint {
 }
 
 function stableSnapshotKey(snapshot: ProjectBundleSnapshot): string {
-  return JSON.stringify({ project: snapshot.project, pointCloudSources: snapshot.pointCloudSources });
+  return JSON.stringify({
+    project: snapshot.project,
+    pointCloudSources: snapshot.pointCloudSources,
+    communityExtensionArtifacts: snapshot.communityExtensionArtifacts ?? [],
+  });
+}
+
+function verifyCommunityExtensionArtifactDigests(snapshot: ProjectBundleSnapshot): void {
+  for (const artifact of snapshot.communityExtensionArtifacts ?? []) {
+    const inputDigest = createHash("sha256").update(artifact.inputJson, "utf8").digest("hex");
+    const outputDigest = createHash("sha256").update(artifact.outputJson, "utf8").digest("hex");
+    if (inputDigest !== artifact.inputSha256 || outputDigest !== artifact.outputSha256) {
+      throw new Error("Project bundle community artifact failed its input or output SHA-256 check.");
+    }
+  }
 }
 
 function emitProgress(
@@ -220,6 +234,7 @@ export async function exportProjectBundleDirectory(
 ): Promise<ExportProjectBundleResult> {
   const options = untrustedOptions;
   const snapshot = PROJECT_BUNDLE_SNAPSHOT_SCHEMA.parse(options.snapshot);
+  verifyCommunityExtensionArtifactDigests(snapshot);
   ensureNotAborted(options.signal);
 
   const parentPath = path.resolve(options.destinationParent);
@@ -353,6 +368,7 @@ async function readAndValidateBundle(bundlePath: string): Promise<ProjectBundleS
   if (!parsedSnapshot.success) {
     throw new Error(`Project bundle manifest is invalid: ${parsedSnapshot.error.issues.slice(0, 4).map((issue) => issue.message).join("; ")}`);
   }
+  verifyCommunityExtensionArtifactDigests(parsedSnapshot.data);
 
   const expectedSourceNames = parsedSnapshot.data.pointCloudSources.map((source) => source.storageKey).sort();
   const sourceEntries = await readDirectoryEntriesBounded(sourceDirectory, expectedSourceNames.length);

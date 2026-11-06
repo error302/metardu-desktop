@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 export const MAX_COMMUNITY_PLUGIN_INPUT_BYTES = 4 * 1024 * 1024;
+export const MAX_COMMUNITY_EXTENSION_ARTIFACT_PROJECT_BYTES = 32 * 1024 * 1024;
+export const MAX_COMMUNITY_EXTENSION_ARTIFACTS_PER_PROJECT = 10_000;
 
 export function isBoundedCommunityPluginJsonValue(root: unknown): boolean {
   const pending: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }];
@@ -103,6 +105,59 @@ export const COMMUNITY_EXTENSION_PACKAGE_RUN_INPUT_SCHEMA = z.object({
   input: COMMUNITY_PLUGIN_JSON_VALUE_SCHEMA,
 }).strict();
 
+const COMMUNITY_EXTENSION_ARTIFACT_JSON_SCHEMA = z.string().max(MAX_COMMUNITY_PLUGIN_INPUT_BYTES).superRefine((value, context) => {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    const validation = COMMUNITY_PLUGIN_JSON_VALUE_SCHEMA.safeParse(parsed);
+    if (!validation.success) context.addIssue({ code: z.ZodIssueCode.custom, message: "Saved extension JSON exceeds the supported JSON limits." });
+    if (new TextEncoder().encode(value).byteLength > MAX_COMMUNITY_PLUGIN_INPUT_BYTES) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Saved extension JSON exceeds the 4 MiB limit." });
+    }
+  } catch {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Saved extension data is not valid JSON." });
+  }
+});
+
+/** A host-recorded, project-linked result. The community trust label is immutable in ABI v1. */
+export const COMMUNITY_EXTENSION_PROJECT_ARTIFACT_SCHEMA = z.object({
+  id: z.string().uuid(),
+  projectId: z.string().uuid(),
+  projectVersion: z.number().int().nonnegative(),
+  pluginId: z.string().regex(claimedPluginId).max(511),
+  pluginVersion: z.string().regex(version),
+  pluginName: z.string().min(1).max(128),
+  publisherName: z.string().min(1).max(128),
+  licenseId: z.string().min(1).max(64),
+  packageSha256: z.string().regex(sha256),
+  moduleSha256: z.string().regex(sha256),
+  inputJson: COMMUNITY_EXTENSION_ARTIFACT_JSON_SCHEMA,
+  inputSha256: z.string().regex(sha256),
+  outputJson: COMMUNITY_EXTENSION_ARTIFACT_JSON_SCHEMA,
+  outputSha256: z.string().regex(sha256),
+  trustState: z.literal("community-draft"),
+  createdAt: z.string().datetime(),
+}).strict();
+
+export const COMMUNITY_EXTENSION_PROJECT_RUN_INPUT_SCHEMA = z.object({
+  projectId: z.string().uuid(),
+  expectedProjectVersion: z.number().int().nonnegative(),
+  packageSha256: COMMUNITY_EXTENSION_PACKAGE_SHA256_SCHEMA,
+  input: COMMUNITY_PLUGIN_JSON_VALUE_SCHEMA,
+}).strict();
+
+export const COMMUNITY_EXTENSION_PROJECT_ARTIFACT_LIST_INPUT_SCHEMA = z.object({
+  projectId: z.string().uuid(),
+}).strict();
+
+export const COMMUNITY_EXTENSION_PROJECT_ARTIFACT_LIST_RESULT_SCHEMA = z.object({
+  artifacts: z.array(COMMUNITY_EXTENSION_PROJECT_ARTIFACT_SCHEMA).max(MAX_COMMUNITY_EXTENSION_ARTIFACTS_PER_PROJECT),
+}).strict();
+
+export const COMMUNITY_EXTENSION_PROJECT_RUN_RESULT_SCHEMA = z.object({
+  result: z.record(z.string(), z.unknown()),
+  artifact: COMMUNITY_EXTENSION_PROJECT_ARTIFACT_SCHEMA,
+}).strict();
+
 export const PLUGIN_RUN_INPUT_SCHEMA = z.object({
   moduleToken: z.string().regex(moduleToken),
   pluginId: z.string().regex(claimedPluginId).max(511),
@@ -116,3 +171,6 @@ export type CommunityExtensionPackageSummary = z.infer<typeof COMMUNITY_EXTENSIO
 export type CommunityExtensionPackageInstallResult = z.infer<typeof COMMUNITY_EXTENSION_PACKAGE_INSTALL_RESULT_SCHEMA>;
 export type CommunityExtensionPackageList = z.infer<typeof COMMUNITY_EXTENSION_PACKAGE_LIST_SCHEMA>;
 export type CommunityExtensionPackageRunInput = z.infer<typeof COMMUNITY_EXTENSION_PACKAGE_RUN_INPUT_SCHEMA>;
+export type CommunityExtensionProjectArtifact = z.infer<typeof COMMUNITY_EXTENSION_PROJECT_ARTIFACT_SCHEMA>;
+export type CommunityExtensionProjectRunInput = z.infer<typeof COMMUNITY_EXTENSION_PROJECT_RUN_INPUT_SCHEMA>;
+export type CommunityExtensionProjectRunResult = z.infer<typeof COMMUNITY_EXTENSION_PROJECT_RUN_RESULT_SCHEMA>;

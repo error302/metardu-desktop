@@ -32,9 +32,16 @@ import {
   COMMUNITY_EXTENSION_PACKAGE_INSTALL_RESULT_SCHEMA,
   COMMUNITY_EXTENSION_PACKAGE_LIST_SCHEMA,
   COMMUNITY_EXTENSION_PACKAGE_RUN_INPUT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_ARTIFACT_LIST_INPUT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_ARTIFACT_LIST_RESULT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_RUN_INPUT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_RUN_RESULT_SCHEMA,
   type CommunityExtensionPackageInstallResult,
   type CommunityExtensionPackageList,
   type CommunityExtensionPackageRunInput,
+  type CommunityExtensionProjectArtifact,
+  type CommunityExtensionProjectRunInput,
+  type CommunityExtensionProjectRunResult,
   PLUGIN_RUN_INPUT_SCHEMA,
   POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA,
   POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA,
@@ -226,6 +233,26 @@ const metarduApi = {
         throw new Error(`Invalid installed extension request: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
       }
       return ipcRenderer.invoke("metardu:plugins:runInstalled", parsed.data);
+    },
+    /** Run an installed package against explicit bounded JSON and save its draft output to the checked project version. */
+    runInstalledAndSave: async (request: CommunityExtensionProjectRunInput): Promise<CommunityExtensionProjectRunResult> => {
+      const parsed = COMMUNITY_EXTENSION_PROJECT_RUN_INPUT_SCHEMA.safeParse(request);
+      if (!parsed.success) {
+        throw new Error(`Invalid project extension request: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+      }
+      const result: unknown = await ipcRenderer.invoke("metardu:plugins:runInstalledAndSave", parsed.data);
+      const validated = COMMUNITY_EXTENSION_PROJECT_RUN_RESULT_SCHEMA.safeParse(result);
+      if (!validated.success) throw new Error("Main process returned an invalid saved community extension result.");
+      return validated.data;
+    },
+    /** List locally saved community draft results for one project without exposing filesystem paths. */
+    listProjectArtifacts: async (projectId: string): Promise<CommunityExtensionProjectArtifact[]> => {
+      const request = COMMUNITY_EXTENSION_PROJECT_ARTIFACT_LIST_INPUT_SCHEMA.safeParse({ projectId });
+      if (!request.success) throw new Error("Invalid project identity for community artifact listing.");
+      const result: unknown = await ipcRenderer.invoke("metardu:plugins:listProjectArtifacts", request.data);
+      const validated = COMMUNITY_EXTENSION_PROJECT_ARTIFACT_LIST_RESULT_SCHEMA.safeParse(result);
+      if (!validated.success) throw new Error("Main process returned an invalid community artifact list.");
+      return validated.data.artifacts;
     },
     pickModule: (): Promise<
       | { canceled: true }
