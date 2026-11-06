@@ -1,5 +1,8 @@
 import TileLayer from "ol/layer/Tile";
 import TileWMS from "ol/source/TileWMS";
+import VectorLayer from "ol/layer/Vector";
+import VectorSource from "ol/source/Vector";
+import { Style, Stroke, Fill } from "ol/style";
 
 /**
  * A curated provider layer is an online visualization aid. It is deliberately
@@ -46,6 +49,23 @@ export const NETHERLANDS_CADASTRAL_REFERENCE: PublicMapReferenceSource = Object.
   usableForSurveyComputation: false,
 });
 
+export const NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE = Object.freeze({
+  id: "nz-linz-primary-parcels-reference-v1",
+  title: "New Zealand primary parcels (reference)",
+  jurisdiction: "New Zealand",
+  custodian: "Toitū Te Whenua Land Information New Zealand (LINZ)",
+  layerId: 50772,
+  license: "Creative Commons Attribution 4.0 International (CC BY 4.0)",
+  attribution: "© Toitū Te Whenua Land Information New Zealand (LINZ), CC BY 4.0",
+  providerPageUrl: "https://data.linz.govt.nz/layer/50772-nz-primary-parcels/",
+  sourceCrs: "EPSG:4167 (NZGD2000)",
+  freshnessStatement: "LINZ publishes a current primary-parcel layer and revision history; check the source page for its latest update date.",
+  useLimit: "Visual reference only. This primary-parcel layer is incomplete without non-primary parcels and has nominal positional accuracy ranging from 0.1–1 m in urban areas to 1–100 m in rural areas. Do not use it to establish legal boundaries, survey control, or design coordinates.",
+  projectStored: false,
+  includedInExports: false,
+  usableForSurveyComputation: false,
+});
+
 export function createNetherlandsCadastralReferenceLayer(): TileLayer<TileWMS> {
   return new TileLayer({
     source: new TileWMS({
@@ -59,9 +79,50 @@ export function createNetherlandsCadastralReferenceLayer(): TileLayer<TileWMS> {
       attributions: NETHERLANDS_CADASTRAL_REFERENCE.attribution,
       crossOrigin: "anonymous",
       transition: 0,
+      tileLoadFunction: (tile, sourceUrl) => {
+        const image = (tile as unknown as { getImage(): HTMLImageElement }).getImage();
+        const failTile = () => image.dispatchEvent(new Event("error"));
+        try {
+          const request = new URL(sourceUrl);
+          const bbox = request.searchParams.get("BBOX")?.split(",").map(Number);
+          const width = Number(request.searchParams.get("WIDTH"));
+          const height = Number(request.searchParams.get("HEIGHT"));
+          if (!bbox || bbox.length !== 4 || bbox.some((value) => !Number.isFinite(value))) {
+            failTile();
+            return;
+          }
+          void window.metardu.publicMapReferences.fetchPdokTile({
+            bbox3857: [bbox[0]!, bbox[1]!, bbox[2]!, bbox[3]!],
+            width,
+            height,
+          }).then((bytes) => {
+            const blobBytes = new ArrayBuffer(bytes.byteLength);
+            new Uint8Array(blobBytes).set(bytes);
+            const objectUrl = URL.createObjectURL(new Blob([blobBytes], { type: "image/png" }));
+            const revoke = () => URL.revokeObjectURL(objectUrl);
+            image.addEventListener("load", revoke, { once: true });
+            image.addEventListener("error", revoke, { once: true });
+            image.src = objectUrl;
+          }).catch(failTile);
+        } catch {
+          failTile();
+        }
+      },
     }),
     visible: false,
     opacity: 0.9,
     zIndex: 1,
+  });
+}
+
+export function createNewZealandPrimaryParcelsReferenceLayer(): VectorLayer<VectorSource> {
+  return new VectorLayer({
+    source: new VectorSource(),
+    style: new Style({
+      fill: new Fill({ color: "rgba(170, 95, 255, 0.035)" }),
+      stroke: new Stroke({ color: "rgba(195, 130, 255, 0.85)", width: 1.25 }),
+    }),
+    visible: false,
+    zIndex: 2,
   });
 }

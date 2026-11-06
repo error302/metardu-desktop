@@ -22,7 +22,7 @@
  *   - Offline-first: no network call is required to start or use the app.
  */
 
-import { app, BrowserWindow, ipcMain, dialog, BrowserWindowConstructorOptions } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, net, safeStorage, BrowserWindowConstructorOptions, type IpcMainInvokeEvent } from "electron";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
@@ -66,6 +66,9 @@ import {
   POINT_CLOUD_SOURCE_ID_SCHEMA,
   POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA,
   POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA,
+  PUBLIC_MAP_LINZ_KEY_SCHEMA,
+  PUBLIC_MAP_LINZ_PARCEL_INPUT_SCHEMA,
+  PUBLIC_MAP_PDOK_TILE_INPUT_SCHEMA,
   type PluginRunInput,
 } from "@metardu/ipc-schemas";
 import {
@@ -77,6 +80,7 @@ import { PointCloudPreviewController } from "./point-cloud-preview.js";
 import { parsePointCloudCoordinateContext } from "./point-cloud-coordinate-context.js";
 import { CommunityExtensionPackageStore, MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES } from "./community-extension-packages.js";
 import { registerCommunityExtensionPackageRoutes } from "./community-extension-routes.js";
+import { PublicMapReferenceService } from "./public-map-reference.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -128,6 +132,39 @@ function resolveSidecarBinary(): string | null {
 // ─── Window state ─────────────────────────────────────────────────
 let mainWindow: BrowserWindow | null = null;
 let sidecar: SidecarClient | null = null;
+let publicMapReferenceService: PublicMapReferenceService | null = null;
+
+function getPublicMapReferenceService(): PublicMapReferenceService {
+  if (!publicMapReferenceService) {
+    publicMapReferenceService = new PublicMapReferenceService({
+      userDataPath: app.getPath("userData"),
+      platform: process.platform,
+      safeStorage,
+      fetch: (url, init) => net.fetch(url, init),
+    });
+  }
+  return publicMapReferenceService;
+}
+
+function assertTrustedDesktopMainFrame(event: IpcMainInvokeEvent): void {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents
+    || !event.senderFrame || event.senderFrame !== event.sender.mainFrame) {
+    throw new Error("Public map access is available only to the METARDU Desktop window.");
+  }
+
+  try {
+    if (app.isPackaged) {
+      const expectedPath = path.resolve(__dirname, "..", "..", "renderer-build", "index.html");
+      if (path.resolve(fileURLToPath(event.senderFrame.url)) !== expectedPath) {
+        throw new Error("Untrusted desktop frame.");
+      }
+    } else if (new URL(event.senderFrame.url).origin !== "http://localhost:5173") {
+      throw new Error("Untrusted desktop frame.");
+    }
+  } catch {
+    throw new Error("Public map access is available only to the METARDU Desktop window.");
+  }
+}
 
 function pointCloudSourceSummary(
   source: StoredPointCloudSource,
@@ -341,6 +378,37 @@ async function startSidecar(): Promise<SidecarClient | null> {
 // All inputs are zod-validated in the preload layer before they reach here.
 
 function registerIpcHandlers(): void {
+  ipcMain.handle("metardu:public-map:linz-credential-status", async (event) => {
+    assertTrustedDesktopMainFrame(event);
+    return getPublicMapReferenceService().getLinzCredentialStatus();
+  });
+
+  ipcMain.handle("metardu:public-map:save-linz-key", async (event, input: unknown) => {
+    assertTrustedDesktopMainFrame(event);
+    const parsed = PUBLIC_MAP_LINZ_KEY_SCHEMA.safeParse(input);
+    if (!parsed.success) throw new Error("Enter a valid LINZ Data Service API key.");
+    return getPublicMapReferenceService().saveLinzApiKey(parsed.data);
+  });
+
+  ipcMain.handle("metardu:public-map:clear-linz-key", async (event) => {
+    assertTrustedDesktopMainFrame(event);
+    return getPublicMapReferenceService().clearLinzApiKey();
+  });
+
+  ipcMain.handle("metardu:public-map:pdok-tile", async (event, input: unknown) => {
+    assertTrustedDesktopMainFrame(event);
+    const parsed = PUBLIC_MAP_PDOK_TILE_INPUT_SCHEMA.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid PDOK map tile request.");
+    return getPublicMapReferenceService().fetchPdokTile(parsed.data);
+  });
+
+  ipcMain.handle("metardu:public-map:linz-parcels", async (event, input: unknown) => {
+    assertTrustedDesktopMainFrame(event);
+    const parsed = PUBLIC_MAP_LINZ_PARCEL_INPUT_SCHEMA.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid LINZ map extent. Zoom in within New Zealand and retry.");
+    return getPublicMapReferenceService().fetchLinzPrimaryParcels(parsed.data);
+  });
+
   ipcMain.handle("metardu:sidecar:call", async (_event, method: string, params: unknown) => {
     if (!sidecar || !sidecar.isRunning()) {
       throw new Error("Sidecar is not running");

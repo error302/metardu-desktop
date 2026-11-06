@@ -4569,3 +4569,31 @@ Stage Summary and limits:
 - This enables visual context for one national provider. It does not yet support queryable parcel features, downloads, offline reference packages, legal boundary work, title/ownership lookups, or other countries.
 - Real WMS response, native Electron runtime acceptance, broad packaging/security gates, receiving-CAD checks, and professional field validation remain separate work.
 - The task-owned paths and isolated MapView/worklog entries were staged after the approval service cooldown. The unrelated staged frontend deletion and concurrent topographic work remain outside this change.
+
+---
+Task ID: public-map-provider-broker-and-linz-v1
+Agent: Codex - 6 November 2026
+Task: Move public map network access into the Electron main process and add an opt-in LINZ NZ Primary Parcels reference.
+
+Work Log:
+- Replaced direct renderer-to-PDOK image loads with a fixed main-process WMS request and bounded PNG bytes delivered over the preload bridge. Removed the PDOK host from renderer image CSP; only basemaps and blob/data/self remain.
+- Added a fixed, viewport-limited LINZ WFS adapter for layer 50772. It asks only for visible primary parcel polygon geometry, caps responses at 1,000 features/10 MiB, sanitizes geometry, drops attributes, applies a short request rate limit, and labels the layer as incomplete and reference-only.
+- Added a user-owned LINZ key field and remove action. Keys are encrypted with Electron asynchronous safeStorage in app user data; renderer receives only configured/secure-store state. Linux `basic_text` and unknown storage backends fail closed. Public map IPC validates input in preload and main, rejects non-main-frame senders and redirects, pins provider URLs, and has request timeouts.
+- Kept both providers opt-in, hidden by default, separate from survey/project feature sources, excluded from project storage, calculation, and plan export. Added ADR-0025 and updated ADR-0024 plus the international product plan with the change and remaining gates.
+
+Verification (source/build checks only; no live provider or native Electron claim):
+~~~text
+npm run build --workspace @metardu/ipc-schemas: passed.
+npm run build --workspace @metardu/desktop: passed; sandboxed preload bundled with Electron external.
+npx tsc -p tsconfig.renderer-check.json --noEmit: passed.
+npm run build:renderer: passed; 2,486 modules transformed; existing node:zlib/fs/path/util browser-externalization warnings remain.
+npm exec --workspace @metardu/desktop -- vitest run src/tests/public-map-reference.test.ts src/tests/map-reference-sources.test.ts: 2 files passed; 9 tests passed.
+git diff --check: passed.
+~~~
+- Production renderer CSP contains no cadastral provider origin; provider requests are brokered in the main process. The renderer build contains no real or fixture API key.
+- LINZ credentials are user-owned and were not available for live provider validation. Neither a live PDOK response nor native Electron rendering was tested in this change. Local map-service failures do not affect survey computations.
+
+Stage Summary and limits:
+- METARDU can now display one public cadastral reference for the Netherlands and one queryable public primary-parcel reference for New Zealand, with conservative limits and main-process network boundaries.
+- This is not a country catalogue, offline/downloaded reference package, complete New Zealand cadastre, legal-boundary service, survey-control dataset, or global jurisdiction workflow. Verify actual LINZ key configuration, provider response and native UI on a real device before release.
+- Preserve the unrelated staged frontend deletion, the user's concurrent topographic/export changes, and untracked recovery/geodesy files; stage only this task's paths and isolated hunks.

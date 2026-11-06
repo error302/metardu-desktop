@@ -47,6 +47,11 @@ import {
   PROJECT_BUNDLE_IMPORT_INPUT_SCHEMA,
   PROJECT_BUNDLE_IMPORT_RESULT_SCHEMA,
   PROJECT_BUNDLE_PROGRESS_SCHEMA,
+  PUBLIC_MAP_LINZ_CREDENTIAL_STATUS_SCHEMA,
+  PUBLIC_MAP_LINZ_FEATURE_COLLECTION_SCHEMA,
+  PUBLIC_MAP_LINZ_KEY_SCHEMA,
+  PUBLIC_MAP_LINZ_PARCEL_INPUT_SCHEMA,
+  PUBLIC_MAP_PDOK_TILE_INPUT_SCHEMA,
   type ProjectBundleExportInput,
   type ProjectBundleExportResult,
   type ProjectBundleImportInput,
@@ -142,6 +147,39 @@ function validateMethod(method: unknown): asserts method is string {
 }
 
 const metarduApi = {
+  /** Curated public land references. Provider endpoints and secrets stay in the main process. */
+  publicMapReferences: {
+    getLinzCredentialStatus: async (): Promise<{ configured: boolean; secureStorageAvailable: boolean }> => {
+      const result = await ipcRenderer.invoke("metardu:public-map:linz-credential-status");
+      return PUBLIC_MAP_LINZ_CREDENTIAL_STATUS_SCHEMA.parse(result);
+    },
+    saveLinzApiKey: async (untrustedKey: string): Promise<{ configured: boolean; secureStorageAvailable: boolean }> => {
+      const key = PUBLIC_MAP_LINZ_KEY_SCHEMA.parse(untrustedKey);
+      const result = await ipcRenderer.invoke("metardu:public-map:save-linz-key", key);
+      return PUBLIC_MAP_LINZ_CREDENTIAL_STATUS_SCHEMA.parse(result);
+    },
+    clearLinzApiKey: async (): Promise<{ configured: boolean; secureStorageAvailable: boolean }> => {
+      const result = await ipcRenderer.invoke("metardu:public-map:clear-linz-key");
+      return PUBLIC_MAP_LINZ_CREDENTIAL_STATUS_SCHEMA.parse(result);
+    },
+    fetchPdokTile: async (untrustedInput: {
+      bbox3857: [number, number, number, number];
+      width: number;
+      height: number;
+    }): Promise<Uint8Array> => {
+      const input = PUBLIC_MAP_PDOK_TILE_INPUT_SCHEMA.parse(untrustedInput);
+      const result: unknown = await ipcRenderer.invoke("metardu:public-map:pdok-tile", input);
+      if (!(result instanceof Uint8Array) || result.byteLength > 4 * 1024 * 1024) {
+        throw new Error("Main process returned an invalid PDOK tile.");
+      }
+      return result;
+    },
+    fetchLinzPrimaryParcels: async (untrustedInput: { bbox4326: [number, number, number, number] }) => {
+      const input = PUBLIC_MAP_LINZ_PARCEL_INPUT_SCHEMA.parse(untrustedInput);
+      const result: unknown = await ipcRenderer.invoke("metardu:public-map:linz-parcels", input);
+      return PUBLIC_MAP_LINZ_FEATURE_COLLECTION_SCHEMA.parse(result);
+    },
+  },
   /** Invoke a sidecar RPC method. Method name is allowlisted. */
   sidecar: {
     call: async (method: string, params: unknown): Promise<unknown> => {

@@ -3,6 +3,8 @@
 **Status:** Accepted
 **Date:** 2026-11-06
 
+**Implementation note:** Direct renderer loading of the PDOK WMS and its image-origin CSP permission were superseded by [ADR-0025](0025-main-process-public-map-provider-access.md). Provider metadata, opt-in, offline, visual-only, and non-computation boundaries remain in force.
+
 ## Context
 
 Some national and regional land agencies publish public geospatial services. Their licences, refresh schedules, coordinate systems, geometry quality, coverage, and legal meaning differ. Public access does not establish that a dataset is a surveyed boundary or title record. METARDU must also remain usable offline, preserve the Rust sidecar as the authority for survey computations, and keep renderer network access constrained.

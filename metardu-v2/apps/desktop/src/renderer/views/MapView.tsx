@@ -17,9 +17,10 @@ import { Map as OlMap, View, Feature } from "ol";
 import { Tile, Vector as VectorLayer } from "ol/layer";
 import { OSM, TileWMS, XYZ } from "ol/source";
 import { Vector as VectorSource } from "ol/source";
+import GeoJSON from "ol/format/GeoJSON";
 import { LineString as OlLineString, Point, Polygon as OlPolygon } from "ol/geom";
 import { Style, Fill, Stroke, Circle as CircleStyle, Text as TextStyle } from "ol/style";
-import { toLonLat } from "ol/proj";
+import { toLonLat, transformExtent } from "ol/proj";
 import { useGeographic } from "ol/proj";
 import { ScaleLine, defaults as defaultControls } from "ol/control";
 import { extend as extendExtent, type Extent } from "ol/extent";
@@ -29,7 +30,9 @@ import { extractMapGeometry, summarizeGeometry, type MapUncertainty } from "../m
 import { buildSurveyMapSvg, SHEET_SIZES_PT, type SurveyMapSvgResult } from "../map-svg.js";
 import {
   createNetherlandsCadastralReferenceLayer,
+  createNewZealandPrimaryParcelsReferenceLayer,
   NETHERLANDS_CADASTRAL_REFERENCE,
+  NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE,
 } from "../map-reference-sources.js";
 import { crsLabelFor, getPlanSheet } from "../countries.js";
 import { ellipseRingDegrees, formatUncertainty } from "../ellipse.js";
@@ -107,6 +110,7 @@ export const MapView: React.FC = () => {
   const mapInstance = useRef<OlMap | null>(null);
   const tileLayerRef = useRef<Tile | null>(null);
   const publicReferenceLayerRef = useRef<Tile | null>(null);
+  const nzReferenceLayerRef = useRef<VectorLayer<VectorSource> | null>(null);
   const vectorSourceRef = useRef<VectorSource | null>(null);
   const selectionSourceRef = useRef<VectorSource | null>(null);
   const measureSourceRef = useRef<VectorSource | null>(null);
@@ -132,7 +136,11 @@ export const MapView: React.FC = () => {
   // Layer Toggles
   const [showLayersMenu, setShowLayersMenu] = useState(false);
   const [showPublicReference, setShowPublicReference] = useState(false);
+  const [showNzReference, setShowNzReference] = useState(false);
   const [publicReferenceStatus, setPublicReferenceStatus] = useState("Off — no PDOK map request sent.");
+  const [linzCredentialStatus, setLinzCredentialStatus] = useState({ configured: false, secureStorageAvailable: false });
+  const [linzApiKey, setLinzApiKey] = useState("");
+  const [linzReferenceStatus, setLinzReferenceStatus] = useState("Off — no LINZ parcel request sent.");
   const [layerVisibility, setLayerVisibility] = useState({
     boundaries: true,
     beacons: true,
@@ -193,6 +201,7 @@ export const MapView: React.FC = () => {
 
     const tileLayer = new Tile({ source: getBasemapSource(basemap) });
     const publicReferenceLayer = createNetherlandsCadastralReferenceLayer();
+    const nzReferenceLayer = createNewZealandPrimaryParcelsReferenceLayer();
     const publicReferenceSource = publicReferenceLayer.getSource() as TileWMS | null;
     let loadedReferenceTiles = 0;
     let failedReferenceTiles = 0;
@@ -224,7 +233,7 @@ export const MapView: React.FC = () => {
 
     const map = new OlMap({
       target: mapRef.current,
-      layers: [tileLayer, publicReferenceLayer, vectorLayer, selectionLayer, measureLayer],
+      layers: [tileLayer, publicReferenceLayer, nzReferenceLayer, vectorLayer, selectionLayer, measureLayer],
       view: new View({
         center: initialCenter,
         zoom: hasKnownCountryCenter ? 14 : 2,
@@ -236,6 +245,7 @@ export const MapView: React.FC = () => {
     mapInstance.current = map;
     tileLayerRef.current = tileLayer;
     publicReferenceLayerRef.current = publicReferenceLayer;
+    nzReferenceLayerRef.current = nzReferenceLayer;
     vectorSourceRef.current = vectorSource;
     selectionSourceRef.current = selectionSource;
     measureSourceRef.current = measureSource;
@@ -312,6 +322,7 @@ export const MapView: React.FC = () => {
       mapInstance.current = null;
       tileLayerRef.current = null;
       publicReferenceLayerRef.current = null;
+      nzReferenceLayerRef.current = null;
       vectorSourceRef.current = null;
       selectionSourceRef.current = null;
       measureSourceRef.current = null;
@@ -328,9 +339,99 @@ export const MapView: React.FC = () => {
     if (!showPublicReference) {
       setPublicReferenceStatus("Off — no new PDOK map requests will be made.");
     } else {
-      setPublicReferenceStatus("Enabled — contacting PDOK as map tiles are needed.");
+      setPublicReferenceStatus("Enabled — PDOK is requested as map tiles are needed.");
     }
   }, [showPublicReference]);
+
+  useEffect(() => {
+    let active = true;
+    void window.metardu.publicMapReferences.getLinzCredentialStatus().then((status) => {
+      if (active) setLinzCredentialStatus(status);
+    }).catch(() => {
+      if (active) setLinzReferenceStatus("Unable to inspect local secure credential storage.");
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const layer = nzReferenceLayerRef.current;
+    const map = mapInstance.current;
+    const source = layer?.getSource();
+    layer?.setVisible(showNzReference);
+    if (!source) return;
+    if (!showNzReference) {
+      source.clear(true);
+      setLinzReferenceStatus("Off — no new LINZ parcel request will be made.");
+      return;
+    }
+    if (!linzCredentialStatus.configured) {
+      setLinzReferenceStatus("Add your LINZ Data Service key above before enabling this layer.");
+      return;
+    }
+    if (!map) return;
+
+    let active = true;
+    let requestSequence = 0;
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+    const loadVisibleParcels = async (sequence: number) => {
+      const size = map.getSize();
+      if (!size) return;
+      const mercatorExtent = map.getView().calculateExtent(size);
+      const [west, south, east, north] = transformExtent(mercatorExtent, "EPSG:3857", "EPSG:4326");
+      if (![west, south, east, north].every(Number.isFinite)) {
+        setLinzReferenceStatus("The current map extent cannot be transformed to geographic coordinates.");
+        return;
+      }
+      const boundedExtent: [number, number, number, number] = [
+        Math.max(west, 165), Math.max(south, -53), Math.min(east, 180), Math.min(north, -29),
+      ];
+      if (boundedExtent[0] >= boundedExtent[2] || boundedExtent[1] >= boundedExtent[3]) {
+        source.clear(true);
+        setLinzReferenceStatus("Pan the map to New Zealand to view LINZ primary parcels.");
+        return;
+      }
+      if (boundedExtent[2] - boundedExtent[0] > 0.5 || boundedExtent[3] - boundedExtent[1] > 0.5) {
+        source.clear(true);
+        setLinzReferenceStatus("Zoom in to a smaller New Zealand area. LINZ requests are limited to 0.5° by 0.5° and 1,000 parcels.");
+        return;
+      }
+
+      setLinzReferenceStatus("Requesting visible primary parcels from LINZ…");
+      try {
+        const collection = await window.metardu.publicMapReferences.fetchLinzPrimaryParcels({
+          bbox4326: boundedExtent,
+        });
+        if (!active || sequence !== requestSequence) return;
+        const features = new GeoJSON().readFeatures(collection, {
+          dataProjection: "EPSG:4326",
+          featureProjection: map.getView().getProjection(),
+        });
+        source.clear(true);
+        source.addFeatures(features);
+        setLinzReferenceStatus(
+          `LINZ returned ${features.length} reference parcels${collection.truncated ? " (limited; zoom in for a smaller area)" : ""}. Not for boundary determination or survey control.`,
+        );
+      } catch (error) {
+        if (active && sequence === requestSequence) {
+          source.clear(true);
+          setLinzReferenceStatus((error as Error).message);
+        }
+      }
+    };
+    const scheduleRequest = () => {
+      const sequence = ++requestSequence;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => { void loadVisibleParcels(sequence); }, 800);
+    };
+    map.on("moveend", scheduleRequest);
+    scheduleRequest();
+    return () => {
+      active = false;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      map.un("moveend", scheduleRequest);
+      source.clear(true);
+    };
+  }, [showNzReference, linzCredentialStatus.configured]);
 
   // Load and Reproject Survey Geometry
   const refreshGeometry = useCallback(async () => {
@@ -754,7 +855,7 @@ export const MapView: React.FC = () => {
             <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: "8px", marginTop: "2px", display: "flex", flexDirection: "column", gap: "6px" }}>
               <div style={{ fontWeight: "bold", color: "var(--accent-primary)" }}>Public reference data</div>
               <div style={{ color: "var(--text-secondary)", lineHeight: 1.45 }}>
-                Selecting this sends map-viewport requests to PDOK. It is online map imagery and is not stored in project records, used in survey calculations, or included in plan exports.
+                Each layer is off by default. Enabling one sends only its visible map area to that provider; reference data is not stored in projects, calculations, or plan exports.
               </div>
               <label style={{ display: "flex", alignItems: "flex-start", gap: "6px" }}>
                 <input
@@ -778,6 +879,81 @@ export const MapView: React.FC = () => {
                 {publicReferenceStatus}
               </div>
               {showPublicReference && <div style={{ color: "var(--text-secondary)" }}>Internet connection required for this layer.</div>}
+
+              <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: "8px", marginTop: "2px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                <label style={{ display: "flex", alignItems: "flex-start", gap: "6px" }}>
+                  <input
+                    type="checkbox"
+                    checked={showNzReference}
+                    disabled={!linzCredentialStatus.configured || !linzCredentialStatus.secureStorageAvailable}
+                    onChange={(event) => setShowNzReference(event.target.checked)}
+                    style={{ marginTop: "1px" }}
+                  />
+                  <span>{NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE.title} · {NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE.custodian}</span>
+                </label>
+                <div style={{ color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                  {NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE.useLimit}
+                </div>
+                <div style={{ color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                  Source CRS: {NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE.sourceCrs}. {NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE.license}. {NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE.attribution}.
+                </div>
+                <div style={{ color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                  {NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE.freshnessStatement} Source: {NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE.providerPageUrl}
+                </div>
+                <label style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <span>LINZ Data Service API key</span>
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={linzApiKey}
+                    onChange={(event) => setLinzApiKey(event.target.value)}
+                    placeholder={linzCredentialStatus.configured ? "Key saved in OS-protected storage" : "Paste your personal data-access key"}
+                    aria-label="LINZ Data Service API key"
+                    style={{ minWidth: 240, padding: "6px", color: "var(--text-primary)", background: "var(--bg-primary)", border: "1px solid var(--border-default)", borderRadius: "3px" }}
+                  />
+                </label>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <button
+                    type="button"
+                    disabled={linzApiKey.trim().length < 16 || !linzCredentialStatus.secureStorageAvailable}
+                    onClick={async () => {
+                      setLinzReferenceStatus("Saving the key in OS-protected local storage…");
+                      try {
+                        const status = await window.metardu.publicMapReferences.saveLinzApiKey(linzApiKey);
+                        setLinzCredentialStatus(status);
+                        setLinzApiKey("");
+                        setLinzReferenceStatus("LINZ key saved locally. It is sent only for explicit LINZ map requests.");
+                      } catch (error) {
+                        setLinzReferenceStatus((error as Error).message);
+                      }
+                    }}
+                  >Save key</button>
+                  {linzCredentialStatus.configured && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const status = await window.metardu.publicMapReferences.clearLinzApiKey();
+                          setLinzCredentialStatus(status);
+                          setShowNzReference(false);
+                          setLinzApiKey("");
+                          setLinzReferenceStatus("Saved LINZ key removed from this device.");
+                        } catch (error) {
+                          setLinzReferenceStatus((error as Error).message);
+                        }
+                      }}
+                    >Remove saved key</button>
+                  )}
+                </div>
+                {!linzCredentialStatus.secureStorageAvailable && (
+                  <div style={{ color: "var(--status-warning, #f0ad4e)", lineHeight: 1.45 }}>
+                    OS-protected credential storage is unavailable. METARDU will not save or use a LINZ key on this device.
+                  </div>
+                )}
+                <div role="status" aria-live="polite" style={{ color: showNzReference ? "var(--accent-primary)" : "var(--text-secondary)" }}>
+                  {linzReferenceStatus}
+                </div>
+              </div>
             </div>
           </div>
         )}

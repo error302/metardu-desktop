@@ -135,6 +135,14 @@ export type {
   ProjectBundleProgress,
   ProjectBundleSnapshot,
 } from "./namespaces/project-bundle.js";
+export {
+  PUBLIC_MAP_LINZ_CREDENTIAL_STATUS_SCHEMA,
+  PUBLIC_MAP_LINZ_FEATURE_COLLECTION_SCHEMA,
+  PUBLIC_MAP_LINZ_KEY_SCHEMA,
+  PUBLIC_MAP_LINZ_PARCEL_INPUT_SCHEMA,
+  PUBLIC_MAP_PDOK_TILE_INPUT_SCHEMA,
+} from "./namespaces/public-map-reference.js";
+export type { PublicMapReferenceFeatureCollection } from "./namespaces/public-map-reference.js";
 
 // ─── Aggregate registry ────────────────────────────────────────────
 

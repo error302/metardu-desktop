@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   createNetherlandsCadastralReferenceLayer,
+  createNewZealandPrimaryParcelsReferenceLayer,
+  NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE,
   NETHERLANDS_CADASTRAL_REFERENCE,
 } from "../renderer/map-reference-sources.js";
 import {
@@ -38,16 +40,35 @@ describe("curated public map reference sources", () => {
       FORMAT: "image/png",
       TRANSPARENT: true,
     });
+    expect(source?.getTileLoadFunction()).toBeTypeOf("function");
   });
 
-  it("allows only named map image origins and keeps renderer connections self-only", () => {
+  it("describes LINZ primary parcels as incomplete reference data and keeps its layer hidden", () => {
+    const layer = createNewZealandPrimaryParcelsReferenceLayer();
+
+    expect(layer.getVisible()).toBe(false);
+    expect(NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE).toMatchObject({
+      id: "nz-linz-primary-parcels-reference-v1",
+      jurisdiction: "New Zealand",
+      layerId: 50772,
+      sourceCrs: "EPSG:4167 (NZGD2000)",
+      projectStored: false,
+      includedInExports: false,
+      usableForSurveyComputation: false,
+    });
+    expect(NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE.useLimit).toContain("incomplete without non-primary parcels");
+    expect(NEW_ZEALAND_PRIMARY_PARCELS_REFERENCE.useLimit).toContain("1–100 m in rural areas");
+  });
+
+  it("keeps renderer connections self-only and excludes cadastral provider image origins", () => {
     const imagePolicy = PUBLIC_MAP_CONTENT_SECURITY_POLICY.match(/img-src ([^;]+)/)?.[1]?.split(" ") ?? [];
     const connectPolicy = PUBLIC_MAP_CONTENT_SECURITY_POLICY.match(/connect-src ([^;]+)/)?.[1];
     const html = publicMapReferenceCspPlugin().transformIndexHtml?.("<html><head></head><body></body></html>");
 
-    expect(imagePolicy).toContain("https://service.pdok.nl");
     expect(imagePolicy.every((source) => !source.includes("*"))).toBe(true);
     expect(imagePolicy).not.toContain("https:");
+    expect(imagePolicy).toContain("blob:");
+    expect(imagePolicy).not.toContain("https://service.pdok.nl");
     expect(connectPolicy).toBe("'self'");
     expect(html).toContain('http-equiv="Content-Security-Policy"');
   });
