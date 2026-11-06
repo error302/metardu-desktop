@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PROJECT_DELIVERABLE_REVIEW_SCHEMA } from "./project-deliverable-review.js";
 
 export const PROJECT_BUNDLE_OPERATION_ID_SCHEMA = z.string().uuid();
 export const PROJECT_BUNDLE_MAX_MANIFEST_BYTES = 128 * 1024 * 1024;
@@ -31,6 +32,16 @@ const PROJECT_ROW_SCHEMA = z.object({
   sourceView: z.string().max(512),
   outputJson: rawJson(PROJECT_BUNDLE_MAX_MANIFEST_BYTES).nullable(),
   planSheetJson: rawJson(65_536).nullable(),
+  deliveryReviewJson: z.string().max(1_048_576).nullable().optional().superRefine((value, context) => {
+    if (value === null || value === undefined) return;
+    try {
+      const parsedJson: unknown = JSON.parse(value);
+      const parsedReview = PROJECT_DELIVERABLE_REVIEW_SCHEMA.safeParse(parsedJson);
+      if (!parsedReview.success) context.addIssue({ code: z.ZodIssueCode.custom, message: "Stored delivery review does not match the supported project schema." });
+    } catch {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Stored delivery review is not valid JSON." });
+    }
+  }),
   createdAt: isoOrLegacyTimestamp,
   updatedAt: isoOrLegacyTimestamp,
   version: z.number().int().nonnegative(),

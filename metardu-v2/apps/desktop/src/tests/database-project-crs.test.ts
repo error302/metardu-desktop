@@ -47,7 +47,7 @@ describe("durable project CRS metadata", () => {
       const columns = db.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>;
       expect(columns.some((column) => column.name === "crsSrid")).toBe(true);
       expect(columns.some((column) => column.name === "coordinateContext")).toBe(true);
-      expect((db.prepare("SELECT version FROM schema_version").get() as { version: number }).version).toBe(6);
+      expect((db.prepare("SELECT version FROM schema_version").get() as { version: number }).version).toBe(7);
       const pointCloudColumns = db.prepare("PRAGMA table_info(point_cloud_sources)").all() as Array<{ name: string }>;
       expect(pointCloudColumns.some((column) => column.name === "coordinateContext")).toBe(true);
       expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'point_cloud_sources'").get()).toBeTruthy();

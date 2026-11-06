@@ -128,9 +128,10 @@ describe("point-cloud project source records", () => {
 
       migrateDatabase(database);
 
-      expect((database.prepare("SELECT version FROM schema_version").get() as { version: number }).version).toBe(6);
+      expect((database.prepare("SELECT version FROM schema_version").get() as { version: number }).version).toBe(7);
       expect((database.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>).some((column) => column.name === "coordinateContext")).toBe(true);
       expect((database.prepare("PRAGMA table_info(point_cloud_sources)").all() as Array<{ name: string }>).some((column) => column.name === "coordinateContext")).toBe(true);
+      expect((database.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>).some((column) => column.name === "deliveryReview")).toBe(true);
       expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'point_cloud_sources'").get()).toBeTruthy();
       expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'point_cloud_inspections'").get()).toBeTruthy();
       expect((database.prepare("SELECT name, version FROM projects WHERE id = ?").get("existing-project") as { name: string; version: number })).toEqual({ name: "Existing project", version: 7 });
@@ -173,8 +174,9 @@ describe("point-cloud project source records", () => {
 
       migrateDatabase(database);
 
-      expect((database.prepare("SELECT version FROM schema_version").get() as { version: number }).version).toBe(6);
+      expect((database.prepare("SELECT version FROM schema_version").get() as { version: number }).version).toBe(7);
       expect((database.prepare("PRAGMA table_info(point_cloud_sources)").all() as Array<{ name: string }>).some((column) => column.name === "coordinateContext")).toBe(true);
+      expect((database.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>).some((column) => column.name === "deliveryReview")).toBe(true);
       expect(database.prepare("SELECT id, projectId, fileName, storageKey, contentSha256, fileSizeBytes, coordinateContext FROM point_cloud_sources WHERE id = ?").get("v5-source")).toEqual({
         id: "v5-source",
         projectId: "v5-project",

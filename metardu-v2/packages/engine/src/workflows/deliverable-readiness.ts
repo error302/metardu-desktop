@@ -87,6 +87,9 @@ export type DeliverableIssueSeverity = "blocker" | "review";
 
 export interface DeliverableReadinessIssue {
   code:
+    | "PROFILE_HORIZONTAL_CRS_REQUIRED"
+    | "PROFILE_NO_REQUIRED_CHECK"
+    | "PROFILE_NO_REQUIRED_OUTPUT"
     | "REFERENCE_MISSING"
     | "REFERENCE_UNVERIFIED"
     | "REFERENCE_EVIDENCE_MISSING"
@@ -210,6 +213,16 @@ export function assessDeliverableReadiness(input: DeliverableReadinessInput): De
   const add = (code: DeliverableReadinessIssue["code"], severity: DeliverableIssueSeverity, itemId: string, message: string) => {
     issues.push({ code, severity, itemId, message });
   };
+
+  if (!profile.referenceFields.includes("horizontal-crs")) {
+    add("PROFILE_HORIZONTAL_CRS_REQUIRED", "blocker", profile.id, "Every survey delivery profile must require an explicit horizontal coordinate reference; a local grid may be named without an EPSG code.");
+  }
+  if (!profile.checks.some(({ required }) => required)) {
+    add("PROFILE_NO_REQUIRED_CHECK", "blocker", profile.id, "Configure at least one required QA check before assessing package readiness.");
+  }
+  if (!profile.outputs.some(({ required }) => required)) {
+    add("PROFILE_NO_REQUIRED_OUTPUT", "blocker", profile.id, "Configure at least one required client deliverable before assessing package readiness.");
+  }
 
   for (const field of profile.referenceFields) {
     const reference = input.referenceContext?.[field];

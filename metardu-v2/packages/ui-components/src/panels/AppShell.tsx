@@ -41,6 +41,7 @@ import {
   Maximize2,
   Camera,
   Puzzle,
+  ClipboardCheck,
   type LucideProps,
 } from "lucide-react";
 import "../styles/metardu-theme.css";
@@ -60,7 +61,7 @@ type ViewId =
   | "dwgcad" | "photogrammetry" | "ntripcaster" | "landportal" | "volumechange"
   | "gnssppk" | "datumtransform"
   | "verticalalignment" | "deformation"
-  | "topo" | "engineering" | "sectional" | "export" | "import" | "signing" | "sync" | "history" | "extensions";
+  | "topo" | "engineering" | "sectional" | "export" | "delivery" | "import" | "signing" | "sync" | "history" | "extensions";
 
 interface NavItem {
   id: ViewId;
@@ -117,6 +118,7 @@ const NAV: NavItem[] = [
   { id: "history", label: "Version History", icon: Clock, category: "Office", shortcut: "g h" },
   // Export
   { id: "export", label: "Export", icon: Download, category: "Export", shortcut: "g x" },
+  { id: "delivery", label: "Delivery QA", icon: ClipboardCheck, category: "Export", shortcut: "g 6" },
   // Community
   { id: "extensions", label: "Extensions (Preview)", icon: Puzzle, category: "Extensions", shortcut: "g 0" },
 ];

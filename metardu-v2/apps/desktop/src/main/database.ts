@@ -31,9 +31,11 @@ import {
   POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA,
   PROJECT_BUNDLE_SNAPSHOT_SCHEMA,
   PROJECT_COORDINATE_CONTEXT_SCHEMA,
+  PROJECT_DELIVERABLE_REVIEW_SCHEMA,
   type ProjectBundleSnapshot,
   type PointCloudCoordinateContext,
   type ProjectCoordinateContext,
+  type ProjectDeliverableReview,
 } from "@metardu/ipc-schemas";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -53,6 +55,8 @@ export interface StoredProject {
   sourceView: string;
   output: unknown;
   planSheet?: PlanSheetSettings;
+  deliveryReview?: ProjectDeliverableReview;
+  deliveryReviewStatus?: "invalid";
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -93,6 +97,7 @@ export interface UpdateProjectInput {
   sourceView?: string;
   output?: unknown;
   planSheet?: PlanSheetSettings;
+  deliveryReview?: ProjectDeliverableReview | null;
 }
 
 export type OperationKind = "create" | "update" | "delete" | "setActive";
@@ -155,7 +160,7 @@ export interface StoredPointCloudInspection {
 
 // ─── Schema ──────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 const POINT_CLOUD_SOURCE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS point_cloud_sources (
@@ -209,6 +214,7 @@ const SCHEMA_SQL = `
     sourceView  TEXT NOT NULL DEFAULT '',
     output      TEXT,          -- JSON-serialized survey workflow output
     planSheet   TEXT,          -- JSON-serialized PlanSheetSettings
+    deliveryReview TEXT,       -- JSON-serialized project delivery profile and review records
     createdAt   TEXT NOT NULL,
     updatedAt   TEXT NOT NULL,
     version     INTEGER NOT NULL DEFAULT 0
@@ -353,6 +359,16 @@ export function migrateDatabase(database: BetterSqlite3.Database): void {
       database.prepare("UPDATE schema_version SET version = ?").run(6);
     })();
   }
+
+  if (current < 7) {
+    database.transaction(() => {
+      const projectColumns = database.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>;
+      if (!projectColumns.some((column) => column.name === "deliveryReview")) {
+        database.exec("ALTER TABLE projects ADD COLUMN deliveryReview TEXT");
+      }
+      database.prepare("UPDATE schema_version SET version = ?").run(7);
+    })();
+  }
 }
 
 // ─── Project CRUD ────────────────────────────────────────────────
@@ -480,7 +496,7 @@ export function getProjectBundleSnapshot(
     .prepare(
       `SELECT id, name, description, countryCode, crsSrid,
               coordinateContext AS coordinateContextJson, surveyType, sourceView,
-              output AS outputJson, planSheet AS planSheetJson, createdAt, updatedAt, version
+              output AS outputJson, planSheet AS planSheetJson, deliveryReview AS deliveryReviewJson, createdAt, updatedAt, version
        FROM projects WHERE id = ?`,
     )
     .get(projectId) as ProjectBundleSnapshot["project"] | undefined;
@@ -538,8 +554,8 @@ export function restoreProjectBundleSnapshot(
     const project = snapshot.project;
     database.prepare(
       `INSERT INTO projects
-        (id, name, description, countryCode, crsSrid, coordinateContext, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, name, description, countryCode, crsSrid, coordinateContext, surveyType, sourceView, output, planSheet, deliveryReview, createdAt, updatedAt, version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       restoredProjectId,
       project.name,
@@ -551,6 +567,7 @@ export function restoreProjectBundleSnapshot(
       project.sourceView,
       project.outputJson,
       project.planSheetJson,
+      project.deliveryReviewJson ?? null,
       project.createdAt,
       project.updatedAt,
       project.version,
@@ -698,8 +715,8 @@ export function createProjectInDb(
   };
 
   const insert = database.prepare(`
-    INSERT INTO projects (id, name, description, countryCode, crsSrid, coordinateContext, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO projects (id, name, description, countryCode, crsSrid, coordinateContext, surveyType, sourceView, output, planSheet, deliveryReview, createdAt, updatedAt, version)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   insert.run(
@@ -713,6 +730,7 @@ export function createProjectInDb(
     project.sourceView,
     JSON.stringify(project.output),
     project.planSheet ? JSON.stringify(project.planSheet) : null,
+    null,
     project.createdAt,
     project.updatedAt,
     project.version,
@@ -735,6 +753,17 @@ function validateCoordinateContext(value: unknown): ProjectCoordinateContext {
   return parsed.data;
 }
 
+function validateDeliveryReview(value: unknown): ProjectDeliverableReview {
+  const parsed = PROJECT_DELIVERABLE_REVIEW_SCHEMA.safeParse(value);
+  if (!parsed.success) {
+    const details = parsed.error.issues
+      .map((issue) => `${issue.path.join(".") || "deliveryReview"}: ${issue.message}`)
+      .join("; ");
+    throw new Error(`Project delivery review is invalid: ${details}`);
+  }
+  return parsed.data;
+}
+
 export function updateProjectInDb(
   database: BetterSqlite3.Database,
   input: UpdateProjectInput,
@@ -746,6 +775,10 @@ export function updateProjectInDb(
   const coordinateContext = input.coordinateContext === undefined
     ? existing.coordinateContext
     : input.coordinateContext === null ? undefined : validateCoordinateContext(input.coordinateContext);
+  const deliveryReviewChanged = input.deliveryReview !== undefined;
+  const deliveryReview = !deliveryReviewChanged
+    ? existing.deliveryReview
+    : input.deliveryReview === null ? undefined : validateDeliveryReview(input.deliveryReview);
 
   const now = new Date().toISOString();
   const updated: StoredProject = {
@@ -760,6 +793,8 @@ export function updateProjectInDb(
     ...(input.sourceView !== undefined ? { sourceView: input.sourceView } : {}),
     ...(input.output !== undefined ? { output: input.output } : {}),
     ...(input.planSheet !== undefined ? { planSheet: input.planSheet } : {}),
+    deliveryReview,
+    ...(deliveryReviewChanged ? { deliveryReviewStatus: undefined } : {}),
     updatedAt: now,
     version: existing.version + 1,
   };
@@ -769,7 +804,7 @@ export function updateProjectInDb(
       `UPDATE projects SET
         name = ?, description = ?, countryCode = ?, crsSrid = ?,
         coordinateContext = CASE WHEN ? THEN ? ELSE coordinateContext END, surveyType = ?, sourceView = ?,
-        output = ?, planSheet = ?, updatedAt = ?, version = ?
+        output = ?, planSheet = ?, deliveryReview = CASE WHEN ? THEN ? ELSE deliveryReview END, updatedAt = ?, version = ?
       WHERE id = ?`,
     )
     .run(
@@ -783,6 +818,8 @@ export function updateProjectInDb(
       updated.sourceView,
       JSON.stringify(updated.output),
       updated.planSheet ? JSON.stringify(updated.planSheet) : null,
+      deliveryReviewChanged ? 1 : 0,
+      updated.deliveryReview ? JSON.stringify(updated.deliveryReview) : null,
       updated.updatedAt,
       updated.version,
       updated.id,
@@ -910,8 +947,8 @@ export function importFromJson(
       for (const p of projects) {
         database
           .prepare(
-            `INSERT OR IGNORE INTO projects (id, name, description, countryCode, crsSrid, coordinateContext, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR IGNORE INTO projects (id, name, description, countryCode, crsSrid, coordinateContext, surveyType, sourceView, output, planSheet, deliveryReview, createdAt, updatedAt, version)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             p.id,
@@ -924,6 +961,7 @@ export function importFromJson(
             p.sourceView,
             JSON.stringify(p.output),
             p.planSheet ? JSON.stringify(p.planSheet) : null,
+            p.deliveryReview ? JSON.stringify(p.deliveryReview) : null,
             p.createdAt,
             p.updatedAt,
             p.version,
@@ -960,6 +998,7 @@ interface Row {
   sourceView: string;
   output: string | null;
   planSheet: string | null;
+  deliveryReview: string | null;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -986,6 +1025,17 @@ function rowToProject(row: Row): StoredProject {
       coordinateContextStatus = "invalid";
     }
   }
+  let deliveryReview: ProjectDeliverableReview | undefined;
+  let deliveryReviewStatus: "invalid" | undefined;
+  if (row.deliveryReview !== null) {
+    try {
+      const parsed = PROJECT_DELIVERABLE_REVIEW_SCHEMA.safeParse(JSON.parse(row.deliveryReview) as unknown);
+      if (parsed.success) deliveryReview = parsed.data;
+      else deliveryReviewStatus = "invalid";
+    } catch {
+      deliveryReviewStatus = "invalid";
+    }
+  }
   return {
     id: row.id,
     name: row.name,
@@ -998,6 +1048,8 @@ function rowToProject(row: Row): StoredProject {
     sourceView: row.sourceView,
     output: row.output ? JSON.parse(row.output) : null,
     planSheet: row.planSheet ? JSON.parse(row.planSheet) : undefined,
+    ...(deliveryReview ? { deliveryReview } : {}),
+    ...(deliveryReviewStatus ? { deliveryReviewStatus } : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     version: row.version,

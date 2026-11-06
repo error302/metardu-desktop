@@ -4639,3 +4639,32 @@ Stage Summary and limits:
 - METARDU can now evaluate whether a configured survey deliverable package has the references, feature-review records, QA evidence, and required files declared by its profile before presenting it for surveyor review.
 - Profiles are not yet stored in projects and the evaluator is not connected to a delivery QA screen or export/issue flow. Output hashes are syntax-checked only. Default GDAL-enabled sidecar build remains unavailable on this machine; the instrument-enabled non-GDAL build and tests passed.
 - Next: persist versioned client profiles and evidence, connect the evaluator to a delivery QA view and manifest, then validate real CAD/GIS receiving workflows and professional review.
+
+---
+Task ID: project-delivery-readiness-ui-v1
+Agent: Codex - 6 November 2026
+Task: Persist project delivery requirements and expose a country-neutral Delivery QA workflow.
+
+Work Log:
+- Added strict IPC-schema validation and project-scoped SQLite persistence for a practice/client delivery profile, coordinate reference declarations, feature review, QA checks, and expected output records. Bumped the DB schema to v7; old projects and old project bundles remain readable.
+- Connected the evaluator to the Delivery QA navigation screen and project update path. Invalid persisted records are surfaced as invalid. The evaluator stops at readiness for surveyor review and never reports professional approval.
+- Added editable starter profiles for topographic/corridor, measured-building, UAV, river/bathymetry, and underground-utility work. Requirements remain client/practice-defined; starter outputs are expectations, not claims that METARDU creates them.
+- Added ADR-0026, the implementation brief, and an update to the international desktop plan.
+
+Verification (source/build only; not native runtime, field, or professional acceptance):
+~~~text
+npm run build --workspace @metardu/engine-flight-planning: passed.
+npm run build --workspace @metardu/ipc-schemas: passed.
+npx tsc --noEmit (apps/desktop): passed.
+npx tsc -p tsconfig.renderer-check.json --noEmit: passed.
+npm run build --workspace @metardu/desktop: passed; sandboxed preload bundled with Electron external.
+npm run build:renderer: passed; 2,489 modules transformed. Existing node:zlib, fs, path, and util browser-externalization warnings remain.
+git diff --check: passed.
+~~~
+- The database (14 tests), engine (11 tests), and IPC schema (3 tests) focused suites passed before the final renderer-only starter-profile addition; they were not rerun after that UI addition.
+- No Electron runtime smoke, real project file selection/hash verification, geometry or spatial coverage inspection, output generation, CAD/GIS/BIM recipient round trip, independent survey, or field/professional review was performed for this task.
+
+Stage Summary and limits:
+- A project can now retain an editable deliverable checklist and QA review through the local database and portable bundle workflow. Starter profiles reduce setup time for several common global survey job types.
+- This is the first project workflow layer, not end-to-end processing automation. Data ingest/processing, measured spatial completeness, automated residual/coverage checks, actual-byte manifest hashing, coordinated output generation, deadline/stage orchestration, and recipient validation remain separate product gates.
+- Only the task-owned paths and this appended worklog entry are to be committed. Preserve the pre-existing staged frontend deletion and concurrent topographic, export, dependency, and recovery work.

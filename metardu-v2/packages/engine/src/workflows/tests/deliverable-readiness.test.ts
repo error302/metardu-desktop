@@ -155,12 +155,39 @@ describe("assessDeliverableReadiness", () => {
   it("allows project teams to define optional checks and outputs without inventing global requirements", () => {
     const input = completeInput();
     input.profile.features = input.profile.features.map((item) => ({ ...item, required: false }));
-    input.profile.checks = [{ id: "optional", label: "Optional method check", required: false }];
-    input.profile.outputs = [{ id: "optional", label: "Optional model", format: "IFC", required: false }];
+    input.profile.checks = [
+      { id: "required", label: "Required independent QA review", required: true },
+      { id: "optional", label: "Optional method check", required: false },
+    ];
+    input.profile.outputs = [{ id: "required", label: "Client data handoff", format: "GPKG", required: true }];
     input.featureReviews = [];
-    input.qualityChecks = [];
-    input.artifacts = [];
+    input.qualityChecks = [{ requirementId: "required", status: "pass", evidenceSummary: "Required review evidence." }];
+    input.artifacts = [{ outputId: "required", fileName: "site.gpkg", status: "included", sha256: digest }];
 
     expect(assessDeliverableReadiness(input).state).toBe("ready-for-surveyor-review");
+  });
+
+  it("blocks an empty or optional-only output profile from passing as complete", () => {
+    const input = completeInput();
+    input.profile.outputs = [{ id: "optional", label: "Optional model", format: "IFC", required: false }];
+    input.artifacts = [];
+
+    const result = assessDeliverableReadiness(input);
+
+    expect(result.state).toBe("blocked");
+    expect(result.issues.map(({ code }) => code)).toContain("PROFILE_NO_REQUIRED_OUTPUT");
+  });
+
+  it("requires a horizontal reference and at least one QA requirement", () => {
+    const input = completeInput();
+    input.profile.referenceFields = ["vertical-reference"];
+    input.profile.checks = [{ id: "optional", label: "Optional check", required: false }];
+    input.qualityChecks = [];
+
+    const result = assessDeliverableReadiness(input);
+
+    expect(result.state).toBe("blocked");
+    expect(result.issues.map(({ code }) => code)).toContain("PROFILE_HORIZONTAL_CRS_REQUIRED");
+    expect(result.issues.map(({ code }) => code)).toContain("PROFILE_NO_REQUIRED_CHECK");
   });
 });

@@ -31,6 +31,7 @@ import * as path from "node:path";
 import {
   PROJECT_BUNDLE_CANCEL_INPUT_SCHEMA,
   PROJECT_BUNDLE_CANCEL_RESULT_SCHEMA,
+  PROJECT_DELIVERABLE_REVIEW_SCHEMA,
   PROJECT_BUNDLE_EXPORT_INPUT_SCHEMA,
   PROJECT_BUNDLE_EXPORT_RESULT_SCHEMA,
   PROJECT_BUNDLE_IMPORT_INPUT_SCHEMA,
@@ -188,6 +189,15 @@ export function registerProjectIpcHandlers(
   });
 
   ipcMain.handle("metardu:projects:update", (_event, input: UpdateProjectInput) => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Project update payload must be an object.");
+    if (input.deliveryReview !== undefined && input.deliveryReview !== null) {
+      const parsed = PROJECT_DELIVERABLE_REVIEW_SCHEMA.safeParse(input.deliveryReview);
+      if (!parsed.success) {
+        const details = parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
+        throw new Error(`Project delivery review is invalid: ${details}`);
+      }
+      input = { ...input, deliveryReview: parsed.data };
+    }
     const db = getDatabase();
     const ur = getUndoRedo();
 

@@ -78,6 +78,8 @@ export type {
   ProjectHorizontalUnit,
   ProjectVerticalReference,
 } from "./namespaces/project-coordinate-context.js";
+export { PROJECT_DELIVERABLE_REVIEW_SCHEMA } from "./namespaces/project-deliverable-review.js";
+export type { ProjectDeliverableReview } from "./namespaces/project-deliverable-review.js";
 export {
   POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA,
   POINT_CLOUD_CHUNK_MAX_POINTS,

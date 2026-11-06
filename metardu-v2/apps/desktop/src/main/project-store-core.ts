@@ -1,4 +1,4 @@
-import type { ProjectCoordinateContext } from "@metardu/ipc-schemas";
+import type { ProjectCoordinateContext, ProjectDeliverableReview } from "@metardu/ipc-schemas";
 
 /**
  * ProjectStore — pure CRUD core (no Electron, no fs).
@@ -55,6 +55,10 @@ export interface StoredProject {
   output: unknown;
   /** Remembered statutory print-plan settings (sheet/orientation/scale). */
   planSheet?: PlanSheetSettings;
+  /** Versioned, project-owned delivery profile and review evidence. */
+  deliveryReview?: ProjectDeliverableReview;
+  /** Set when persisted delivery review JSON failed validation and needs repair. */
+  deliveryReviewStatus?: "invalid";
   createdAt: string;
   updatedAt: string;
   /** Local version — bumped on every update; feeds SyncProject.version. */
@@ -89,6 +93,7 @@ export interface UpdateProjectInput {
   sourceView?: string;
   output?: unknown;
   planSheet?: PlanSheetSettings;
+  deliveryReview?: ProjectDeliverableReview | null;
 }
 
 export function emptyProjectStore(): ProjectStoreState {
@@ -143,6 +148,7 @@ export function updateProject(
       ...(input.sourceView !== undefined ? { sourceView: input.sourceView } : {}),
       ...(input.output !== undefined ? { output: input.output } : {}),
       ...(input.planSheet !== undefined ? { planSheet: input.planSheet } : {}),
+      ...(input.deliveryReview !== undefined ? { deliveryReview: input.deliveryReview ?? undefined, deliveryReviewStatus: undefined } : {}),
       updatedAt: now,
       version: p.version + 1,
     };
