@@ -4,10 +4,8 @@
  * Lists the 7 available export formats and lets the surveyor export
  * survey data to a file. Shows a "Save As" dialog via the main process.
  *
- * For the MVP, this panel generates a demo cadastral survey output
- * (the same fixture from the engine tests) so the export pipeline is
- * functional end-to-end. The real wiring (connecting actual survey
- * views to this panel) is a follow-up task.
+ * Only an actual project or workflow result may be exported. Unsupported
+ * source data and unverified statutory requirements remain unavailable.
  */
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -39,19 +37,19 @@ export const ExportPanel: React.FC = () => {
   const { state: surveyState, activeProject, updateProject } = useSurveyState();
   const [exporters, setExporters] = useState<ExporterInfo[]>([]);
   const [selectedFormat, setSelectedFormat] = useState("geojson");
-  const [countryCode, setCountryCode] = useState("KE");
+  const [countryCode, setCountryCode] = useState("");
   const [outputWgs84, setOutputWgs84] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [result, setResult] = useState<{ filePath: string; bytes: number; warnings: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Project metadata fields
-  const [projectName, setProjectName] = useState("Demo Survey — Kasarani");
-  const [surveyorName, setSurveyorName] = useState("Jane Wanjiru");
-  const [licenseNumber, setLicenseNumber] = useState("LS/1234");
-  const [surveyDate, setSurveyDate] = useState("2026-07-24");
+  const [projectName, setProjectName] = useState("");
+  const [surveyorName, setSurveyorName] = useState("");
+  const [licenseNumber, setLicenseNumber] = useState("");
+  const [surveyDate, setSurveyDate] = useState("");
 
-  // Statutory print-plan section (300 DPI PNG + parcel booklet PDF)
+  // Draft print-plan exports (300 DPI PNG + parcel booklet PDF)
   const [planSheetSize, setPlanSheetSize] = useState("a4");
   const [planOrientation, setPlanOrientation] = useState<"landscape" | "portrait">("landscape");
   const [planExporting, setPlanExporting] = useState(false);
@@ -70,11 +68,11 @@ export const ExportPanel: React.FC = () => {
   // selected country's statutory plan-sheet profile (e.g. ZA → A1, US → letter).
   useEffect(() => {
     const ps = activeProject?.planSheet;
-    const profile = getPlanSheet(countryCode);
+    const profile = countryCode ? getPlanSheet(countryCode) : null;
     // Saved settings win where present; unset fields fall back to the
     // selected country's statutory profile (e.g. ZA → A1, US → letter).
-    setPlanSheetSize(ps?.sheetSize ?? profile.defaultSheetSize);
-    setPlanOrientation(ps?.orientation ?? profile.defaultOrientation);
+    setPlanSheetSize(ps?.sheetSize ?? profile?.defaultSheetSize ?? "a4");
+    setPlanOrientation(ps?.orientation ?? profile?.defaultOrientation ?? "landscape");
     planSheetDirtyRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProject?.id, activeProject?.planSheet, countryCode]);
@@ -108,55 +106,33 @@ export const ExportPanel: React.FC = () => {
         };
       };
     };
-    w.metardu?.export?.list?.().then(setExporters).catch(() => {
-      // In browser mode (no Electron), show a static list.
-      setExporters([
-        { format: "geojson", description: "GeoJSON with CRS + uncertainty", fileExtension: "geojson" },
-        { format: "geopackage", description: "OGC GeoPackage (binary, multi-layer)", fileExtension: "gpkg" },
-        { format: "pyqgis-script", description: "PyQGIS loader script", fileExtension: "py" },
-        { format: "gcp", description: "GCP file (Pix4D/Metashape/Agisoft)", fileExtension: "csv" },
-        { format: "qgs-project", description: "QGIS project file (.qgs)", fileExtension: "qgs" },
-        { format: "osm-changeset", description: "OSM changeset XML (JOSM)", fileExtension: "osm" },
-        { format: "dxf", description: "DXF (AutoCAD, country-correct layers)", fileExtension: "dxf" },
-        { format: "landxml", description: "LandXML 1.2 (NLIMS/ArdhiSasa submission)", fileExtension: "xml" },
-      ]);
+    const listFormats = w.metardu?.export?.list;
+    if (!listFormats) {
+      setExporters([]);
+      setError("Export format registry is unavailable. Run METARDU Desktop to load supported formats.");
+      return;
+    }
+    listFormats().then(setExporters).catch((cause: unknown) => {
+      setExporters([]);
+      setError(`Could not load export formats: ${cause instanceof Error ? cause.message : "unknown error"}`);
     });
   }, []);
 
-  /**
-   * Resolve the survey output to export: active project → in-memory survey
-   * state → demo cadastral fixture (the same ladder handleExport uses).
-   */
-  const resolveSurveyOutput = useCallback((): { output: unknown; country: string } => {
+  /** Resolve only an actual active-project or current workflow result. */
+  const resolveSurveyOutput = useCallback((): { output: unknown; country: string } | null => {
     if (activeProject && activeProject.output !== null && activeProject.output !== undefined) {
       return { output: activeProject.output, country: activeProject.countryCode ?? countryCode };
     }
     if (surveyState) {
+      if (surveyState.output === null || surveyState.output === undefined) return null;
       return { output: surveyState.output, country: surveyState.countryCode || countryCode };
     }
-    // Demo fallback — 4-beacon cadastral survey (matches handleExport).
-    return {
-      country,
-      output: {
-        form3: {
-          pdfBytes: new Uint8Array(0), pageCount: 0, scale: 0,
-          coordinateSystemLabel: "Demo", hasDraftWatermark: false,
-        },
-        allBeacons: [
-          { label: "B1", position: { easting: 257100.0, northing: 9857700.0 }, description: "Concrete pillar" },
-          { label: "B2", position: { easting: 257150.0, northing: 9857700.0 }, description: "Concrete pillar" },
-          { label: "B3", position: { easting: 257150.0, northing: 9857750.0 }, description: "Concrete pillar" },
-          { label: "B4", position: { easting: 257100.0, northing: 9857750.0 }, description: "Concrete pillar" },
-        ],
-        residuals: {},
-        sigma_0_sq: 1.0,
-        passesCadastralTolerance: true,
-      },
-    };
+    return null;
   }, [activeProject, surveyState, countryCode]);
+  const resolvedSurveyOutput = resolveSurveyOutput();
+  const effectiveCountryCode = activeProject?.countryCode || surveyState?.countryCode || countryCode;
 
-  // Statutory plan-sheet export — 300 DPI PNG of the active project's plan
-  // (per-country title block + footer come from the main process planSheet).
+  // Draft plan-sheet export. It does not establish statutory compliance.
   const exportPlanPng = async () => {
     setPlanExporting(true);
     setPlanResult(null);
@@ -177,7 +153,10 @@ export const ExportPanel: React.FC = () => {
         setPlanError("Plan export not available — run in the Electron app.");
         return;
       }
-      const { output, country } = resolveSurveyOutput();
+      const resolved = resolveSurveyOutput();
+      if (!resolved) throw new Error("There is no survey output to export. Run a workflow and save its real result to a project first.");
+      const { output, country } = resolved;
+      if (!country) throw new Error("Select a jurisdiction for the draft plan export.");
       const result = await api({
         surveyOutput: output,
         projectName: projectName || "Survey Plan",
@@ -198,12 +177,7 @@ export const ExportPanel: React.FC = () => {
     }
   };
 
-  // Statutory report PDF — the full filing-ready report (A4 cover + the
-  // exact 300 DPI plan sheet embedded as the survey-map page) in one
-  // click. Same exportReport path MapView's print preview uses, so the
-  // embedded map matches what the surveyor would have previewed — no
-  // separate Map View step needed. The country's plan-sheet profile
-  // (title block, layout, footer) is resolved in main from countryCode.
+  // Draft report PDF with a plan image. Regulatory acceptance is not asserted.
   const exportPlanReport = async () => {
     setReportExporting(true);
     setPlanResult(null);
@@ -222,10 +196,13 @@ export const ExportPanel: React.FC = () => {
       };
       const api = w.metardu?.map?.exportReport;
       if (!api) {
-        setPlanError("Statutory report export not available — run in the Electron app.");
+        setPlanError("Draft report export not available — run in the Electron app.");
         return;
       }
-      const { output, country } = resolveSurveyOutput();
+      const resolved = resolveSurveyOutput();
+      if (!resolved) throw new Error("There is no survey output to export. Run a workflow and save its real result to a project first.");
+      const { output, country } = resolved;
+      if (!country) throw new Error("Select a jurisdiction for the draft report export.");
       const result = await api({
         surveyOutput: output,
         projectName: projectName || "Survey Plan",
@@ -238,7 +215,7 @@ export const ExportPanel: React.FC = () => {
         setPlanResult("Export cancelled.");
       } else {
         setPlanResult(
-          `Saved statutory report (${(result.bytes / 1024).toFixed(1)} KB, map page ${result.widthPx}×${result.heightPx}px @ 300 DPI, scale 1:${result.scaleDenominator}) → ${result.filePath}`,
+          `Saved draft report (${(result.bytes / 1024).toFixed(1)} KB, map page ${result.widthPx}×${result.heightPx}px @ 300 DPI, scale 1:${result.scaleDenominator}) → ${result.filePath}`,
         );
       }
     } catch (e) {
@@ -270,7 +247,10 @@ export const ExportPanel: React.FC = () => {
         setPlanError("Booklet export not available — run in the Electron app.");
         return;
       }
-      const { output, country } = resolveSurveyOutput();
+      const resolved = resolveSurveyOutput();
+      if (!resolved) throw new Error("There is no survey output to export. Run a workflow and save its real result to a project first.");
+      const { output, country } = resolved;
+      if (!country) throw new Error("Select a jurisdiction for the draft plan booklet export.");
       const result = await api({
         surveyOutput: output,
         projectName: projectName || "Survey Plan Booklet",
@@ -317,102 +297,55 @@ export const ExportPanel: React.FC = () => {
         throw new Error("Export not available — running in browser mode. Launch the Electron app to export.");
       }
 
-      // Use the real survey output from the shared state if available.
-      // Fall back to demo data only if no survey has been run yet.
+      const resolved = resolveSurveyOutput();
+      if (!resolved) throw new Error("There is no survey output to export. Run a workflow and save its real result to a project first.");
+      if (!resolved.country) throw new Error("Select the jurisdiction for this project before exporting.");
+      if (activeProject?.crsSrid !== undefined) {
+        const countryProfile = COUNTRY_OPTIONS.find((option) => option.code === resolved.country);
+        const countryPrimarySrid = countryProfile?.config.geodeticFramework.primarySRID;
+        if (countryPrimarySrid !== activeProject.crsSrid) {
+          throw new Error(
+            `Export is blocked: this exporter currently labels coordinates with the jurisdiction profile CRS (EPSG:${String(countryPrimarySrid ?? "unknown")}), ` +
+            `but this project records EPSG:${activeProject.crsSrid}. Exporting would mislabel the coordinates.`,
+          );
+        }
+      }
       const options: Record<string, unknown> = {
-        countryCode,
+        countryCode: resolved.country,
+        ...(activeProject?.crsSrid !== undefined ? { crsSrid: activeProject.crsSrid } : {}),
         outputWgs84,
         projectMetadata: {
           projectName,
           surveyorName,
           licenseNumber,
           surveyDate,
-          adjustmentRunId: `export-${Date.now()}`,
         },
       };
 
-      let surveyOutput: unknown;
-      // Prefer the persisted active project (ProjectStore), then the
-      // in-memory survey state, then demo data.
-      if (activeProject && activeProject.output !== null && activeProject.output !== undefined) {
-        surveyOutput = activeProject.output;
-        if (activeProject.countryCode) {
-          options.countryCode = activeProject.countryCode;
-        }
-      } else if (surveyState) {
-        surveyOutput = surveyState.output;
-        // Override country code from the survey state if set.
-        if (surveyState.countryCode) {
-          options.countryCode = surveyState.countryCode;
-        }
-      } else {
-        // Demo fallback — 4-beacon cadastral survey.
-        surveyOutput = {
-          form3: {
-            pdfBytes: new Uint8Array(0), pageCount: 0, scale: 0,
-            coordinateSystemLabel: "Demo", hasDraftWatermark: false,
-          },
-          allBeacons: [
-            { label: "B1", position: { easting: 257100.0, northing: 9857700.0 }, description: "Concrete pillar" },
-            { label: "B2", position: { easting: 257150.0, northing: 9857700.0 }, description: "Concrete pillar" },
-            { label: "B3", position: { easting: 257150.0, northing: 9857750.0 }, description: "Concrete pillar" },
-            { label: "B4", position: { easting: 257100.0, northing: 9857750.0 }, description: "Concrete pillar" },
-          ],
-          residuals: {},
-          sigma_0_sq: 1.0,
-          passesCadastralTolerance: true,
-          uncertainty: {
-            B1: { adjusted: false, reason: "fixed-control" as const },
-            B2: { adjusted: false, reason: "fixed-control" as const },
-            B3: { adjusted: true, semiMajorAxis: 0.012, semiMinorAxis: 0.008, orientation: 45.3, confidenceLevel: 0.95 },
-            B4: { adjusted: true, semiMajorAxis: 0.015, semiMinorAxis: 0.010, orientation: 30.0, confidenceLevel: 0.95 },
-          },
-        };
-      }
+      const surveyOutput = resolved.output;
 
       // For GCP exporter, pass GcpInput instead of SurveyOutput.
       if (selectedFormat === "gcp") {
         // Extract points from the survey output if it has beacons/points.
         const anyOutput = surveyOutput as Record<string, unknown>;
-        const beacons = (anyOutput.allBeacons ?? anyOutput.tin?.vertices ?? []) as Array<{
+        const rawTin = anyOutput.tin;
+        const tinVertices = rawTin && typeof rawTin === "object" && "vertices" in rawTin && Array.isArray(rawTin.vertices)
+          ? rawTin.vertices
+          : [];
+        const rawBeacons = Array.isArray(anyOutput.allBeacons) ? anyOutput.allBeacons : [];
+        const beacons = (rawBeacons.length > 0 ? rawBeacons : tinVertices) as Array<{
           position?: { easting: number; northing: number };
           easting?: number; northing?: number; label?: string; id?: string;
         }>;
-        const gcpInput = {
-          points: beacons.map((b, i) => ({
-            label: b.label ?? b.id ?? `GCP${i + 1}`,
-            easting: b.position?.easting ?? b.easting ?? 0,
-            northing: b.position?.northing ?? b.northing ?? 0,
-            elevation: 0,
-            accuracyXY: 0.015,
-          })),
-        };
-        const gcpOptions = { ...options, format: "pix4d" };
-        const res = await w.metardu.export.survey(selectedFormat, gcpInput, gcpOptions);
-        setResult(res);
+        if (beacons.length === 0 || beacons.some((b) =>
+          !Number.isFinite(b.position?.easting ?? b.easting) ||
+          !Number.isFinite(b.position?.northing ?? b.northing)
+        )) {
+          throw new Error("GCP export requires real point coordinates. No complete GCP point set is available in this result.");
+        }
+        throw new Error("GCP export is unavailable until each point has a verified elevation, image coordinate, and stated accuracy.");
       } else if (selectedFormat === "osm-changeset") {
-        // OSM needs WGS84 nodes or projectedCoords + callback.
-        // For demo: convert beacons to approximate WGS84 lat/lon.
-        const anyOutput = surveyOutput as Record<string, unknown>;
-        const beacons = (anyOutput.allBeacons ?? []) as Array<{
-          label?: string; position?: { easting: number; northing: number };
-        }>;
-        const osmInput = {
-          nodes: beacons.map((b, i) => ({
-            id: -(i + 1),
-            lat: -1.22 + i * 0.0005,
-            lon: 36.90 + i * 0.0005,
-            tags: { man_made: "survey_point", name: b.label ?? `P${i + 1}` },
-          })),
-          ways: beacons.length >= 3 ? [{
-            id: -101,
-            nodeRefs: beacons.map((_, i) => -(i + 1)).concat([-1]),
-            tags: { boundary: "administrative", admin_level: "8", area: "yes" },
-          }] : [],
-          inputSrid: 4326,
-        };
-        const res = await w.metardu.export.survey(selectedFormat, osmInput, options);
-        setResult(res);
+        throw new Error("OSM changeset export is unavailable until the project has verified WGS84 coordinates and explicit feature/tag choices.");
       } else {
         const res = await w.metardu.export.survey(selectedFormat, surveyOutput, options);
         setResult(res);
@@ -431,15 +364,14 @@ export const ExportPanel: React.FC = () => {
           Export Survey Data
         </h2>
         <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-          Export your survey to GIS, CAD, or photogrammetry formats. Per ADR-0005, metardu-desktop
-          is a survey-grade source of truth that feeds downstream tools.
+          Export the active project result to available file formats. An export does not validate its CRS, uncertainty, statutory compliance, or acceptance by another system.
         </p>
       </div>
 
       {/* Survey state indicator */}
-      {activeProject || surveyState ? (
+      {resolvedSurveyOutput ? (
         <div style={{ padding: "10px 14px", borderRadius: "8px", background: "var(--bg-success)", border: "1px solid var(--border-success)", fontSize: "12px", color: "var(--text-secondary)" }}>
-          <strong style={{ color: "var(--text-primary)" }}>Active project:</strong> {activeProject?.name ?? `${surveyState?.surveyType} from ${surveyState?.sourceView}`}
+          <strong style={{ color: "var(--text-primary)" }}>Export source:</strong> {activeProject?.name ?? `${surveyState?.surveyType} workflow result`}
           <span style={{ color: "var(--text-tertiary)", marginLeft: "8px" }}>
             {activeProject
               ? `(${activeProject.surveyType}, ${activeProject.countryCode}, v${activeProject.version})`
@@ -450,7 +382,7 @@ export const ExportPanel: React.FC = () => {
         </div>
       ) : (
         <div style={{ padding: "10px 14px", borderRadius: "8px", background: "var(--bg-secondary)", border: "1px solid var(--border-default)", fontSize: "12px", color: "var(--text-tertiary)" }}>
-          No survey output yet. Run a workflow (e.g., Topographic) first, then come back to export. Demo data will be used as fallback.
+          No survey output is available. Run a workflow and save its real result before exporting.
         </div>
       )}
 
@@ -489,7 +421,7 @@ export const ExportPanel: React.FC = () => {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
         <Field label="Project Name" value={projectName} onChange={setProjectName} />
         <Field label="Surveyor Name" value={surveyorName} onChange={setSurveyorName} />
-        <Field label="License Number" value={licenseNumber} onChange={setLicenseNumber} />
+        <Field label="Registration Number (metadata only)" value={licenseNumber} onChange={setLicenseNumber} />
         <Field label="Survey Date" value={surveyDate} onChange={setSurveyDate} />
       </div>
 
@@ -500,10 +432,11 @@ export const ExportPanel: React.FC = () => {
             Country
           </label>
           <select
-            value={countryCode}
+            value={effectiveCountryCode}
             onChange={(e) => setCountryCode(e.target.value)}
             style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid var(--border-default)", background: "var(--bg-secondary)", color: "var(--text-primary)", fontSize: "13px" }}
           >
+            <option value="">Select jurisdiction</option>
             {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
           </select>
         </div>
@@ -520,43 +453,16 @@ export const ExportPanel: React.FC = () => {
         </label>
       </div>
 
-      {/* LandXML submission guidance */}
       {selectedFormat === "landxml" && (
-        <div style={{
-          padding: "12px 16px", borderRadius: "8px",
-          background: "var(--bg-tertiary)", border: "1px solid var(--accent-primary)",
-        }}>
-          <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--accent-primary)", marginBottom: "4px" }}>
-            📋 LandXML 1.2 — Digital Submission Format
-          </div>
-          <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-            {countryCode === "KE" && (
-              <>Upload the exported .xml file to <strong>National Land Information Management System (NLIMS)</strong> or <strong>ArdhiSasa</strong> for digital cadastral plan submission. The file contains parcel coordinates in Arc 1960 / UTM 37S (EPSG:21037) compatible with Kenya's land registry system.</>
-            )}
-            {countryCode === "AU" && (
-              <>Submit to your state's Land Registry Service (e.g. NSW LRS, Vic LRS) for electronic plan lodgment. Coordinates in GDA2020 / MGA projection.</>
-            )}
-            {countryCode === "GB" && (
-              <>Submit to HM Land Registry for digital plan registration. Coordinates in OSGB36 / British National Grid (EPSG:27700).</>
-            )}
-            {countryCode === "ZA" && (
-              <>Submit to the Surveyor-General via the Deeds Office for SG Diagram lodgment. Coordinates in Hartebeesthoek94 / Lo projection.</>
-            )}
-            {countryCode === "GH" && (
-              <>Submit to the Lands Commission — Survey and Mapping Division for cadastral survey plan lodgment. Coordinates in Leigon / Ghana Metre Grid (EPSG:25000).</>
-            )}
-            {!["KE", "AU", "GB", "ZA", "GH"].includes(countryCode) && (
-              <>LandXML 1.2 format — compatible with most land registry systems. Check your local registry's submission requirements.</>
-            )}
-          </div>
+        <div role="note" style={{ padding: "12px 16px", borderRadius: "8px", background: "var(--bg-tertiary)", border: "1px solid var(--accent-primary)", fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+          LandXML is an interchange format. This export is not a regulator-approved filing, and this panel does not validate the project CRS or local submission profile. Confirm format and coordinate requirements with your receiving organization.
         </div>
       )}
-
       {/* Export button */}
       <div>
         <button
           onClick={handleExport}
-          disabled={exporting}
+          disabled={exporting || !resolvedSurveyOutput || exporters.length === 0}
           style={{
             display: "inline-flex", alignItems: "center", gap: "8px",
             padding: "10px 20px", borderRadius: "8px", border: "none",
@@ -595,22 +501,22 @@ export const ExportPanel: React.FC = () => {
 
       {/* Data source notice */}
       <div style={{ fontSize: "11px", color: "var(--text-disabled)", fontStyle: "italic" }}>
-        {activeProject || surveyState
-          ? `Exporting real survey data from ${activeProject?.sourceView ?? surveyState?.sourceView} (${activeProject?.surveyType ?? surveyState?.surveyType} type).`
-          : "No survey output in context — exporting demo cadastral data (4 beacons, Kasarani). Run a workflow view first."}
+        {resolvedSurveyOutput
+          ? "Using the available project or workflow result. Review provenance, CRS, units, and quality status before sharing."
+          : "No survey output is available; export is blocked until a workflow result exists."}
       </div>
 
-      {/* Statutory print plan (300 DPI PNG + parcel booklet PDF) */}
+      {/* Draft plan output (300 DPI PNG + parcel booklet PDF) */}
       <div style={{
         padding: "16px", borderRadius: "8px", border: "1px solid var(--border-default)",
         background: "var(--bg-secondary)", display: "flex", flexDirection: "column", gap: "12px",
       }}>
         <div>
           <h3 style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "8px" }}>
-            <Printer size={16} strokeWidth={1.75} /> Statutory Print Plan
+            <Printer size={16} strokeWidth={1.75} /> Draft Plan Sheet
           </h3>
           <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "2px" }}>
-            300 DPI plan sheet with the {getPlanSheet(countryCode).titleBlockLabel || "country"} title block — sized for {getPlanSheet(countryCode).defaultSheetSize.toUpperCase()} ({getPlanSheet(countryCode).defaultOrientation}).
+            Draft 300 DPI plan output. Layout choices do not establish regulatory compliance or acceptance.
           </p>
         </div>
 
@@ -672,7 +578,7 @@ export const ExportPanel: React.FC = () => {
           <button
             onClick={exportPlanReport}
             disabled={planExporting || bookletExporting || reportExporting}
-            title="Full statutory report: A4 cover + the exact 300 DPI plan sheet embedded as the survey-map page — one click, no Map View step"
+            title="Draft report with a 300 DPI map page; regulator acceptance is not asserted"
             style={{
               display: "inline-flex", alignItems: "center", gap: "6px", padding: "8px 14px",
               borderRadius: "6px", border: "1px solid var(--accent-primary)",
@@ -681,7 +587,7 @@ export const ExportPanel: React.FC = () => {
             }}
           >
             <FileText size={14} />
-            {reportExporting ? "Building report…" : "Statutory Report (PDF)"}
+            {reportExporting ? "Building report…" : "Draft Plan Report (PDF)"}
           </button>
         </div>
 

@@ -1,30 +1,21 @@
 /**
- * Land Use Land Cover (LULC) Classification View — Enhanced.
+ * LULC thematic workspace.
  *
- * Kenya-specific LULC categories per National Land Commission framework.
- * Features:
- *   - Import satellite/drone imagery files (GeoTIFF, JPEG, PNG)
- *   - Import parcel boundary polygons from DXF/GeoJSON/CSV
- *   - Auto-classify parcels using spectral heuristics and proximity rules
- *   - Interactive polygon editor with category assignment
- *   - Area computation and percentage breakdown
- *   - Color-coded SurveyCanvas visualization
- *   - Classification report export
- *   - Integration with project survey state
+ * Geometry is retained as raw source coordinates. CRS interpretation, raster
+ * processing, classification, and survey-grade area computation are unavailable
+ * until backed by the project reference context and Rust sidecar.
  */
 
-import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { SurveyCanvas, type SurveyPoint, type SurveyPolygon } from "@metardu/ui-components";
 import { useSurveyState } from "../SurveyStateContext.js";
-import { bus } from "../cross-import-bus.js";
-import { AutoExportBanner } from "./AutoExportBanner.js";
-import { Layers, Plus, Trash2, Upload, Download, Sparkles, MapPin, FileText, Eye } from "lucide-react";
-import { COUNTRY_OPTIONS, getCountryOption } from "../countries.js";
+import { Layers, Plus, Trash2, Upload, Download, FileText } from "lucide-react";
+import { COUNTRY_OPTIONS } from "../countries.js";
 
 // ─── Types ────────────────────────────────────────────────────────
 
 type LulcCategory =
-  | "residential" | "agricultural" | "commercial" | "institutional"
+  | "unclassified" | "residential" | "agricultural" | "commercial" | "institutional"
   | "forest" | "grassland" | "wetland" | "bareland" | "water" | "infrastructure";
 
 interface LulcZone {
@@ -33,9 +24,9 @@ interface LulcZone {
   category: LulcCategory;
   points: Array<{ easting: number; northing: number }>;
   color: string;
-  source: "manual" | "imported" | "auto-classified";
-  confidence: number; // 0-1 for auto-classified, 1 for manual
+  source: "manual" | "imported";
   parcelId?: string; // original parcel ID from import
+  attributes?: Record<string, unknown>;
 }
 
 interface LulcCategoryInfo {
@@ -43,247 +34,240 @@ interface LulcCategoryInfo {
   label: string;
   color: string;
   description: string;
-  /** Keywords for auto-classification heuristics */
-  keywords: string[];
 }
 
 interface ImportedParcel {
   id: string;
   name: string;
   points: Array<{ easting: number; northing: number }>;
-  areaSqM: number;
-  attributes?: Record<string, string>;
+  category?: LulcCategory;
+  attributes?: Record<string, unknown>;
 }
 
-interface ImageryMeta {
-  filename: string;
-  width: number;
-  height: number;
-  bands: number;
-  resolution: number; // m/pixel
-  crs: string;
-  bounds: { minE: number; maxE: number; minN: number; maxN: number };
-}
-
-// ─── Kenya LULC categories ────────────────────────────────────────
-
-const KENYA_CATEGORIES: LulcCategoryInfo[] = [
-  { key: "residential", label: "Residential", color: "#ef4444", description: "Single/multi-family housing, estates", keywords: ["house", "home", "estate", "apartment", "residential", "dwelling", "plot", "parcel"] },
-  { key: "agricultural", label: "Agricultural", color: "#22c55e", description: "Cropland, horticulture, tea, coffee", keywords: ["farm", "crop", "tea", "coffee", "maize", "agriculture", "horticulture", "plantation", "shamba"] },
-  { key: "commercial", label: "Commercial", color: "#f59e0b", description: "Retail, office, industrial zones", keywords: ["shop", "market", "store", "office", "commercial", "industrial", "factory", "warehouse"] },
-  { key: "institutional", label: "Institutional", color: "#3b82f6", description: "Schools, hospitals, government", keywords: ["school", "hospital", "clinic", "church", "mosque", "government", "institutional", "office"] },
-  { key: "forest", label: "Forest", color: "#166534", description: "Indigenous, plantation, bamboo", keywords: ["forest", "tree", "woodland", "indigenous", "plantation", "bamboo", "timber"] },
-  { key: "grassland", label: "Grassland", color: "#84cc16", description: "Pasture, rangeland, scrub", keywords: ["grass", "pasture", "rangeland", "meadow", "scrub", "grazing"] },
-  { key: "wetland", label: "Wetland", color: "#06b6d4", description: "Swamp, marsh, riverine zone", keywords: ["swamp", "marsh", "wetland", "riverine", "floodplain", "riparian"] },
-  { key: "bareland", label: "Bareland", color: "#a3a3a3", description: "Rock, sand, quarry, fallow", keywords: ["bare", "rock", "sand", "quarry", "fallow", "cleared", "construction"] },
-  { key: "water", label: "Water", color: "#2563eb", description: "River, lake, reservoir", keywords: ["river", "lake", "pond", "reservoir", "stream", "water", "dam"] },
-  { key: "infrastructure", label: "Infrastructure", color: "#7c3aed", description: "Road, railway, pipeline corridor", keywords: ["road", "highway", "railway", "pipeline", "powerline", "infrastructure", "bridge"] },
+// These are generic thematic tags for project organization, not a country's
+// statutory land-use classification and not image-derived classifications.
+const LULC_CATEGORIES: LulcCategoryInfo[] = [
+  { key: "unclassified", label: "Unclassified", color: "#64748b", description: "No class assigned" },
+  { key: "residential", label: "Residential", color: "#ef4444", description: "Residential use" },
+  { key: "agricultural", label: "Agricultural", color: "#22c55e", description: "Agricultural use" },
+  { key: "commercial", label: "Commercial", color: "#f59e0b", description: "Commercial use" },
+  { key: "institutional", label: "Institutional", color: "#3b82f6", description: "Institutional use" },
+  { key: "forest", label: "Forest", color: "#166534", description: "Forest cover" },
+  { key: "grassland", label: "Grassland", color: "#84cc16", description: "Grassland cover" },
+  { key: "wetland", label: "Wetland", color: "#06b6d4", description: "Wetland cover" },
+  { key: "bareland", label: "Bare land", color: "#a3a3a3", description: "Bare or cleared land" },
+  { key: "water", label: "Water", color: "#2563eb", description: "Water cover" },
+  { key: "infrastructure", label: "Infrastructure", color: "#7c3aed", description: "Infrastructure use" },
 ];
-
-// Backwards-compat alias used by earlier hardcoded paths.
-const LULC_CATEGORIES: LulcCategoryInfo[] = KENYA_CATEGORIES;
-
-// AU — ICSM / NSW LRS (interim: NLC equivalents pending filed ICSM spec)
-const ICSM_CATEGORIES: LulcCategoryInfo[] = [
-  { key: "residential", label: "Residential", color: "#ef4444", description: "Residential (ICSM/SP1 — urban)", keywords: ["house", "residence", "estate", "dwelling", "residential", "unit", "strata"] },
-  { key: "agricultural", label: "Agricultural", color: "#22c55e", description: "Rural / agricultural (ICSM)", keywords: ["farm", "crop", "rural", "agriculture", "paddock", "pastoral", "grazing"] },
-  { key: "commercial", label: "Commercial", color: "#f59e0b", description: "Commercial/industrial", keywords: ["shop", "market", "commercial", "industrial", "warehouse", "retail"] },
-  { key: "institutional", label: "Institutional", color: "#3b82f6", description: "Institutional/public", keywords: ["school", "hospital", "government", "institutional", "public", "community"] },
-  { key: "forest", label: "Forest", color: "#166534", description: "Forest/bushland", keywords: ["forest", "bushland", "woodland", "national park", "reserve"] },
-  { key: "grassland", label: "Grassland", color: "#84cc16", description: "Grassland/rangeland", keywords: ["grass", "rangeland", "meadow", "scrub", "pasture"] },
-  { key: "wetland", label: "Wetland", color: "#06b6d4", description: "Wetland/waterway", keywords: ["wetland", "swamp", "estuary", "floodplain", "riparian"] },
-  { key: "bareland", label: "Bareland", color: "#a3a3a3", description: "Bare/cleared", keywords: ["bare", "rock", "quarry", "cleared", "vacant"] },
-  { key: "water", label: "Water", color: "#2563eb", description: "Water body", keywords: ["river", "lake", "reservoir", "water", "coastal"] },
-  { key: "infrastructure", label: "Infrastructure", color: "#7c3aed", description: "Infrastructure corridor", keywords: ["road", "highway", "railway", "pipeline", "infrastructure"] },
-];
-
-// GB — RICS / HM Land Registry context (interim: NLC equivalents pending)
-const GB_CATEGORIES: LulcCategoryInfo[] = ICSM_CATEGORIES;
-const ZA_CATEGORIES: LulcCategoryInfo[] = ICSM_CATEGORIES;
-const DE_CATEGORIES: LulcCategoryInfo[] = ICSM_CATEGORIES;
-
-export const LULC_CATEGORY_WARNING = "Kenya categories shown — AU/GB/ZA/DE pending filed NLC equivalents";
-
-export function getCategoriesForCountry(countryCode: string): { categories: LulcCategoryInfo[]; warning: string | null } {
-  if (countryCode === "KE") return { categories: KENYA_CATEGORIES, warning: null };
-  if (countryCode === "AU") return { categories: ICSM_CATEGORIES, warning: null };
-  if (countryCode === "GB") return { categories: GB_CATEGORIES, warning: LULC_CATEGORY_WARNING };
-  if (countryCode === "ZA") return { categories: ZA_CATEGORIES, warning: LULC_CATEGORY_WARNING };
-  if (countryCode === "DE") return { categories: DE_CATEGORIES, warning: LULC_CATEGORY_WARNING };
-  return { categories: KENYA_CATEGORIES, warning: LULC_CATEGORY_WARNING };
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
-function shoelaceArea(points: Array<{ easting: number; northing: number }>): number {
-  if (points.length < 3) return 0;
-  let area = 0;
-  for (let i = 0; i < points.length; i++) {
-    const j = (i + 1) % points.length;
-    area += points[i].easting * points[j].northing;
-    area -= points[j].easting * points[i].northing;
-  }
-  return Math.abs(area) / 2;
+function getCategoryInfo(cat: LulcCategory): LulcCategoryInfo {
+  return LULC_CATEGORIES.find((c) => c.key === cat) ?? LULC_CATEGORIES[0]!;
 }
 
-function getCategoryInfo(cat: LulcCategory, countryCode = "KE"): LulcCategoryInfo {
-  const { categories } = getCategoriesForCountry(countryCode);
-  return categories.find((c) => c.key === cat) ?? categories[0] ?? LULC_CATEGORIES[0]!;
+function csvCell(value: string | number): string {
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-/** Auto-classify a parcel based on its attributes and size heuristics */
-function autoClassify(parcel: ImportedParcel, countryCode = "KE"): { category: LulcCategory; confidence: number } {
-  const { categories } = getCategoriesForCountry(countryCode);
-  const name = (parcel.name || parcel.id).toLowerCase();
-  const attrs = parcel.attributes ?? {};
-  const attrStr = Object.values(attrs).join(" ").toLowerCase();
-  const combined = `${name} ${attrStr}`;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
-  // Keyword matching
-  for (const cat of categories) {
-    for (const kw of cat.keywords) {
-      if (combined.includes(kw)) {
-        return { category: cat.key, confidence: 0.85 };
-      }
+function isLulcCategory(value: string): value is LulcCategory {
+  return LULC_CATEGORIES.some((category) => category.key === value);
+}
+
+function parseCsvLine(line: string): string[] | null {
+  const fields: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (quoted && line[i + 1] === '"') { field += '"'; i++; }
+      else quoted = !quoted;
+    } else if (char === "," && !quoted) {
+      fields.push(field.trim());
+      field = "";
+    } else {
+      field += char;
     }
   }
-
-  // Size-based heuristics (Kenya context)
-  const areaHa = parcel.areaSqM / 10000;
-  if (areaHa < 0.05) return { category: "residential", confidence: 0.4 };  // small plot
-  if (areaHa > 50) return { category: "agricultural", confidence: 0.5 };   // large tract
-  if (areaHa > 0.5 && areaHa < 5) return { category: "commercial", confidence: 0.35 };
-
-  return { category: "residential", confidence: 0.2 };
+  if (quoted) return null;
+  fields.push(field.trim());
+  return fields;
 }
 
-/** Parse GeoJSON polygon boundaries */
-function parseGeoJsonPolygons(content: string): ImportedParcel[] {
+/** Import simple Polygon geometries without interpreting their CRS. */
+export function parseGeoJsonPolygons(content: string): ImportedParcel[] {
   try {
-    const geojson = JSON.parse(content);
-    const features = geojson.features ?? (geojson.type === "FeatureCollection" ? [] : [geojson]);
-    return features.filter((f: any) => f.geometry?.type === "Polygon").map((f: any, i: number) => {
-      const coords = f.geometry.coordinates[0]; // outer ring
-      const points = coords.map((c: number[]) => ({ easting: c[0], northing: c[1] }));
+    const parsed: unknown = JSON.parse(content);
+    if (!isRecord(parsed)) return [];
+    const features: unknown[] = parsed.type === "FeatureCollection" && Array.isArray(parsed.features)
+      ? parsed.features
+      : parsed.type === "Feature"
+        ? [parsed]
+        : parsed.type === "Polygon"
+          ? [{ geometry: parsed }]
+          : [];
+    const parcels = features.map((feature, index): ImportedParcel | null => {
+      if (!isRecord(feature) || !isRecord(feature.geometry) || feature.geometry.type !== "Polygon") return null;
+      const rings = feature.geometry.coordinates;
+      // Reject unsupported holes, malformed rings, and non-finite coordinates as a whole.
+      if (!Array.isArray(rings) || rings.length !== 1 || !Array.isArray(rings[0]) || rings[0].length < 3) return null;
+      const points = rings[0].map((coordinate): { easting: number; northing: number } | null => {
+        if (!Array.isArray(coordinate) || coordinate.length !== 2 || typeof coordinate[0] !== "number" || typeof coordinate[1] !== "number"
+          || !Number.isFinite(coordinate[0]) || !Number.isFinite(coordinate[1])) return null;
+        return { easting: coordinate[0], northing: coordinate[1] };
+      });
+      const validPoints = points.filter((point): point is { easting: number; northing: number } => point !== null);
+      if (validPoints.length !== points.length) return null;
+      const properties = isRecord(feature.properties) ? feature.properties : {};
+      const id = properties.id ?? properties.PARCEL_ID ?? `IMP${index + 1}`;
+      const name = properties.name ?? properties.NAME ?? `Imported Polygon ${index + 1}`;
+      const classValue = properties.class ?? properties.category;
       return {
-        id: f.properties?.id ?? f.properties?.PARCEL_ID ?? `IMP${i + 1}`,
-        name: f.properties?.name ?? f.properties?.NAME ?? `Imported Parcel ${i + 1}`,
-        points,
-        areaSqM: shoelaceArea(points),
-        attributes: f.properties ?? {},
+        id: String(id),
+        name: String(name),
+        points: validPoints,
+        attributes: properties,
+        ...(typeof classValue === "string" && isLulcCategory(classValue) ? { category: classValue } : {}),
       };
     });
+    const validParcels = parcels.filter((parcel): parcel is ImportedParcel => parcel !== null);
+    return validParcels.length === parcels.length ? validParcels : [];
   } catch {
     return [];
   }
 }
 
-/** Parse CSV parcel boundaries (ID,E,N per line, blank line between parcels) */
-function parseCsvParcels(content: string): ImportedParcel[] {
+/** Parse raw X/Y rows or this view's metadata-preserving draft CSV export. */
+export function parseCsvParcels(content: string): ImportedParcel[] {
+  const lines = content.split(/\r?\n/);
+  const dataLines = lines.filter((line) => line.trim() && !line.trimStart().startsWith("#"));
+  const parsedLines = dataLines.map(parseCsvLine);
+  if (parsedLines.some((line) => line === null)) return [];
+  const rows = parsedLines.filter((line): line is string[] => line !== null);
+  const header = rows[0]?.map((field) => field.trim().toLowerCase()) ?? [];
+  const idColumn = header.indexOf("zone_id");
+  const xColumn = header.indexOf("x_raw");
+  const yColumn = header.indexOf("y_raw");
+  if (idColumn >= 0 && xColumn >= 0 && yColumn >= 0) {
+    const nameColumn = header.indexOf("name");
+    const classColumn = header.indexOf("class");
+    const originalIdColumn = header.indexOf("original_id");
+    const attributesColumn = header.indexOf("source_attributes_json");
+    const grouped = new Map<string, ImportedParcel>();
+    for (const row of rows.slice(1)) {
+      const id = row[idColumn]?.trim();
+      const x = Number(row[xColumn]);
+      const y = Number(row[yColumn]);
+      if (!id || !Number.isFinite(x) || !Number.isFinite(y)) return [];
+      let parcel = grouped.get(id);
+      if (!parcel) {
+        const name = nameColumn >= 0 ? row[nameColumn] || id : id;
+        const categoryValue = classColumn >= 0 ? row[classColumn] : "";
+        let attributes: Record<string, unknown> = {};
+        if (attributesColumn >= 0 && row[attributesColumn]) {
+          try {
+            const parsedAttributes: unknown = JSON.parse(row[attributesColumn]);
+            if (!isRecord(parsedAttributes)) return [];
+            attributes = parsedAttributes;
+          } catch {
+            return [];
+          }
+        }
+        parcel = {
+          id: originalIdColumn >= 0 ? row[originalIdColumn] || id : id,
+          name,
+          points: [],
+          attributes,
+          ...(categoryValue && isLulcCategory(categoryValue) ? { category: categoryValue } : {}),
+        };
+        grouped.set(id, parcel);
+      }
+      parcel.points.push({ easting: x, northing: y });
+    }
+    return Array.from(grouped.values()).every((parcel) => parcel.points.length >= 3) ? Array.from(grouped.values()) : [];
+  }
+
+  // Legacy ID,X,Y rows remain grouped by blank lines between polygons.
   const parcels: ImportedParcel[] = [];
-  const blocks = content.split(/\n\s*\n/).filter((b) => b.trim());
+  const blocks = content.split(/\r?\n\s*\r?\n/).filter((block) => block.trim());
   for (let bi = 0; bi < blocks.length; bi++) {
-    const lines = blocks[bi].trim().split("\n").filter((l) => l.trim());
-    if (lines.length < 3) continue;
+    const blockLines = blocks[bi].split(/\r?\n/).filter((line) => line.trim() && !line.trimStart().startsWith("#"));
+    const lines = blockLines.map(parseCsvLine);
+    if (lines.some((line) => line === null)) return [];
+    const fields = lines.filter((line): line is string[] => line !== null);
+    if (fields.length < 3) return [];
     const points: Array<{ easting: number; northing: number }> = [];
     let id = `CSV${bi + 1}`;
-    for (const line of lines) {
-      const parts = line.split(",").map((s) => s.trim());
+    for (const parts of fields) {
       if (parts.length >= 2) {
+        if (["id", "zone_id"].includes(parts[0].toLowerCase())
+          && ["e", "x", "easting", "x_raw"].includes(parts[1].toLowerCase())) continue;
+        if (parts.length !== 2 && parts.length !== 3) return [];
         if (parts.length >= 3 && isNaN(parseFloat(parts[0]))) {
           id = parts[0];
-          points.push({ easting: parseFloat(parts[1]), northing: parseFloat(parts[2]) });
+          const easting = Number(parts[1]);
+          const northing = Number(parts[2]);
+          if (!Number.isFinite(easting) || !Number.isFinite(northing)) return [];
+          points.push({ easting, northing });
         } else {
-          points.push({ easting: parseFloat(parts[0]), northing: parseFloat(parts[1]) });
+          const easting = Number(parts[0]);
+          const northing = Number(parts[1]);
+          if (!Number.isFinite(easting) || !Number.isFinite(northing)) return [];
+          points.push({ easting, northing });
         }
       }
     }
-    if (points.length >= 3) {
-      parcels.push({ id, name: `Parcel ${id}`, points, areaSqM: shoelaceArea(points) });
-    }
+    if (points.length < 3) return [];
+    parcels.push({ id, name: `Parcel ${id}`, points });
   }
   return parcels;
 }
 
-// ─── Sample data ──────────────────────────────────────────────────
-
-const SAMPLE_ZONES: LulcZone[] = [
-  { id: "Z1", name: "Residential Estate", category: "residential", color: "#ef4444", source: "manual", confidence: 1, points: [{ easting: 257000, northing: 9857000 }, { easting: 257200, northing: 9857000 }, { easting: 257200, northing: 9857150 }, { easting: 257000, northing: 9857150 }] },
-  { id: "Z2", name: "Tea Plantation", category: "agricultural", color: "#22c55e", source: "manual", confidence: 1, points: [{ easting: 257200, northing: 9857000 }, { easting: 257400, northing: 9857000 }, { easting: 257400, northing: 9857200 }, { easting: 257200, northing: 9857200 }] },
-  { id: "Z3", name: "Market Area", category: "commercial", color: "#f59e0b", source: "manual", confidence: 1, points: [{ easting: 257050, northing: 9857150 }, { easting: 257150, northing: 9857150 }, { easting: 257150, northing: 9857250 }, { easting: 257050, northing: 9857250 }] },
-  { id: "Z4", name: "Forest Reserve", category: "forest", color: "#166534", source: "manual", confidence: 1, points: [{ easting: 257400, northing: 9857100 }, { easting: 257500, northing: 9857100 }, { easting: 257500, northing: 9857250 }, { easting: 257400, northing: 9857250 }] },
-];
-
 // ─── Component ────────────────────────────────────────────────────
 
 export const LULCView: React.FC = () => {
-  const { setSurveyOutput } = useSurveyState();
-  const [countryCode, setCountryCode] = useState("KE");
-  const { categories: cats, warning: catsWarning } = useMemo(() => getCategoriesForCountry(countryCode), [countryCode]);
-  // Derive CRS label from country-config rather than hardcoded Kenya literal.
-  const cfgCrs = useMemo(() => {
-    try { return getCountryOption(countryCode).config.geodeticFramework.projectionZones[0]?.name ?? "UTM 37S (Arc 1960)"; }
-    catch { return "UTM 37S (Arc 1960)"; }
-  }, [countryCode]);
-  const [zones, setZones] = useState<LulcZone[]>(SAMPLE_ZONES);
+  const { setSurveyOutput, activeProject } = useSurveyState();
+  const [selectedCountryCode, setSelectedCountryCode] = useState("");
+  const countryCode = activeProject?.countryCode || selectedCountryCode;
+  const [zones, setZones] = useState<LulcZone[]>([]);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
-  const [editMode, setEditMode] = useState<"view" | "add_zone" | "import_parcel" | "import_imagery">("view");
+  const [editMode, setEditMode] = useState<"view" | "add_zone" | "import_parcel">("view");
   const [newZoneName, setNewZoneName] = useState("");
-  const [newZoneCategory, setNewZoneCategory] = useState<LulcCategory>("residential");
+  const [newZoneCategory, setNewZoneCategory] = useState<LulcCategory>("unclassified");
   const [newZonePoints, setNewZonePoints] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
 
-  // Import state
   const [parcelText, setParcelText] = useState("");
   const [parcelFormat, setParcelFormat] = useState<"geojson" | "csv">("geojson");
-  const [imageryFile, setImageryFile] = useState<ImageryMeta | null>(null);
-  const [autoClassifyEnabled, setAutoClassifyEnabled] = useState(true);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const imageryInputRef = useRef<HTMLInputElement>(null);
-
-  // ── Subscribe to topo:surface from TopographicView ──────────────
-  useEffect(() => {
-    const unsub = bus.on("topo:surface", (payload) => {
-      if (payload.points.length < 3) return;
-      // Auto-create a zone from the topo points bounding box
-      const eMin = Math.min(...payload.points.map((p) => p.easting));
-      const eMax = Math.max(...payload.points.map((p) => p.easting));
-      const nMin = Math.min(...payload.points.map((p) => p.northing));
-      const nMax = Math.max(...payload.points.map((p) => p.northing));
-      // Use convex hull points from the surface as the zone boundary
-      const boundary = payload.points
-        .filter((p) => p.easting === eMin || p.easting === eMax || p.northing === nMin || p.northing === nMax)
-        .map((p) => ({ easting: p.easting, northing: p.northing }));
-      if (boundary.length < 3) return;
-      const catInfo = getCategoryInfo("grassland" as LulcCategory, countryCode);
-      setZones((prev) => [...prev, {
-        id: "Z" + (prev.length + 1), name: `Topo Surface ${prev.length + 1}`,
-        category: "grassland" as LulcCategory, points: boundary, color: catInfo.color,
-        source: "imported", confidence: 0.8,
-      }]);
-      setNotice(`Imported ${payload.points.length} topo points as LULC zone boundary.`);
-    });
-    return unsub;
-  }, []);
 
   // ── Add zone manually ───────────────────────────────────────────
 
   const addZone = useCallback(() => {
-    if (!newZoneName) return;
-    try {
-      const pts = newZonePoints.trim().split("\n").filter((l) => l.trim()).map((line) => {
-        const [e, n] = line.split(",").map((s) => s.trim());
-        return { easting: parseFloat(e), northing: parseFloat(n) };
-      });
-      if (pts.length < 3) return;
-      const catInfo = getCategoryInfo(newZoneCategory, countryCode);
-      setZones((prev) => [...prev, {
-        id: "Z" + (prev.length + 1), name: newZoneName, category: newZoneCategory,
-        points: pts, color: catInfo.color, source: "manual", confidence: 1,
-      }]);
-      setNewZoneName(""); setNewZonePoints(""); setEditMode("view");
-    } catch {}
-  }, [newZoneName, newZoneCategory, newZonePoints, zones.length, countryCode]);
+    if (!newZoneName.trim()) return;
+    const pts = newZonePoints.trim().split("\n").filter((line) => line.trim()).map((line) => {
+      const [eText, nText] = line.split(",").map((value) => value.trim());
+      if (!eText || !nText) return null;
+      const e = Number(eText);
+      const n = Number(nText);
+      return Number.isFinite(e) && Number.isFinite(n) ? { easting: e, northing: n } : null;
+    });
+    if (pts.length < 3 || pts.some((point) => point === null)) {
+      setNotice("Enter at least three coordinate pairs, with two finite numbers on every line.");
+      return;
+    }
+    const points = pts as Array<{ easting: number; northing: number }>;
+    setZones((prev) => [...prev, {
+      id: `Z${prev.length + 1}`, name: newZoneName.trim(), category: newZoneCategory,
+      points, color: getCategoryInfo(newZoneCategory).color, source: "manual",
+    }]);
+    setNewZoneName(""); setNewZonePoints(""); setEditMode("view");
+  }, [newZoneName, newZoneCategory, newZonePoints]);
 
   const removeZone = useCallback((id: string) => {
     setZones((prev) => prev.filter((z) => z.id !== id));
@@ -303,121 +287,87 @@ export const LULCView: React.FC = () => {
       return;
     }
 
-    const newZones: LulcZone[] = parcels.map((p, i) => {
-      const { category, confidence } = autoClassifyEnabled
-        ? autoClassify(p, countryCode)
-        : { category: "residential" as LulcCategory, confidence: 0.5 };
-      const catInfo = getCategoryInfo(category, countryCode);
-      return {
-        id: `IMP${zones.length + i + 1}`,
-        name: p.name,
-        category,
-        points: p.points,
-        color: catInfo.color,
-        source: autoClassifyEnabled ? "auto-classified" : "imported",
-        confidence,
-        parcelId: p.id,
-      };
-    });
+    const newZones: LulcZone[] = parcels.map((parcel, index) => ({
+      id: `IMP${zones.length + index + 1}`,
+      name: parcel.name,
+      category: parcel.category ?? "unclassified",
+      points: parcel.points,
+      color: getCategoryInfo(parcel.category ?? "unclassified").color,
+      source: "imported",
+      parcelId: parcel.id,
+      attributes: parcel.attributes,
+    }));
 
     setZones((prev) => [...prev, ...newZones]);
     setParcelText("");
     setEditMode("view");
-    setNotice(`Imported ${newZones.length} parcels (${autoClassifyEnabled ? "auto-classified" : "uncategorized"}).`);
-  }, [parcelText, parcelFormat, autoClassifyEnabled, zones.length, countryCode]);
+    setNotice(`Imported ${newZones.length} polygons as unclassified raw coordinates. Confirm source CRS and units before survey use.`);
+  }, [parcelText, parcelFormat, zones.length]);
 
-  // ── Import imagery metadata ─────────────────────────────────────
-
-  const handleImageryImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    // Simulate imagery metadata extraction (in production, parse GeoTIFF headers)
-    const meta: ImageryMeta = {
-      filename: file.name,
-      width: 4096,
-      height: 4096,
-      bands: file.name.endsWith(".tif") || file.name.endsWith(".tiff") ? 4 : 3,
-      resolution: 0.3, // 30cm typical drone GSD
-      crs: cfgCrs,
-      bounds: { minE: 256800, maxE: 257600, minN: 9856800, maxN: 9857600 },
-    };
-    setImageryFile(meta);
-    setNotice(`Loaded imagery: ${file.name} (${meta.width}x${meta.height}, ${meta.resolution}m/px, ${meta.bands} bands)`);
-  }, [cfgCrs]);
+  const setZoneCategory = useCallback((id: string, category: LulcCategory) => {
+    const color = getCategoryInfo(category).color;
+    setZones((prev) => prev.map((zone) => zone.id === id ? { ...zone, category, color } : zone));
+  }, []);
 
   // ── Stats ───────────────────────────────────────────────────────
 
-  const totalArea = useMemo(() => zones.reduce((sum, z) => sum + shoelaceArea(z.points), 0), [zones]);
-
   const categoryBreakdown = useMemo(() => {
-    const map = new Map<LulcCategory, { area: number; count: number }>();
-    for (const z of zones) {
-      const existing = map.get(z.category) ?? { area: 0, count: 0 };
-      map.set(z.category, { area: existing.area + shoelaceArea(z.points), count: existing.count + 1 });
-    }
-    return Array.from(map.entries())
-      .map(([cat, data]) => ({
-        ...getCategoryInfo(cat, countryCode), area: data.area, count: data.count,
-        pct: totalArea > 0 ? (data.area / totalArea) * 100 : 0,
-      }))
-      .sort((a, b) => b.area - a.area);
-  }, [zones, totalArea, countryCode]);
+    const counts = new Map<LulcCategory, number>();
+    for (const zone of zones) counts.set(zone.category, (counts.get(zone.category) ?? 0) + 1);
+    return Array.from(counts.entries())
+      .map(([category, count]) => ({ ...getCategoryInfo(category), count, pct: zones.length ? (count / zones.length) * 100 : 0 }))
+      .sort((a, b) => b.count - a.count);
+  }, [zones]);
 
   // ── Export classification report ────────────────────────────────
 
   const exportReport = useCallback(() => {
     const report: string[] = [
-      "# LULC Classification Report",
-      `# Country: ${countryCode}`,
-      `# Date: ${new Date().toISOString().split("T")[0]}`,
-      `# Total Zones: ${zones.length}`,
-      `# Total Area: ${(totalArea / 10000).toFixed(4)} Ha`,
-      "",
-      "Zone_ID,Name,Category,Area_m2,Area_Ha,Percent,Source,Confidence",
+      "# METARDU LULC geometry export — DRAFT / UNVERIFIED",
+      `# Jurisdiction: ${countryCode || "not specified"}`,
+      "# Coordinate reference and units: unverified; values are exported unchanged",
+      "# Classes: generic thematic tags; not statutory or image-derived",
+      `# Export date: ${new Date().toISOString().split("T")[0]}`,
+      "Zone_ID,Name,Vertex,X_raw,Y_raw,Class,Source,Original_ID,Source_Attributes_JSON",
     ];
-    for (const z of zones) {
-      const area = shoelaceArea(z.points);
-      const pct = totalArea > 0 ? (area / totalArea) * 100 : 0;
-      report.push(`${z.id},${z.name},${z.category},${area.toFixed(1)},${(area / 10000).toFixed(4)},${pct.toFixed(1)}%,${z.source},${z.confidence.toFixed(2)}`);
-    }
-    report.push("");
-    report.push("# Category Summary");
-    for (const c of categoryBreakdown) {
-      report.push(`# ${c.label}: ${c.pct.toFixed(1)}% (${c.count} zones, ${(c.area / 10000).toFixed(4)} Ha)`);
+    for (const zone of zones) {
+      zone.points.forEach((point, index) => {
+        report.push([zone.id, zone.name.replace(/[\r\n]+/g, " "), index + 1, point.easting, point.northing, zone.category, zone.source, zone.parcelId ?? "", JSON.stringify(zone.attributes ?? {})].map(csvCell).join(","));
+      });
+      report.push("");
     }
 
     const blob = new Blob([report.join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `lulc_classification_${countryCode}_${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `lulc_geometry_draft_${countryCode || "unspecified"}_${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    setNotice("Classification report exported.");
-  }, [zones, countryCode, totalArea, categoryBreakdown]);
+    setNotice("Draft geometry export saved. Coordinates and classification remain unverified.");
+  }, [zones, countryCode]);
 
   // ── Push to survey state ────────────────────────────────────────
 
   const pushToSurvey = useCallback(() => {
     setSurveyOutput({
-      type: "lulc",
-      zones: zones.map((z) => ({
-        id: z.id, name: z.name, category: z.category,
-        areaSqM: shoelaceArea(z.points), source: z.source,
-      })),
-      totalAreaSqM: totalArea,
-      categoryBreakdown: categoryBreakdown.map((c) => ({
-        category: c.key, label: c.label, area: c.area, pct: c.pct,
+      type: "lulc_draft",
+      status: "draft",
+      classificationBasis: "manual thematic tags; not statutory or image-derived",
+      jurisdiction: countryCode || null,
+      coordinateReference: { status: "unverified", crs: null, units: null },
+      zones: zones.map((zone) => ({
+        id: zone.id, name: zone.name, category: zone.category, points: zone.points, source: zone.source,
+        originalId: zone.parcelId ?? null, sourceAttributes: zone.attributes ?? {},
       })),
     }, "lulc", "LULCView", countryCode);
-    setNotice("LULC classification pushed to project survey state.");
-  }, [zones, countryCode, totalArea, categoryBreakdown, setSurveyOutput]);
+    setNotice("Saved as an unverified LULC geometry draft. No CRS, area, or statutory result was inferred.");
+  }, [zones, countryCode, setSurveyOutput]);
 
   const sourceBreakdown = useMemo(() => {
     const manual = zones.filter((z) => z.source === "manual").length;
     const imported = zones.filter((z) => z.source === "imported").length;
-    const auto = zones.filter((z) => z.source === "auto-classified").length;
-    return { manual, imported, auto };
+    return { manual, imported };
   }, [zones]);
 
   // ── Canvas ──────────────────────────────────────────────────────
@@ -435,26 +385,25 @@ export const LULCView: React.FC = () => {
   return (
     <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "12px", height: "100%", overflow: "auto" }}>
       <h2 style={{ fontSize: "var(--text-xl)", color: "var(--accent-primary)", fontFamily: "var(--font-mono)" }}>
-        Land Use Land Cover (LULC) Classification
+        Land Use / Land Cover Workspace
       </h2>
       <p style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>
-        {countryCode === "KE"
-          ? "Kenya LULC categories per National Land Commission framework. Import imagery and parcel boundaries, auto-classify, and generate reports."
-          : countryCode === "AU"
-            ? "Australian land use categories (ICSM/SP1 interim — pending filed NLC equivalents). Import imagery and parcel boundaries, auto-classify, and generate reports."
-            : `${countryCode} LULC categories (interim — ${LULC_CATEGORY_WARNING}). Import imagery and parcel boundaries, auto-classify, and generate reports.`}
+        Organize polygon geometry with generic thematic tags. These tags are not statutory land-use classes, and this workspace does not classify imagery or establish survey area.
       </p>
-      {catsWarning && (
-        <div style={{ padding: "8px 12px", background: "rgba(251,146,60,0.1)", border: "1px solid #fb923c", color: "#fb923c", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)" }}>
-          {catsWarning} — interim Kenya categories shown. CRS: {cfgCrs}
-        </div>
-      )}
+      <div style={{ padding: "8px 12px", background: "rgba(251,146,60,0.1)", border: "1px solid #fb923c", color: "#fb923c", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)" }}>
+        Draft only: coordinates remain raw and unverified. CRS, units, image metadata, and sidecar area measurement are unavailable here.
+      </div>
 
       {/* Controls */}
       <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-        <select value={countryCode} onChange={(e) => setCountryCode(e.target.value)} style={{ minWidth: "120px" }}>
-          {COUNTRY_OPTIONS.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
-        </select>
+        <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "var(--text-xs)" }}>
+          Project jurisdiction
+          <select value={countryCode} disabled={Boolean(activeProject?.countryCode)} onChange={(e) => setSelectedCountryCode(e.target.value)} style={{ minWidth: "160px" }}>
+            <option value="">Not specified</option>
+            {countryCode && !COUNTRY_OPTIONS.some((option) => option.code === countryCode) && <option value={countryCode}>{countryCode} (project context)</option>}
+            {COUNTRY_OPTIONS.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
+          </select>
+        </label>
         <button className={editMode === "add_zone" ? "primary" : ""} onClick={() => setEditMode(editMode === "add_zone" ? "view" : "add_zone")}
           style={{ display: "flex", alignItems: "center", gap: "4px" }}>
           <Plus size={14} /> Add Zone
@@ -463,15 +412,14 @@ export const LULCView: React.FC = () => {
           style={{ display: "flex", alignItems: "center", gap: "4px" }}>
           <Upload size={14} /> Import Parcels
         </button>
-        <button onClick={() => imageryInputRef.current?.click()}
-          style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-          <Upload size={14} /> Import Imagery
+        <button disabled title="Raster metadata parsing and sidecar classification are not available yet"
+          style={{ display: "flex", alignItems: "center", gap: "4px", opacity: 0.55, cursor: "not-allowed" }}>
+          <Upload size={14} /> Imagery analysis unavailable
         </button>
-        <input ref={imageryInputRef} type="file" accept=".tif,.tiff,.jpg,.jpeg,.png" onChange={handleImageryImport} style={{ display: "none" }} />
-        <button onClick={exportReport} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-          <Download size={14} /> Export Report
+        <button onClick={exportReport} disabled={zones.length === 0} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <Download size={14} /> Export Draft Geometry
         </button>
-        <button onClick={pushToSurvey} style={{ display: "flex", alignItems: "center", gap: "4px", border: "1px solid var(--accent-primary)", color: "var(--accent-primary)" }}>
+        <button onClick={pushToSurvey} disabled={zones.length === 0} style={{ display: "flex", alignItems: "center", gap: "4px", border: "1px solid var(--accent-primary)", color: "var(--accent-primary)" }}>
           <FileText size={14} /> Save to Project
         </button>
       </div>
@@ -479,7 +427,7 @@ export const LULCView: React.FC = () => {
       {/* Notice */}
       {notice && (
         <div style={{ padding: "8px 12px", background: "rgba(34,197,94,0.1)", border: "1px solid #22c55e", color: "#22c55e", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)", display: "flex", alignItems: "center", gap: "6px" }}>
-          <Sparkles size={14} /> {notice}
+          {notice}
           <button onClick={() => setNotice(null)} style={{ marginLeft: "auto", background: "none", border: "none", color: "#22c55e", cursor: "pointer", fontSize: "var(--text-xs)" }}>dismiss</button>
         </div>
       )}
@@ -490,12 +438,12 @@ export const LULCView: React.FC = () => {
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             <input placeholder="Zone name" value={newZoneName} onChange={(e) => setNewZoneName(e.target.value)} style={{ width: "100%" }} />
             <select value={newZoneCategory} onChange={(e) => setNewZoneCategory(e.target.value as LulcCategory)} style={{ width: "100%" }}>
-              {cats.map((c) => <option key={c.key} value={c.key}>{c.label} — {c.description}</option>)}
+              {LULC_CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label} — {c.description}</option>)}
             </select>
-            <button className="primary" onClick={addZone} disabled={!newZoneName}>Add Zone</button>
+            <button className="primary" onClick={addZone} disabled={!newZoneName.trim() || !newZonePoints.trim()}>Add Zone</button>
           </div>
           <div>
-            <label style={{ display: "block", fontSize: "var(--text-xs)", marginBottom: "4px" }}>Boundary Points (E,N per line)</label>
+            <label style={{ display: "block", fontSize: "var(--text-xs)", marginBottom: "4px" }}>Raw coordinate pairs (two values per line; reference and units stay unverified)</label>
             <textarea value={newZonePoints} onChange={(e) => setNewZonePoints(e.target.value)}
               style={{ width: "100%", height: "100px", fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }} />
           </div>
@@ -507,56 +455,40 @@ export const LULCView: React.FC = () => {
         <div style={{ padding: "12px", background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", display: "grid", gridTemplateColumns: "2fr 1fr", gap: "12px" }}>
           <div>
             <label style={{ display: "block", fontSize: "var(--text-xs)", marginBottom: "4px" }}>
-              Parcel Boundaries ({parcelFormat === "geojson" ? "GeoJSON FeatureCollection" : "CSV: ID,E,N per line, blank line between parcels"})
+              Polygon coordinates ({parcelFormat === "geojson" ? "GeoJSON Polygon" : "CSV: ID,X,Y per line, blank line between polygons"})
             </label>
             <textarea value={parcelText} onChange={(e) => setParcelText(e.target.value)}
               placeholder={parcelFormat === "geojson"
-                ? '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[E1,N1],[E2,N2],...]]},"properties":{"id":"P1","name":"Parcel Name"}}]}'
-                : 'P1,257000,9857000\nP1,257200,9857000\nP1,257200,9857100\nP1,257000,9857100\n\nP2,257200,9857000\nP2,257400,9857000\n...'}
+                ? '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[x1,y1],[x2,y2],[x3,y3],[x1,y1]]]},"properties":{"id":"P1","name":"Polygon name"}}]}'
+                : 'P1, x1, y1\nP1, x2, y2\nP1, x3, y3\n\nP2, x1, y1\nP2, x2, y2\nP2, x3, y3'}
               style={{ width: "100%", height: "120px", fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }} />
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             <div>
               <label style={{ display: "block", fontSize: "var(--text-xs)", marginBottom: "4px" }}>Format</label>
-              <select value={parcelFormat} onChange={(e) => setParcelFormat(e.target.value as any)} style={{ width: "100%" }}>
+              <select value={parcelFormat} onChange={(e) => setParcelFormat(e.target.value as "geojson" | "csv")} style={{ width: "100%" }}>
                 <option value="geojson">GeoJSON</option>
                 <option value="csv">CSV</option>
               </select>
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "var(--text-xs)" }}>
-              <input type="checkbox" checked={autoClassifyEnabled} onChange={(e) => setAutoClassifyEnabled(e.target.checked)} />
-              Auto-classify by name/size
-            </label>
-            <button className="primary" onClick={importParcels} disabled={!parcelText.trim()} style={{ marginTop: "auto" }}>
-              <Sparkles size={14} /> Import & Classify
+              <button className="primary" onClick={importParcels} disabled={!parcelText.trim()} style={{ marginTop: "auto" }}>
+              Import as Unclassified
             </button>
           </div>
-        </div>
-      )}
-
-      {/* Imagery metadata display */}
-      {imageryFile && (
-        <div style={{ padding: "8px 12px", background: "var(--bg-tertiary)", border: "1px solid var(--border-default)", display: "flex", gap: "16px", fontSize: "var(--text-xs)", fontFamily: "var(--font-mono)" }}>
-          <span><strong>{imageryFile.filename}</strong></span>
-          <span>{imageryFile.width}x{imageryFile.height}px</span>
-          <span>{imageryFile.bands} bands</span>
-          <span>{imageryFile.resolution}m/px</span>
-          <span>{imageryFile.crs}</span>
-          <Eye size={12} style={{ color: "var(--accent-primary)" }} />
         </div>
       )}
 
       {/* Summary stats */}
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(categoryBreakdown.length + 1, 6)}, 1fr)`, gap: "8px" }}>
         <div style={{ padding: "8px 12px", background: "var(--bg-tertiary)", border: "1px solid var(--border-default)" }}>
-          <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", textTransform: "uppercase" }}>Total Area</div>
-          <div style={{ fontSize: "var(--text-lg)", fontFamily: "var(--font-mono)" }}>{(totalArea / 10000).toFixed(4)} Ha</div>
-          <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>{zones.length} zones</div>
+          <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", textTransform: "uppercase" }}>Geometry count</div>
+          <div style={{ fontSize: "var(--text-lg)", fontFamily: "var(--font-mono)" }}>{zones.length} zones</div>
+          <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>Area unavailable</div>
         </div>
         {categoryBreakdown.slice(0, 5).map((c) => (
           <div key={c.key} style={{ padding: "8px 12px", background: "var(--bg-tertiary)", border: "1px solid var(--border-default)" }}>
             <div style={{ fontSize: "var(--text-xs)", color: c.color, textTransform: "uppercase" }}>{c.label}</div>
-            <div style={{ fontSize: "var(--text-lg)", fontFamily: "var(--font-mono)" }}>{c.pct.toFixed(1)}%</div>
+            <div style={{ fontSize: "var(--text-lg)", fontFamily: "var(--font-mono)" }}>{c.count}</div>
             <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>{c.count} zone{c.count !== 1 ? "s" : ""}</div>
           </div>
         ))}
@@ -566,17 +498,19 @@ export const LULCView: React.FC = () => {
       <div style={{ display: "flex", gap: "16px", fontSize: "var(--text-xs)", color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>
         <span>{sourceBreakdown.manual} manual</span>
         <span>{sourceBreakdown.imported} imported</span>
-        <span>{sourceBreakdown.auto} auto-classified</span>
       </div>
-
-      <AutoExportBanner />
 
       {/* Zone table */}
       <div>
         <h3 style={{ fontSize: "var(--text-md)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
           <Layers size={14} style={{ verticalAlign: "middle", marginRight: "6px" }} />
-          LULC Zones ({zones.length})
+          Thematic zones ({zones.length})
         </h3>
+        {zones.length === 0 && (
+          <p style={{ padding: "12px", color: "var(--text-tertiary)", fontSize: "var(--text-sm)" }}>
+            No geometry loaded. Import a simple 2D polygon or add raw coordinate pairs to start a draft.
+          </p>
+        )}
         <div style={{ maxHeight: "250px", overflow: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)" }}>
             <thead>
@@ -584,41 +518,29 @@ export const LULCView: React.FC = () => {
                 <th style={{ padding: "6px 8px", textAlign: "left" }}>ID</th>
                 <th style={{ padding: "6px 8px", textAlign: "left" }}>Name</th>
                 <th style={{ padding: "6px 8px", textAlign: "left" }}>Category</th>
-                <th style={{ padding: "6px 8px", textAlign: "right" }}>Area (m²)</th>
-                <th style={{ padding: "6px 8px", textAlign: "right" }}>Area (Ha)</th>
-                <th style={{ padding: "6px 8px", textAlign: "right" }}>% Total</th>
                 <th style={{ padding: "6px 8px", textAlign: "center" }}>Source</th>
-                <th style={{ padding: "6px 8px", textAlign: "right" }}>Conf.</th>
                 <th style={{ padding: "6px 8px", textAlign: "center" }}></th>
               </tr>
             </thead>
             <tbody>
               {zones.map((z) => {
-                const area = shoelaceArea(z.points);
-                const pct = totalArea > 0 ? (area / totalArea) * 100 : 0;
-                const cat = getCategoryInfo(z.category, countryCode);
                 return (
                   <tr key={z.id} onClick={() => setSelectedZoneId(z.id)}
                     style={{ borderBottom: "1px solid var(--border-subtle)", cursor: "pointer", background: selectedZoneId === z.id ? "rgba(255,149,0,0.08)" : undefined }}>
                     <td style={{ padding: "6px 8px", fontWeight: "bold" }}>{z.id}</td>
                     <td style={{ padding: "6px 8px" }}>{z.name}</td>
                     <td style={{ padding: "6px 8px" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                        <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: cat.color, display: "inline-block" }} />
-                        {cat.label}
-                      </span>
+                      <select aria-label={`Thematic category for ${z.name}`} value={z.category} onChange={(e) => setZoneCategory(z.id, e.target.value as LulcCategory)}>
+                        {LULC_CATEGORIES.map((category) => <option key={category.key} value={category.key}>{category.label}</option>)}
+                      </select>
                     </td>
-                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{area.toFixed(1)}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: "bold" }}>{(area / 10000).toFixed(4)}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{pct.toFixed(1)}%</td>
                     <td style={{ padding: "6px 8px", textAlign: "center" }}>
                       <span style={{ padding: "2px 6px", borderRadius: "4px", fontSize: "10px",
-                        background: z.source === "auto-classified" ? "rgba(168,85,247,0.15)" : z.source === "imported" ? "rgba(59,130,246,0.15)" : "rgba(34,197,94,0.15)",
-                        color: z.source === "auto-classified" ? "#a855f7" : z.source === "imported" ? "#3b82f6" : "#22c55e" }}>
-                        {z.source === "auto-classified" ? "AUTO" : z.source === "imported" ? "IMPORT" : "MANUAL"}
+                        background: z.source === "imported" ? "rgba(59,130,246,0.15)" : "rgba(34,197,94,0.15)",
+                        color: z.source === "imported" ? "#3b82f6" : "#22c55e" }}>
+                        {z.source === "imported" ? "IMPORT" : "MANUAL"}
                       </span>
                     </td>
-                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{(z.confidence * 100).toFixed(0)}%</td>
                     <td style={{ padding: "6px 8px", textAlign: "center" }}>
                       <button onClick={(e) => { e.stopPropagation(); removeZone(z.id); }}
                         style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)" }}>
@@ -635,18 +557,18 @@ export const LULCView: React.FC = () => {
 
       {/* Full category breakdown bar */}
       <div>
-        <h4 style={{ fontSize: "var(--text-sm)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>Classification Breakdown</h4>
+        <h4 style={{ fontSize: "var(--text-sm)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>Zone count by thematic tag</h4>
         <div style={{ display: "flex", height: "24px", borderRadius: "4px", overflow: "hidden", border: "1px solid var(--border-default)" }}>
           {categoryBreakdown.map((c) => (
             <div key={c.key} style={{ width: `${c.pct}%`, background: c.color, minWidth: c.pct > 0 ? "2px" : "0", position: "relative" }}
-              title={`${c.label}: ${c.pct.toFixed(1)}%`} />
+              title={`${c.label}: ${c.count} zones (${c.pct.toFixed(1)}% of zones)`} />
           ))}
         </div>
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginTop: "6px", fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
           {categoryBreakdown.map((c) => (
             <span key={c.key} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
               <span style={{ width: "8px", height: "8px", borderRadius: "2px", background: c.color, display: "inline-block" }} />
-              {c.label} ({c.pct.toFixed(1)}%)
+              {c.label} ({c.count} zones)
             </span>
           ))}
         </div>
@@ -655,8 +577,8 @@ export const LULCView: React.FC = () => {
       {/* Canvas */}
       {canvasPolygons.length > 0 && (
         <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: "12px" }}>
-          <SurveyCanvas height={400} title="LULC Classification Map" polygons={canvasPolygons} points={canvasPoints}
-            showPointLabels={false} showNorthArrow={true} showScaleBar={true} />
+          <SurveyCanvas height={400} title="LULC geometry preview — raw coordinates" polygons={canvasPolygons} points={canvasPoints}
+            showPointLabels={false} showNorthArrow={false} showScaleBar={false} />
         </div>
       )}
     </div>

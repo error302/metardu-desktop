@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { KENYA, AUSTRALIA, UNITED_KINGDOM } from "@metardu/country-config";
+import { KENYA, AUSTRALIA, UNITED_KINGDOM, listWgs84UtmProjectionZones } from "@metardu/country-config";
 import {
   runTopographicWorkflow,
   runEngineeringWorkflow,
@@ -16,6 +16,7 @@ import {
   type TopoPoint,
   type TIN,
 } from "../index.js";
+import { gridTinTriangles } from "./topographic-fixtures.js";
 
 // ─── Topographic workflow ────────────────────────────────────────
 
@@ -37,6 +38,7 @@ describe("Topographic workflow", () => {
   it("builds a TIN with the correct number of triangles", () => {
     const result = runTopographicWorkflow({
       points,
+      tinTriangles: gridTinTriangles(5, 5),
       contourInterval: 5,
       country: KENYA,
       planTitle: "Test Topo",
@@ -51,6 +53,7 @@ describe("Topographic workflow", () => {
   it("computes min/max elevation correctly", () => {
     const result = runTopographicWorkflow({
       points,
+      tinTriangles: gridTinTriangles(5, 5),
       contourInterval: 5,
       country: KENYA,
       planTitle: "Test",
@@ -63,6 +66,7 @@ describe("Topographic workflow", () => {
   it("generates contours at 5m intervals within the elevation range", () => {
     const result = runTopographicWorkflow({
       points,
+      tinTriangles: gridTinTriangles(5, 5),
       contourInterval: 5,
       country: KENYA,
       planTitle: "Test",
@@ -79,6 +83,7 @@ describe("Topographic workflow", () => {
   it("selects spot heights every 10 points", () => {
     const result = runTopographicWorkflow({
       points,
+      tinTriangles: gridTinTriangles(5, 5),
       contourInterval: 5,
       spotHeightEvery: 10,
       country: KENYA,
@@ -92,6 +97,7 @@ describe("Topographic workflow", () => {
   it("computes a non-trivial mean slope (5m rise over 10m run ≈ 26.57°)", () => {
     const result = runTopographicWorkflow({
       points,
+      tinTriangles: gridTinTriangles(5, 5),
       contourInterval: 5,
       country: KENYA,
       planTitle: "Test",
@@ -104,6 +110,7 @@ describe("Topographic workflow", () => {
   it("rejects fewer than 3 points", () => {
     expect(() => runTopographicWorkflow({
       points: [points[0]!, points[1]!],
+      tinTriangles: [],
       contourInterval: 5,
       country: KENYA,
       planTitle: "Test",
@@ -114,6 +121,7 @@ describe("Topographic workflow", () => {
   it("rejects non-positive contour interval", () => {
     expect(() => runTopographicWorkflow({
       points,
+      tinTriangles: gridTinTriangles(5, 5),
       contourInterval: 0,
       country: KENYA,
       planTitle: "Test",
@@ -121,15 +129,98 @@ describe("Topographic workflow", () => {
     })).toThrow(/positive/i);
   });
 
-  it("maxResidualM is 0 (TIN passes through all points by construction)", () => {
+  it("does not report an interpolating TIN as a zero-residual adjustment", () => {
     const result = runTopographicWorkflow({
       points,
+      tinTriangles: gridTinTriangles(5, 5),
       contourInterval: 5,
       country: KENYA,
       planTitle: "Test",
       surveyor: { name: "Test", regNo: "LS/1234", dateOfSurvey: "2026-07-19" },
     });
-    expect(result.maxResidualM).toBe(0);
+    expect(result.maxResidualM).toBeNull();
+    expect(result.evidenceStatus).toBe("computed-draft-unadjusted");
+  });
+
+  it("supports a neutral jurisdiction without inventing a tolerance", () => {
+    const { topographicToleranceM, evidenceStatus } = runTopographicWorkflow({
+      points,
+      tinTriangles: gridTinTriangles(5, 5),
+      contourInterval: 5,
+      planTitle: "Neutral draft",
+    });
+    expect(topographicToleranceM).toBeNull();
+    expect(evidenceStatus).toBe("computed-draft-unadjusted");
+  });
+
+  it("rejects malformed coordinates and duplicate point identifiers", () => {
+    const malformed = points.map((point) => ({ ...point }));
+    malformed[0]!.easting = Number.NaN;
+    expect(() => runTopographicWorkflow({ points: malformed, tinTriangles: gridTinTriangles(5, 5), contourInterval: 5 })).toThrow(/NaN/i);
+
+    const duplicateIds = points.map((point) => ({ ...point }));
+    duplicateIds[1]!.id = duplicateIds[0]!.id;
+    expect(() => runTopographicWorkflow({ points: duplicateIds, tinTriangles: gridTinTriangles(5, 5), contourInterval: 5 })).toThrow(/duplicate point ID/i);
+  });
+
+  it("does not round close but distinct survey positions before sidecar triangulation", () => {
+    const closePoints: TopoPoint[] = [
+      { id: "A", easting: 0, northing: 0, elevation: 1 },
+      { id: "B", easting: 1, northing: 0, elevation: 2 },
+      { id: "C", easting: 0, northing: 0.000_01, elevation: 3 },
+    ];
+    const result = runTopographicWorkflow({
+      points: closePoints,
+      tinTriangles: [[0, 1, 2]],
+      contourInterval: 1,
+    });
+    expect(result.tin.vertices).toHaveLength(3);
+    expect(result.triangleCount).toBe(1);
+  });
+
+  it("accepts datasets above the former 100 point TypeScript limit", () => {
+    const largeGrid: TopoPoint[] = [];
+    for (let x = 0; x < 23; x++) {
+      for (let y = 0; y < 23; y++) {
+        largeGrid.push({ id: `L${x}_${y}`, easting: x, northing: y, elevation: x + y });
+      }
+    }
+    const result = runTopographicWorkflow({
+      points: largeGrid,
+      tinTriangles: gridTinTriangles(23, 23),
+      contourInterval: 1,
+    });
+    expect(result.tin.vertices).toHaveLength(529);
+    expect(result.triangleCount).toBe(968);
+  });
+
+  it("stops contour requests whose triangle-level work exceeds the desktop budget", () => {
+    const largeGrid: TopoPoint[] = [];
+    for (let x = 0; x < 50; x++) {
+      for (let y = 0; y < 50; y++) {
+        largeGrid.push({ id: `C${x}_${y}`, easting: x, northing: y, elevation: x * 5 + y * 5 });
+      }
+    }
+    expect(() => runTopographicWorkflow({
+      points: largeGrid,
+      tinTriangles: gridTinTriangles(50, 50),
+      contourInterval: 0.1,
+      minElevation: 0,
+      maxElevation: 499.9,
+    })).toThrow(/triangle-level combinations/i);
+  });
+
+  it("retains the project CRS and unverified vertical reference on the draft", () => {
+    const projectCrs = listWgs84UtmProjectionZones()[0]!;
+    const coordinateContext = {
+      horizontalCrsEpsg: projectCrs.srid,
+      horizontalCrsLabel: projectCrs.name,
+      horizontalUnits: "m" as const,
+      verticalReference: "Local benchmark datum",
+      referenceStatus: "user-declared-unverified" as const,
+    };
+    const result = runTopographicWorkflow({ points, tinTriangles: gridTinTriangles(5, 5), contourInterval: 5, coordinateContext });
+    expect(result.coordinateContext).toEqual(coordinateContext);
   });
 });
 

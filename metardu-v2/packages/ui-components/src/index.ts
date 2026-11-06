@@ -66,3 +66,14 @@ export type {
   ConnectParams,
   UseInstrumentConnectionReturn,
 } from "./hooks/useInstrumentConnection.js";
+
+export {
+  loadLicenseInfo,
+  signInWithWebAccount,
+  refreshOfflineLease,
+  signOutWebAccount,
+  useLicense,
+  type LicenseInfo,
+  type LicenseTier,
+  type LicenseStatus,
+} from "./services/license-service.js";

@@ -19,14 +19,15 @@
       "exportedAt": "<DETERMINISTIC_PLACEHOLDER>",
       "surveyType": "topographic",
       "topographic": {
-        "triangleCount": 64,
+        "triangleCount": 32,
         "minElevation": 100,
         "maxElevation": 120,
         "meanSlope": 26.565051177077937,
-        "contourCount": 64,
+        "contourCount": 32,
         "spotHeightCount": 3,
-        "topographicToleranceM": 0.1,
-        "maxResidualM": 0
+        "topographicToleranceM": null,
+        "maxResidualM": null,
+        "evidenceStatus": "computed-draft-unadjusted"
       }
     }
   },
@@ -568,7 +569,7 @@
           ],
           [
             1010,
-            2000
+            2010
           ]
         ]
       },
@@ -614,11 +615,11 @@
         "coordinates": [
           [
             1010,
-            2000
+            2010
           ],
           [
             1010,
-            2010
+            2020
           ]
         ]
       },
@@ -639,11 +640,11 @@
         "coordinates": [
           [
             1010,
-            2010
+            2020
           ],
           [
             1010,
-            2010
+            2020
           ]
         ]
       },
@@ -668,7 +669,7 @@
           ],
           [
             1010,
-            2020
+            2030
           ]
         ]
       },
@@ -689,11 +690,11 @@
         "coordinates": [
           [
             1010,
-            2000
+            2030
           ],
           [
             1010,
-            2010
+            2030
           ]
         ]
       },
@@ -714,11 +715,11 @@
         "coordinates": [
           [
             1010,
-            2010
+            2030
           ],
           [
             1010,
-            2020
+            2040
           ]
         ]
       },
@@ -739,131 +740,6 @@
         "coordinates": [
           [
             1010,
-            2020
-          ],
-          [
-            1010,
-            2020
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 105,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-8-105m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1010,
-            2030
-          ],
-          [
-            1010,
-            2030
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 105,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-9-105m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1010,
-            2010
-          ],
-          [
-            1010,
-            2020
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 105,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-10-105m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1010,
-            2020
-          ],
-          [
-            1010,
-            2030
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 105,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-11-105m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1010,
-            2030
-          ],
-          [
-            1010,
-            2030
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 105,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-12-105m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1010,
             2040
           ],
           [
@@ -883,132 +759,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-13-105m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1010,
-            2020
-          ],
-          [
-            1010,
-            2030
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 105,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-14-105m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1010,
-            2030
-          ],
-          [
-            1010,
-            2040
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 105,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-15-105m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1010,
-            2030
-          ],
-          [
-            1010,
-            2040
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 105,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-16-110m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1020,
-            2000
-          ],
-          [
-            1020,
-            2000
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 110,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-17-110m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1020,
-            2010
-          ],
-          [
-            1020,
-            2010
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 110,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-18-110m",
+      "id": "contour-8-110m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1033,7 +784,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-19-110m",
+      "id": "contour-9-110m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1058,57 +809,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-20-110m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1020,
-            2020
-          ],
-          [
-            1020,
-            2020
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 110,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-21-110m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1020,
-            2000
-          ],
-          [
-            1020,
-            2010
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 110,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-22-110m",
+      "id": "contour-10-110m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1133,7 +834,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-23-110m",
+      "id": "contour-11-110m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1158,57 +859,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-24-110m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1020,
-            2030
-          ],
-          [
-            1020,
-            2030
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 110,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-25-110m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1020,
-            2010
-          ],
-          [
-            1020,
-            2020
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 110,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-26-110m",
+      "id": "contour-12-110m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1233,7 +884,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-27-110m",
+      "id": "contour-13-110m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1258,57 +909,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-28-110m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1020,
-            2040
-          ],
-          [
-            1020,
-            2040
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 110,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-29-110m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1020,
-            2020
-          ],
-          [
-            1020,
-            2030
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 110,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-30-110m",
+      "id": "contour-14-110m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1333,13 +934,13 @@
     },
     {
       "type": "Feature",
-      "id": "contour-31-110m",
+      "id": "contour-15-110m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
           [
             1020,
-            2030
+            2040
           ],
           [
             1020,
@@ -1358,57 +959,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-32-115m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1030,
-            2000
-          ],
-          [
-            1030,
-            2000
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 115,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-33-115m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1030,
-            2010
-          ],
-          [
-            1030,
-            2010
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 115,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-34-115m",
+      "id": "contour-16-115m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1433,7 +984,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-35-115m",
+      "id": "contour-17-115m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1458,57 +1009,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-36-115m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1030,
-            2020
-          ],
-          [
-            1030,
-            2020
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 115,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-37-115m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1030,
-            2000
-          ],
-          [
-            1030,
-            2010
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 115,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-38-115m",
+      "id": "contour-18-115m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1533,7 +1034,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-39-115m",
+      "id": "contour-19-115m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1558,57 +1059,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-40-115m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1030,
-            2030
-          ],
-          [
-            1030,
-            2030
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 115,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-41-115m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1030,
-            2010
-          ],
-          [
-            1030,
-            2020
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 115,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-42-115m",
+      "id": "contour-20-115m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1633,7 +1084,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-43-115m",
+      "id": "contour-21-115m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1658,57 +1109,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-44-115m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1030,
-            2040
-          ],
-          [
-            1030,
-            2040
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 115,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-45-115m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1030,
-            2020
-          ],
-          [
-            1030,
-            2030
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 115,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-46-115m",
+      "id": "contour-22-115m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1733,13 +1134,13 @@
     },
     {
       "type": "Feature",
-      "id": "contour-47-115m",
+      "id": "contour-23-115m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
           [
             1030,
-            2030
+            2040
           ],
           [
             1030,
@@ -1758,57 +1159,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-48-120m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1040,
-            2000
-          ],
-          [
-            1040,
-            2000
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 120,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-49-120m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1040,
-            2010
-          ],
-          [
-            1040,
-            2010
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 120,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-50-120m",
+      "id": "contour-24-120m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1833,7 +1184,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-51-120m",
+      "id": "contour-25-120m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1858,57 +1209,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-52-120m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1040,
-            2020
-          ],
-          [
-            1040,
-            2020
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 120,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-53-120m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1040,
-            2000
-          ],
-          [
-            1040,
-            2010
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 120,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-54-120m",
+      "id": "contour-26-120m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1933,7 +1234,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-55-120m",
+      "id": "contour-27-120m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -1958,57 +1259,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-56-120m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1040,
-            2030
-          ],
-          [
-            1040,
-            2030
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 120,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-57-120m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1040,
-            2010
-          ],
-          [
-            1040,
-            2020
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 120,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-58-120m",
+      "id": "contour-28-120m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -2033,7 +1284,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-59-120m",
+      "id": "contour-29-120m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -2058,57 +1309,7 @@
     },
     {
       "type": "Feature",
-      "id": "contour-60-120m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1040,
-            2040
-          ],
-          [
-            1040,
-            2040
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 120,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-61-120m",
-      "geometry": {
-        "type": "LineString",
-        "coordinates": [
-          [
-            1040,
-            2020
-          ],
-          [
-            1040,
-            2030
-          ]
-        ]
-      },
-      "properties": {
-        "featureType": "contour",
-        "surveyType": "topographic",
-        "elevation": 120,
-        "closed": false,
-        "derived": true,
-        "uncertaintyNote": "derived-from-tin; uncertainty bounded by vertex uncertainties"
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "contour-62-120m",
+      "id": "contour-30-120m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
@@ -2133,13 +1334,13 @@
     },
     {
       "type": "Feature",
-      "id": "contour-63-120m",
+      "id": "contour-31-120m",
       "geometry": {
         "type": "LineString",
         "coordinates": [
           [
             1040,
-            2030
+            2040
           ],
           [
             1040,

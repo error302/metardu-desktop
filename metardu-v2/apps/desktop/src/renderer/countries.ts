@@ -9,12 +9,35 @@
 
 import {
   getCountryConfig,
+  getWgs84UtmProjectionZone,
+  listWgs84UtmProjectionZones,
   crsLabelForCountry,
   implementedCountries,
   type CountryCode,
   type CountrySurveyConfig,
   type TitleBlockLayout,
 } from "@metardu/country-config";
+
+export const GLOBAL_WGS84_UTM_OPTIONS = listWgs84UtmProjectionZones().map(({ srid, name }) => ({
+  srid,
+  name,
+}));
+
+/** Display a project's explicitly stored CRS without inferring a transform. */
+export function projectCrsLabel(crsSrid?: number, countryCode?: string): string {
+  if (crsSrid !== undefined) {
+    const globalUtm = getWgs84UtmProjectionZone(crsSrid);
+    if (globalUtm) return `${globalUtm.name} (EPSG:${crsSrid})`;
+
+    for (const option of COUNTRY_OPTIONS) {
+      const zone = option.config.geodeticFramework.projectionZones.find((item) => item.srid === crsSrid);
+      if (zone) return `${zone.name} (EPSG:${crsSrid})`;
+    }
+    return `EPSG:${crsSrid} (definition unavailable)`;
+  }
+
+  return countryCode ? `${crsLabelFor(countryCode) ?? "Jurisdiction profile"} (profile default)` : "Not assigned";
+}
 
 export interface CountryOption {
   code: CountryCode;
@@ -28,6 +51,18 @@ export const COUNTRY_OPTIONS: CountryOption[] = implementedCountries().map((code
   name: getCountryConfig(code).countryName,
   config: getCountryConfig(code),
 }));
+
+/** Whether the bundled catalog has a declared definition for this project CRS. */
+export function isProjectCrsKnown(crsSrid?: number, countryCode?: string): boolean {
+  if (crsSrid === undefined || !Number.isInteger(crsSrid)) return false;
+  if (getWgs84UtmProjectionZone(crsSrid)) return true;
+  const matchingCountry = countryCode ? COUNTRY_OPTIONS.find((option) => option.code === countryCode) : undefined;
+  const candidates = matchingCountry ? [matchingCountry] : COUNTRY_OPTIONS;
+  return candidates.some(({ config }) =>
+    config.geodeticFramework.primarySRID === crsSrid ||
+    config.geodeticFramework.projectionZones.some((zone) => zone.srid === crsSrid),
+  );
+}
 
 /** Convenience: code → config lookup for the views. */
 export function getCountryOption(code: string): CountryOption {

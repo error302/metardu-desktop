@@ -610,6 +610,8 @@ function buildFeaturesForSurvey(
             spotHeightCount: output.spotHeights.length,
             topographicToleranceM: output.topographicToleranceM,
             maxResidualM: output.maxResidualM,
+            evidenceStatus: output.evidenceStatus,
+            coordinateContext: output.coordinateContext,
           },
         },
       };

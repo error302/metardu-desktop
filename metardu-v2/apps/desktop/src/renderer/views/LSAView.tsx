@@ -21,6 +21,7 @@ import React, { useState, useCallback, useMemo } from "react";
 import { SurveyCanvas, type SurveyPoint, type SurveyLine, type SurveyEllipse } from "@metardu/ui-components";
 import { COUNTRY_OPTIONS } from "../countries.js";
 import { bus } from "../cross-import-bus.js";
+import { useSurveyState } from "../SurveyStateContext.js";
 import { AutoExportBanner } from "./AutoExportBanner.js";
 import {
   Network,
@@ -98,7 +99,7 @@ function computeEllipses(
   covarianceFlat: number[],
   pointIds: string[],
   freePointIndices: number[],
-  parameters: Array<{ id: string; dimension: number }>,
+  parameters: Array<{ id: string; dimension: number; fixed: boolean }>,
   confidence: number = 0.95,
 ): EllipseData[] {
   const ellipses: EllipseData[] = [];
@@ -176,32 +177,13 @@ function computeEllipses(
   return ellipses;
 }
 
-// ─── Sample network ──────────────────────────────────────────────────────────
-
-const SAMPLE_POINTS: NetPoint[] = [
-  { id: "CTR1", easting: 257000, northing: 9857000, height: 1650.0, fixed: true },
-  { id: "CTR2", easting: 257500, northing: 9857000, height: 1655.0, fixed: true },
-  { id: "CTR3", easting: 257500, northing: 9857500, height: 1660.0, fixed: true },
-  { id: "PT1", easting: 257150, northing: 9857200, height: 1652.0, fixed: false },
-  { id: "PT2", easting: 257350, northing: 9857350, height: 1658.0, fixed: false },
-];
-
-const SAMPLE_BASELINES: NetBaseline[] = [
-  { id: "B1", from: "CTR1", to: "PT1", dE: 150.012, dN: 200.045, dH: 2.010, sigmaE: 0.012, sigmaN: 0.012, sigmaH: 0.025, correlationEN: 0.6 },
-  { id: "B2", from: "CTR2", to: "PT1", dE: -349.980, dN: 200.030, dH: -3.020, sigmaE: 0.015, sigmaN: 0.015, sigmaH: 0.030, correlationEN: 0.5 },
-  { id: "B3", from: "CTR1", to: "PT2", dE: 350.010, dN: 349.980, dH: 7.990, sigmaE: 0.014, sigmaN: 0.014, sigmaH: 0.028, correlationEN: 0.55 },
-  { id: "B4", from: "CTR2", to: "PT2", dE: -149.990, dN: 350.020, dH: 2.980, sigmaE: 0.013, sigmaN: 0.013, sigmaH: 0.026, correlationEN: 0.5 },
-  { id: "B5", from: "CTR3", to: "PT2", dE: -150.005, dN: -150.010, dH: -2.015, sigmaE: 0.014, sigmaN: 0.014, sigmaH: 0.028, correlationEN: 0.55 },
-  { id: "B6", from: "PT1", to: "PT2", dE: 200.005, dN: 149.960, dH: 5.990, sigmaE: 0.018, sigmaN: 0.018, sigmaH: 0.035, correlationEN: 0.45 },
-  { id: "B7", from: "CTR3", to: "PT1", dE: -349.995, dN: -300.020, dH: -8.010, sigmaE: 0.016, sigmaN: 0.016, sigmaH: 0.032, correlationEN: 0.5 },
-];
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const LSAView: React.FC = () => {
-  const [countryCode, setCountryCode] = useState("KE");
-  const [points, setPoints] = useState<NetPoint[]>(SAMPLE_POINTS);
-  const [baselines, setBaselines] = useState<NetBaseline[]>(SAMPLE_BASELINES);
+  const { setSurveyOutput, activeProject } = useSurveyState();
+  const [countryCode, setCountryCode] = useState(activeProject?.countryCode ?? "");
+  const [points, setPoints] = useState<NetPoint[]>([]);
+  const [baselines, setBaselines] = useState<NetBaseline[]>([]);
   const [result, setResult] = useState<LsResult | null>(null);
   const [ellipses, setEllipses] = useState<EllipseData[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -210,23 +192,67 @@ export const LSAView: React.FC = () => {
   const [flagThreshold, setFlagThreshold] = useState(3.5);
   const [excludedBaselines, setExcludedBaselines] = useState<Set<string>>(new Set());
   const [removalHistory, setRemovalHistory] = useState<Array<{ baselineId: string; reason: string; timestamp: string }>>([]);
+  const [handoffNotice, setHandoffNotice] = useState<string | null>(null);
+
+  const pushToCad = useCallback(() => {
+    if (!result) return;
+    bus.emit("cad:import_entities", {
+      source: "LSA Network Adjustment",
+      beacons: result.adjusted.map((a) => ({ id: a.id, easting: a.easting, northing: a.northing, elevation: a.height ?? undefined })),
+      boundaries: [{ name: "ADJUSTED_NETWORK", vertices: result.adjusted.map((a) => ({ easting: a.easting, northing: a.northing })) }],
+    });
+    setHandoffNotice(`Dispatched ${result.adjusted.length} adjusted stations directly to 2D/3D CAD Workspace.`);
+  }, [result]);
+
+  const pushToDeedPlan = useCallback(() => {
+    if (!result) return;
+    bus.emit("deedplan:import_boundary", {
+      parcelNumber: activeProject?.name || "PARCEL LR 209/1842",
+      beacons: result.adjusted.map((a) => ({ id: a.id, easting: a.easting, northing: a.northing })),
+    });
+    setHandoffNotice(`Dispatched adjusted network boundary to Statutory Deed Plan Generator (Form 4).`);
+  }, [result, activeProject]);
+
+  const saveLsaToProject = useCallback(() => {
+    if (!result) return;
+    const output = {
+      beacons: result.adjusted.map((a) => ({
+        label: a.id,
+        easting: a.easting,
+        northing: a.northing,
+      })),
+      boundaries: [{ label: activeProject?.name || "ADJUSTED LSA NETWORK", vertices: result.adjusted.map((a) => ({ easting: a.easting, northing: a.northing })) }],
+      contours: [],
+      fieldPoints: [],
+    };
+    if (!activeProject?.countryCode && !countryCode) {
+      setHandoffNotice("Choose the project jurisdiction before saving this network. Its CRS and reference context must also be checked before statutory use.");
+      return;
+    }
+    setSurveyOutput(output, "Geodetic LSA Network", "LSAView", activeProject?.countryCode || countryCode);
+    setHandoffNotice("Saved adjusted geodetic network into Active Project! Available on Map, CAD, and Portal.");
+  }, [result, activeProject, countryCode, setSurveyOutput]);
 
   // New point form
   const [newPt, setNewPt] = useState<NetPoint>({
-    id: "", easting: 0, northing: 0, height: 0, fixed: false,
+    id: "", easting: Number.NaN, northing: Number.NaN, height: Number.NaN, fixed: false,
   });
 
   // New baseline form
   const [newBl, setNewBl] = useState<NetBaseline>({
-    id: "", from: "", to: "", dE: 0, dN: 0, dH: 0, sigmaE: 0.015, sigmaN: 0.015, sigmaH: 0.030, correlationEN: 0.5,
+    id: "", from: "", to: "", dE: Number.NaN, dN: Number.NaN, dH: Number.NaN, sigmaE: Number.NaN, sigmaN: Number.NaN, sigmaH: Number.NaN, correlationEN: 0,
   });
 
   // ── Add / Remove helpers ──────────────────────────────────────────────────
 
   const addPoint = useCallback(() => {
     if (!newPt.id || points.some((p) => p.id === newPt.id)) return;
+    if (![newPt.easting, newPt.northing, newPt.height].every(Number.isFinite)) {
+      setError("Enter finite easting, northing, and height values for this control point.");
+      return;
+    }
     setPoints((prev) => [...prev, { ...newPt }]);
-    setNewPt({ id: "", easting: 0, northing: 0, height: 0, fixed: false });
+    setNewPt({ id: "", easting: Number.NaN, northing: Number.NaN, height: Number.NaN, fixed: false });
   }, [newPt, points]);
 
   const removePoint = useCallback((id: string) => {
@@ -238,10 +264,13 @@ export const LSAView: React.FC = () => {
     if (!newBl.id || !newBl.from || !newBl.to) return;
     if (baselines.some((b) => b.id === newBl.id)) return;
     if (newBl.from === newBl.to) return;
+    if (![newBl.dE, newBl.dN, newBl.dH, newBl.sigmaE, newBl.sigmaN, newBl.sigmaH, newBl.correlationEN].every(Number.isFinite) ||
+      newBl.sigmaE <= 0 || newBl.sigmaN <= 0 || newBl.sigmaH <= 0 || Math.abs(newBl.correlationEN) > 1) {
+      setError("Enter finite baseline components, positive standard deviations, and an E/N correlation from −1 to 1.");
+      return;
+    }
     setBaselines((prev) => [...prev, { ...newBl }]);
-    setNewBl({
-      id: "", from: "", to: "", dE: 0, dN: 0, dH: 0, sigmaE: 0.015, sigmaN: 0.015, sigmaH: 0.030, correlationEN: 0.5,
-    });
+    setNewBl({ id: "", from: "", to: "", dE: Number.NaN, dN: Number.NaN, dH: Number.NaN, sigmaE: Number.NaN, sigmaN: Number.NaN, sigmaH: Number.NaN, correlationEN: 0 });
   }, [newBl, baselines]);
 
   const removeBaseline = useCallback((id: string) => {
@@ -310,37 +339,7 @@ export const LSAView: React.FC = () => {
   const [autoEstimating, setAutoEstimating] = useState(false);
   const [autoEstimateError, setAutoEstimateError] = useState<string | null>(null);
   // Satellite geometry for auto-estimation (JSON text input per receiver)
-  const [satGeometryText, setSatGeometryText] = useState(
-    JSON.stringify(
-      {
-        from: {
-          receiver_id: "FROM",
-          satellites: [
-            { satellite_id: "G01", elevation_deg: 75, azimuth_deg: 0, snr_dbhz: 42 },
-            { satellite_id: "G03", elevation_deg: 45, azimuth_deg: 45, snr_dbhz: 38 },
-            { satellite_id: "G06", elevation_deg: 30, azimuth_deg: 90, snr_dbhz: 35 },
-            { satellite_id: "G09", elevation_deg: 20, azimuth_deg: 135, snr_dbhz: 30 },
-            { satellite_id: "G12", elevation_deg: 35, azimuth_deg: 180, snr_dbhz: 36 },
-            { satellite_id: "G15", elevation_deg: 25, azimuth_deg: 225, snr_dbhz: 32 },
-          ],
-        },
-        to: {
-          receiver_id: "TO",
-          satellites: [
-            { satellite_id: "G01", elevation_deg: 72, azimuth_deg: 5, snr_dbhz: 41 },
-            { satellite_id: "G03", elevation_deg: 42, azimuth_deg: 50, snr_dbhz: 37 },
-            { satellite_id: "G06", elevation_deg: 28, azimuth_deg: 95, snr_dbhz: 34 },
-            { satellite_id: "G09", elevation_deg: 18, azimuth_deg: 140, snr_dbhz: 29 },
-            { satellite_id: "G12", elevation_deg: 33, azimuth_deg: 185, snr_dbhz: 35 },
-            { satellite_id: "G15", elevation_deg: 22, azimuth_deg: 230, snr_dbhz: 31 },
-          ],
-        },
-        is_rtk: true,
-      },
-      null,
-      2,
-    ),
-  );
+  const [satGeometryText, setSatGeometryText] = useState("");
 
   const autoEstimateCovariance = useCallback(async () => {
     setAutoEstimating(true);
@@ -389,9 +388,9 @@ export const LSAView: React.FC = () => {
     }
   }, [satGeometryText]);
 
-  const loadSample = useCallback(() => {
-    setPoints(SAMPLE_POINTS);
-    setBaselines(SAMPLE_BASELINES);
+  const clearInputs = useCallback(() => {
+    setPoints([]);
+    setBaselines([]);
     setResult(null);
     setEllipses([]);
     setError(null);
@@ -412,6 +411,18 @@ export const LSAView: React.FC = () => {
       if (points.length < 2) throw new Error("Need at least 2 points");
       if (activeBaselines.length < 1) throw new Error("Need at least 1 baseline (after exclusions)");
       if (!points.some((p) => p.fixed)) throw new Error("Need at least 1 fixed point");
+      if (points.some((p) => !p.id || ![p.easting, p.northing, p.height].every(Number.isFinite))) {
+        throw new Error("Every point needs an ID and finite coordinates in the declared project context.");
+      }
+      const pointIds = new Set(points.map((point) => point.id));
+      if (pointIds.size !== points.length) throw new Error("Point IDs must be unique.");
+      for (const baseline of activeBaselines) {
+        if (!pointIds.has(baseline.from) || !pointIds.has(baseline.to)) throw new Error(`Baseline ${baseline.id} refers to a point that is not in this network.`);
+        if (![baseline.dE, baseline.dN, baseline.dH, baseline.sigmaE, baseline.sigmaN, baseline.sigmaH, baseline.correlationEN].every(Number.isFinite) ||
+          baseline.sigmaE <= 0 || baseline.sigmaN <= 0 || baseline.sigmaH <= 0 || Math.abs(baseline.correlationEN) > 1) {
+          throw new Error(`Baseline ${baseline.id} needs finite vector components, positive standard deviations, and a correlation from −1 to 1.`);
+        }
+      }
 
       // Build sidecar parameters
       const freePoints = points.filter((p) => !p.fixed);
@@ -472,8 +483,8 @@ export const LSAView: React.FC = () => {
       // Publish adjusted coordinates for downstream views (DeedPlan, etc.)
       bus.emit("lsa:adjusted", {
         adjusted: lsResult.adjusted,
-        sigma0Squared: lsResult.sigma0Squared,
-        chiSquarePasses: lsResult.chiSquarePasses,
+        sigma0Squared: lsResult.sigma_0_sq,
+        chiSquarePasses: lsResult.passes_global_test,
       });
 
       // Compute error ellipses
@@ -562,12 +573,13 @@ export const LSAView: React.FC = () => {
         GNSS Network Adjustment
       </h2>
       <p style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>
-        Define a control network with GNSS baseline vectors, run least-squares adjustment, and visualise 95% error ellipses.
+        Define a control network with measured GNSS baseline vectors, run least-squares adjustment, and inspect error ellipses at the selected confidence level.
       </p>
 
       {/* Controls */}
       <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
         <select value={countryCode} onChange={(e) => setCountryCode(e.target.value)} style={{ minWidth: "120px" }}>
+          <option value="">Select jurisdiction</option>
           {COUNTRY_OPTIONS.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
         </select>
         <label style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
@@ -588,8 +600,8 @@ export const LSAView: React.FC = () => {
           style={{ display: "flex", alignItems: "center", gap: "4px" }}>
           <Play size={14} /> {computing ? "Running..." : "Run LS Adjustment"}
         </button>
-        <button onClick={loadSample} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-          <RotateCcw size={14} /> Load Sample
+        <button onClick={clearInputs} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <RotateCcw size={14} /> Clear Inputs
         </button>
         {flaggedBaselineIds.size > 0 && (
           <button onClick={removeFlaggedAndRerun}
@@ -676,9 +688,9 @@ export const LSAView: React.FC = () => {
         {/* Add point form */}
         <div style={{ display: "flex", gap: "6px", marginTop: "8px", alignItems: "center", flexWrap: "wrap" }}>
           <input placeholder="ID" value={newPt.id} onChange={(e) => setNewPt({ ...newPt, id: e.target.value })} style={{ width: "70px" }} />
-          <input type="number" placeholder="Easting" value={newPt.easting || ""} onChange={(e) => setNewPt({ ...newPt, easting: +e.target.value || 0 })} style={{ width: "100px" }} />
-          <input type="number" placeholder="Northing" value={newPt.northing || ""} onChange={(e) => setNewPt({ ...newPt, northing: +e.target.value || 0 })} style={{ width: "100px" }} />
-          <input type="number" placeholder="Height" value={newPt.height || ""} onChange={(e) => setNewPt({ ...newPt, height: +e.target.value || 0 })} style={{ width: "80px" }} />
+          <input type="number" placeholder="Easting" value={Number.isFinite(newPt.easting) ? newPt.easting : ""} onChange={(e) => setNewPt({ ...newPt, easting: e.target.value === "" ? Number.NaN : Number(e.target.value) })} style={{ width: "100px" }} />
+          <input type="number" placeholder="Northing" value={Number.isFinite(newPt.northing) ? newPt.northing : ""} onChange={(e) => setNewPt({ ...newPt, northing: e.target.value === "" ? Number.NaN : Number(e.target.value) })} style={{ width: "100px" }} />
+          <input type="number" placeholder="Height" value={Number.isFinite(newPt.height) ? newPt.height : ""} onChange={(e) => setNewPt({ ...newPt, height: e.target.value === "" ? Number.NaN : Number(e.target.value) })} style={{ width: "80px" }} />
           <label style={{ fontSize: "var(--text-xs)", display: "flex", alignItems: "center", gap: "4px" }}>
             <input type="checkbox" checked={newPt.fixed} onChange={(e) => setNewPt({ ...newPt, fixed: e.target.checked })} />
             Fixed
@@ -819,6 +831,31 @@ export const LSAView: React.FC = () => {
               </div>
             ))}
           </div>
+
+          {/* Workflow Handoff Ribbon */}
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px", background: "var(--bg-tertiary)", padding: "10px 12px", border: "1px solid var(--border-default)", borderRadius: "4px" }}>
+            <span style={{ fontSize: "11px", fontWeight: "bold", color: "var(--accent-primary)", display: "flex", alignItems: "center" }}>
+              Surveyor Workflow Handoff:
+            </span>
+            <button onClick={pushToCad}
+              style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "1px solid var(--border-default)", background: "var(--bg-secondary)", color: "var(--text-primary)", borderRadius: "3px", cursor: "pointer" }}>
+              Open in 2D/3D CAD
+            </button>
+            <button onClick={pushToDeedPlan}
+              style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "1px solid var(--border-default)", background: "var(--bg-secondary)", color: "var(--text-primary)", borderRadius: "3px", cursor: "pointer" }}>
+              Generate Deed Plan (Form 4)
+            </button>
+            <button onClick={saveLsaToProject}
+              style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "none", background: "var(--accent-primary)", color: "#1A1F36", fontWeight: "bold", borderRadius: "3px", cursor: "pointer" }}>
+              Save to Active Project
+            </button>
+          </div>
+
+          {handoffNotice && (
+            <div style={{ padding: "8px 12px", background: "rgba(34,197,94,0.1)", border: "1px solid #22c55e", color: "#22c55e", fontSize: "11px", fontFamily: "var(--font-mono)", marginBottom: "12px", borderRadius: "3px" }}>
+              {handoffNotice}
+            </div>
+          )}
 
           {/* Adjusted coordinates + error ellipses */}
           <h4 style={{ fontSize: "var(--text-sm)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>Adjusted Coordinates & Error Ellipses</h4>

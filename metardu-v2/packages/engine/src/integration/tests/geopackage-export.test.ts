@@ -28,6 +28,7 @@ import { geoPackageExporter } from "../geopackage-export.js";
 import { INTEGRATION_EXPORTERS } from "../index.js";
 import { runCadastralWorkflow } from "../../workflows/cadastral.js";
 import { runTopographicWorkflow, runEngineeringWorkflow } from "../../workflows/index.js";
+import { gridTinTriangles } from "../../workflows/tests/topographic-fixtures.js";
 import { KENYA } from "@metardu/country-config";
 import type { TopoPoint, TIN } from "../../workflows/topographic.js";
 import type { GeoPackageOptions } from "../geopackage-export.js";
@@ -77,6 +78,7 @@ function kenyaTopoOutput() {
   }
   return runTopographicWorkflow({
     points,
+    tinTriangles: gridTinTriangles(5, 5),
     contourInterval: 5,
     country: KENYA,
     planTitle: "Brief 03 Topo Test",

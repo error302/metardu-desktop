@@ -40,6 +40,123 @@ import { GCP_SCHEMAS, type GcpSchemaName } from "./namespaces/gcp.js";
 import { PIPELINE_SCHEMAS, type PipelineSchemaName } from "./namespaces/pipeline.js";
 import { PARCEL_SCHEMAS, type ParcelSchemaName } from "./namespaces/parcel.js";
 import { TRAVERSE_SCHEMAS, type TraverseSchemaName } from "./namespaces/traverse.js";
+import {
+  COGO_SIDECAR_PARAMS,
+  TOPOGRAPHIC_SIDECAR_PARAMS,
+  SIDECAR_PARAMS,
+  type CogoSidecarMethod,
+  type TopographicSidecarMethod,
+  type SidecarMethod,
+  validateCogoSidecarParams,
+  validateSidecarParams,
+} from "./namespaces/cogo.js";
+export {
+  MAX_COMMUNITY_PLUGIN_INPUT_BYTES,
+  COMMUNITY_EXTENSION_MANIFEST_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_SHA256_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_SUMMARY_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_INSTALL_RESULT_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_LIST_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_RUN_INPUT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_ARTIFACT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_RUN_INPUT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_ARTIFACT_LIST_INPUT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_ARTIFACT_LIST_RESULT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_RUN_RESULT_SCHEMA,
+  MAX_COMMUNITY_EXTENSION_ARTIFACT_PROJECT_BYTES,
+  MAX_COMMUNITY_EXTENSION_ARTIFACTS_PER_PROJECT,
+  COMMUNITY_PLUGIN_JSON_VALUE_SCHEMA,
+  isBoundedCommunityPluginJsonValue,
+  PLUGIN_RUN_INPUT_SCHEMA,
+} from "./namespaces/plugins.js";
+export type {
+  PluginRunInput,
+  CommunityExtensionManifest,
+  CommunityExtensionPackageSummary,
+  CommunityExtensionPackageInstallResult,
+  CommunityExtensionPackageList,
+  CommunityExtensionPackageRunInput,
+  CommunityExtensionProjectArtifact,
+  CommunityExtensionProjectRunInput,
+  CommunityExtensionProjectRunResult,
+} from "./namespaces/plugins.js";
+export {
+  PROJECT_COORDINATE_CONTEXT_SCHEMA,
+  PROJECT_HORIZONTAL_UNIT_SCHEMA,
+  PROJECT_VERTICAL_REFERENCE_SCHEMA,
+} from "./namespaces/project-coordinate-context.js";
+export type {
+  ProjectCoordinateContext,
+  ProjectHorizontalUnit,
+  ProjectVerticalReference,
+} from "./namespaces/project-coordinate-context.js";
+export { PROJECT_DELIVERABLE_REVIEW_SCHEMA } from "./namespaces/project-deliverable-review.js";
+export type { ProjectDeliverableReview } from "./namespaces/project-deliverable-review.js";
+export {
+  POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA,
+  POINT_CLOUD_CHUNK_MAX_POINTS,
+  POINT_CLOUD_CHUNK_POINT_SCHEMA,
+  POINT_CLOUD_CHUNK_STREAM_ID_SCHEMA,
+  POINT_CLOUD_CHUNK_STREAM_METADATA_SCHEMA,
+  POINT_CLOUD_CHUNK_STREAM_READ_SCHEMA,
+  POINT_CLOUD_CHUNK_STREAM_START_SCHEMA,
+  POINT_CLOUD_CHUNK_STREAM_STATUS_SCHEMA,
+  POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA,
+  POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA,
+  POINT_CLOUD_PREVIEW_MAX_POINTS,
+  POINT_CLOUD_PREVIEW_POINT_SCHEMA,
+  POINT_CLOUD_PREVIEW_RESULT_SCHEMA,
+  POINT_CLOUD_PREVIEW_START_INPUT_SCHEMA,
+  POINT_CLOUD_PREVIEW_START_RESULT_SCHEMA,
+  POINT_CLOUD_PREVIEW_STATUS_SCHEMA,
+  POINT_CLOUD_SOURCE_ID_SCHEMA,
+  POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA,
+  POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA,
+} from "./namespaces/point-cloud.js";
+export type {
+  PointCloudCoordinateContext,
+  PointCloudChunkPoint,
+  PointCloudChunkStreamMetadata,
+  PointCloudChunkStreamRead,
+  PointCloudChunkStreamStart,
+  PointCloudChunkStreamStatus,
+  PointCloudPreviewPoint,
+  PointCloudPreviewResult,
+  PointCloudPreviewStartResult,
+  PointCloudPreviewStatus,
+  PointCloudSetSourceCoordinateContextInput,
+  PointCloudSetSourceCoordinateContextResult,
+} from "./namespaces/point-cloud.js";
+export {
+  PROJECT_BUNDLE_CANCEL_INPUT_SCHEMA,
+  PROJECT_BUNDLE_CANCEL_RESULT_SCHEMA,
+  PROJECT_BUNDLE_EXPORT_INPUT_SCHEMA,
+  PROJECT_BUNDLE_EXPORT_RESULT_SCHEMA,
+  PROJECT_BUNDLE_IMPORT_INPUT_SCHEMA,
+  PROJECT_BUNDLE_IMPORT_RESULT_SCHEMA,
+  PROJECT_BUNDLE_MAX_MANIFEST_BYTES,
+  PROJECT_BUNDLE_OPERATION_ID_SCHEMA,
+  PROJECT_BUNDLE_PROGRESS_SCHEMA,
+  PROJECT_BUNDLE_SNAPSHOT_SCHEMA,
+} from "./namespaces/project-bundle.js";
+export type {
+  ProjectBundleCancelInput,
+  ProjectBundleCancelResult,
+  ProjectBundleExportInput,
+  ProjectBundleExportResult,
+  ProjectBundleImportInput,
+  ProjectBundleImportResult,
+  ProjectBundleProgress,
+  ProjectBundleSnapshot,
+} from "./namespaces/project-bundle.js";
+export {
+  PUBLIC_MAP_LINZ_CREDENTIAL_STATUS_SCHEMA,
+  PUBLIC_MAP_LINZ_FEATURE_COLLECTION_SCHEMA,
+  PUBLIC_MAP_LINZ_KEY_SCHEMA,
+  PUBLIC_MAP_LINZ_PARCEL_INPUT_SCHEMA,
+  PUBLIC_MAP_PDOK_TILE_INPUT_SCHEMA,
+} from "./namespaces/public-map-reference.js";
+export type { PublicMapReferenceFeatureCollection } from "./namespaces/public-map-reference.js";
 
 // ─── Aggregate registry ────────────────────────────────────────────
 
@@ -168,3 +285,12 @@ export type {
   ParcelSchemaName,
   TraverseSchemaName,
 };
+
+export {
+  COGO_SIDECAR_PARAMS,
+  TOPOGRAPHIC_SIDECAR_PARAMS,
+  SIDECAR_PARAMS,
+  validateCogoSidecarParams,
+  validateSidecarParams,
+};
+export type { CogoSidecarMethod, TopographicSidecarMethod, SidecarMethod };

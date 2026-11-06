@@ -32,6 +32,46 @@ export type ParsedFieldBook =
   | { type: "total_station"; observations: TsObservation[]; instrument?: string; serialNumber?: string }
   | { type: "level"; observations: LevelObservation[]; instrument?: string };
 
+function parseMeasurement(value: string | undefined): number {
+  if (value === undefined || value.trim() === "") return Number.NaN;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function splitDelimitedLine(line: string): string[] {
+  let delimiter = ",";
+  let quoted = false;
+  for (const character of line) {
+    if (character === '"') quoted = !quoted;
+    else if (!quoted && ";,|\t".includes(character)) {
+      delimiter = character;
+      break;
+    }
+  }
+
+  const fields: string[] = [];
+  let field = "";
+  quoted = false;
+  for (let index = 0; index < line.length; index++) {
+    const character = line[index]!;
+    if (character === '"') {
+      if (quoted && line[index + 1] === '"') {
+        field += '"';
+        index++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === delimiter && !quoted) {
+      fields.push(field.trim());
+      field = "";
+    } else {
+      field += character;
+    }
+  }
+  fields.push(field.trim());
+  return fields;
+}
+
 // ─── CSV Parser ─────────────────────────────────────────────────
 
 /**
@@ -44,48 +84,42 @@ export function parseCsv(raw: string): ParsedFieldBook {
   const lines = raw.trim().split("\n").filter(l => l.trim() && !l.trim().startsWith("#"));
   if (lines.length === 0) return { type: "total_station", observations: [] };
 
-  const firstLine = lines[0]!.split(/[;,|\t]+/).map(s => s.trim());
-  const numCols = firstLine.length;
+  const header = splitDelimitedLine(lines[0]!).map((value) => value.toLowerCase());
+  const levelHeader = header.some((value) => ["bs", "backsight", "back"].includes(value));
+  const headerTokens = new Set(["id", "point", "pointid", "station", "th", "targetheight", "hz", "horizontal", "v", "vertical", "sd", "distance", "bs", "backsight", "is", "fs", "rl", "remark"]);
+  const hasHeader = header.some((value) => headerTokens.has(value));
+  const dataLines = hasHeader ? lines.slice(1) : lines;
 
-  // Detect format by column count and header hints
-  const header = firstLine.map(s => s.toLowerCase());
-  const isLevel = header.some(h => ["bs", "backsight", "back"].includes(h)) ||
-                  (numCols >= 4 && numCols <= 6 && header.every(h => /^[a-z]/.test(h) || !isNaN(parseFloat(h))));
-
-  if (isLevel) {
-    return { type: "level", observations: parseLevelCsv(lines) };
+  if (levelHeader) {
+    return { type: "level", observations: parseLevelCsv(dataLines) };
   }
 
-  return { type: "total_station", observations: parseTsCsv(lines) };
+  return { type: "total_station", observations: parseTsCsv(dataLines) };
 }
 
 function parseTsCsv(lines: string[]): TsObservation[] {
   return lines.map(line => {
-    const p = line.split(/[;,|\t]+/).map(s => s.trim());
+    const p = splitDelimitedLine(line);
+    const faceRight = p[5] !== undefined && p[5] !== "";
     return {
-      pointId: p[0] || "PT",
-      targetHeight: parseFloat(p[1]) || 1.6,
-      faceLeft: { hz: parseFloat(p[2]) || 0, v: parseFloat(p[3]) || 90, sd: parseFloat(p[4]) || 0 },
-      faceRight: p[5] ? { hz: parseFloat(p[5]) || 0, v: parseFloat(p[6]) || 270, sd: parseFloat(p[7]) || 0 } : null,
+      pointId: p[0] || "",
+      targetHeight: parseMeasurement(p[1]),
+      faceLeft: { hz: parseMeasurement(p[2]), v: parseMeasurement(p[3]), sd: parseMeasurement(p[4]) },
+      faceRight: faceRight ? { hz: parseMeasurement(p[5]), v: parseMeasurement(p[6]), sd: parseMeasurement(p[7]) } : null,
       remark: p[8] || "",
     };
   });
 }
 
 function parseLevelCsv(lines: string[]): LevelObservation[] {
-  const result: LevelObservation[] = [];
-  let currentRL = 100.0;
-  for (const line of lines) {
-    const p = line.split(/[;,|\t]+/).map(s => s.trim());
-    const id = p[0] || "BM";
-    const bs = p[1] ? parseFloat(p[1]) : null;
-    const is_ = p[2] ? parseFloat(p[2]) : null;
-    const fs = p[3] ? parseFloat(p[3]) : null;
-    const rl = p[4] ? parseFloat(p[4]) : currentRL;
-    if (p[4]) currentRL = rl;
-    result.push({ id, bs, is: is_, fs, rl, remark: p[5] || "" });
-  }
-  return result;
+  return lines.map(line => {
+    const p = splitDelimitedLine(line);
+    const id = p[0] || "";
+    const bs = p[1]?.trim() ? parseMeasurement(p[1]) : null;
+    const is_ = p[2]?.trim() ? parseMeasurement(p[2]) : null;
+    const fs = p[3]?.trim() ? parseMeasurement(p[3]) : null;
+    return { id, bs, is: is_, fs, rl: parseMeasurement(p[4]), remark: p[5] || "" };
+  });
 }
 
 // ─── Leica GSI Parser ───────────────────────────────────────────
@@ -137,9 +171,9 @@ export function parseGsi(raw: string): ParsedFieldBook {
         {
           const hz = (rawValue * sign * 360) / 4000000;
           if (readingFace === "left") {
-            current.faceLeft = { hz, v: current.faceLeft?.v ?? 90, sd: current.faceLeft?.sd ?? 0 };
+            current.faceLeft = { hz, v: current.faceLeft?.v ?? Number.NaN, sd: current.faceLeft?.sd ?? Number.NaN };
           } else {
-            current.faceRight = { hz, v: current.faceRight?.v ?? 270, sd: current.faceRight?.sd ?? 0 };
+            current.faceRight = { hz, v: current.faceRight?.v ?? Number.NaN, sd: current.faceRight?.sd ?? Number.NaN };
           }
         }
         break;
@@ -147,9 +181,9 @@ export function parseGsi(raw: string): ParsedFieldBook {
         {
           const v = (rawValue * sign * 360) / 4000000;
           if (readingFace === "left") {
-            current.faceLeft = { hz: current.faceLeft?.hz ?? 0, v, sd: current.faceLeft?.sd ?? 0 };
+            current.faceLeft = { hz: current.faceLeft?.hz ?? Number.NaN, v, sd: current.faceLeft?.sd ?? Number.NaN };
           } else {
-            current.faceRight = { hz: current.faceRight?.hz ?? 0, v, sd: current.faceRight?.sd ?? 0 };
+            current.faceRight = { hz: current.faceRight?.hz ?? Number.NaN, v, sd: current.faceRight?.sd ?? Number.NaN };
           }
         }
         break;
@@ -157,9 +191,9 @@ export function parseGsi(raw: string): ParsedFieldBook {
         {
           const sd = rawValue / 1000;
           if (readingFace === "left") {
-            current.faceLeft = { hz: current.faceLeft?.hz ?? 0, v: current.faceLeft?.v ?? 90, sd };
+            current.faceLeft = { hz: current.faceLeft?.hz ?? Number.NaN, v: current.faceLeft?.v ?? Number.NaN, sd };
           } else {
-            current.faceRight = { hz: current.faceRight?.hz ?? 0, v: current.faceRight?.v ?? 270, sd };
+            current.faceRight = { hz: current.faceRight?.hz ?? Number.NaN, v: current.faceRight?.v ?? Number.NaN, sd };
           }
         }
         break;
@@ -185,8 +219,8 @@ export function parseGsi(raw: string): ParsedFieldBook {
 
 function finalizeTsObs(partial: Partial<TsObservation> & { faceLeft?: TsObservation["faceLeft"]; faceRight?: TsObservation["faceRight"] }): TsObservation {
   return {
-    pointId: partial.pointId || "PT",
-    targetHeight: partial.targetHeight ?? 1.6,
+    pointId: partial.pointId || "",
+    targetHeight: partial.targetHeight ?? Number.NaN,
     faceLeft: partial.faceLeft ?? null,
     faceRight: partial.faceRight ?? null,
     remark: partial.remark || "",
@@ -213,16 +247,17 @@ export function parseSdr(raw: string): ParsedFieldBook {
     if (p.length < 3) continue;
 
     const pointId = p[2]!;
-    const th = parseFloat(p[3]) || 1.6;
-    const hz = p[4] ? parseFloat(p[4]) : null;
-    const v = p[5] ? parseFloat(p[5]) : null;
-    const sd = p[6] ? parseFloat(p[6]) : null;
+    const th = parseMeasurement(p[3]);
+    const hz = p[4] ? parseMeasurement(p[4]) : null;
+    const v = p[5] ? parseMeasurement(p[5]) : null;
+    const sd = p[6] ? parseMeasurement(p[6]) : null;
 
-    if (hz !== null && v !== null && sd !== null) {
+    const hasObservation = p.slice(4, 7).some((value) => value !== undefined && value.trim() !== "");
+    if (hasObservation) {
       observations.push({
         pointId,
         targetHeight: th,
-        faceLeft: { hz, v, sd },
+        faceLeft: { hz: hz ?? Number.NaN, v: v ?? Number.NaN, sd: sd ?? Number.NaN },
         faceRight: null,
         remark: "",
       });
@@ -251,8 +286,8 @@ export function parseTrimbleDc(raw: string): ParsedFieldBook {
   const observations: TsObservation[] = dataLines.map(line => {
     const p = line.trim().split(/\s+/);
     return {
-      pointId: p[0] || "PT",
-      targetHeight: 1.6,
+      pointId: p[0] || "",
+      targetHeight: Number.NaN,
       faceLeft: null,
       faceRight: null,
       remark: p[1] || "",
@@ -293,7 +328,7 @@ export function parseTrimbleCsv(raw: string): ParsedFieldBook {
     return parseTrimbleCsvCoordinates(lines);
   }
   // Fallback: try observations if enough columns
-  const firstCols = lines[1]!.split(/[;,]+/).length;
+  const firstCols = splitDelimitedLine(lines[1]!).length;
   return firstCols >= 5 ? parseTrimbleCsvObservations(lines) : { type: "total_station", observations: [] };
 }
 
@@ -303,12 +338,12 @@ function parseTrimbleCsvObservations(lines: string[]): ParsedFieldBook {
   const obsMap = new Map<string, TsObservation>();
 
   for (const line of dataLines) {
-    const p = line.split(/[;,]+/).map(s => s.trim().replace(/"/g, ""));
-    const pointId = p[0] || "PT";
-    const th = parseFloat(p[2]) || 1.6;
-    const hz = parseFloat(p[3]) || 0;
-    const v = parseFloat(p[4]) || 90;
-    const sd = parseFloat(p[5]) || 0;
+    const p = splitDelimitedLine(line);
+    const pointId = p[0] || "";
+    const th = parseMeasurement(p[2]);
+    const hz = parseMeasurement(p[3]);
+    const v = parseMeasurement(p[4]);
+    const sd = parseMeasurement(p[5]);
     const face = (p[6] || "F1").toUpperCase();
 
     let obs = obsMap.get(pointId);
@@ -330,10 +365,10 @@ function parseTrimbleCsvObservations(lines: string[]): ParsedFieldBook {
 function parseTrimbleCsvCoordinates(lines: string[]): ParsedFieldBook {
   const dataLines = lines.slice(1);
   const observations: TsObservation[] = dataLines.map(line => {
-    const p = line.split(/[;,]+/).map(s => s.trim().replace(/"/g, ""));
+    const p = splitDelimitedLine(line);
     return {
-      pointId: p[0] || "PT",
-      targetHeight: 1.6,
+      pointId: p[0] || "",
+      targetHeight: Number.NaN,
       faceLeft: null,
       faceRight: null,
       remark: p[1] || "",
@@ -373,11 +408,16 @@ export function parseXml(raw: string): ParsedFieldBook {
   while ((match = obsRegex.exec(raw)) !== null) {
     const block = match[1]!;
 
-    const pointId = extractXmlField(block, ["PointId", "Point", "TargetId", "Name", "id"]) || "PT";
-    const th = parseFloat(extractXmlField(block, ["TargetHeight", "InstrumentHeight", "TH"]) || "1.6");
-    const hz = parseFloat(extractXmlField(block, ["Hz", "HorizontalAngle", "Horizontal"]) || "0");
-    const v = parseFloat(extractXmlField(block, ["V", "VerticalAngle", "Vertical", "Zenith"]) || "90");
-    const sd = parseFloat(extractXmlField(block, ["SD", "SlopeDistance", "Distance"]) || "0");
+    const pointId = extractXmlField(block, ["PointId", "Point", "TargetId", "Name", "id"]) || "";
+    const targetHeightText = extractXmlField(block, ["TargetHeight", "InstrumentHeight", "TH"]);
+    const hzText = extractXmlField(block, ["Hz", "HorizontalAngle", "Horizontal"]);
+    const vText = extractXmlField(block, ["V", "VerticalAngle", "Vertical", "Zenith"]);
+    const sdText = extractXmlField(block, ["SD", "SlopeDistance", "Distance"]);
+    if (hzText === null && vText === null && sdText === null) continue;
+    const th = parseMeasurement(targetHeightText ?? undefined);
+    const hz = parseMeasurement(hzText ?? undefined);
+    const v = parseMeasurement(vText ?? undefined);
+    const sd = parseMeasurement(sdText ?? undefined);
     const face = (extractXmlField(block, ["Face", "FaceLeft"]) || "F1").toUpperCase();
     const remark = extractXmlField(block, ["Remark", "Description", "Code", "Note"]) || "";
 

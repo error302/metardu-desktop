@@ -215,19 +215,23 @@ export class SidecarClient extends EventEmitter {
    * @returns The result from the sidecar
    * @throws Error if the sidecar is not running, the call times out, or the method returns an error
    */
-  async call<T = unknown>(method: string, params: unknown): Promise<T> {
+  async call<T = unknown>(method: string, params: unknown, callOptions?: { timeoutMs?: number }): Promise<T> {
     if (!this.isRunning()) {
       throw new Error(`Sidecar is not running (state: ${this.state})`);
     }
 
     const id = randomUUID();
     const request: RpcRequest = { id, method, params };
+    const timeoutMs = callOptions?.timeoutMs ?? this.options.callTimeoutMs;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) {
+      throw new Error("Sidecar call timeout must be an integer from 1 to 2147483647 milliseconds.");
+    }
 
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingCalls.delete(id);
-        reject(new Error(`Call to "${method}" timed out after ${this.options.callTimeoutMs}ms`));
-      }, this.options.callTimeoutMs);
+        reject(new Error(`Call to "${method}" timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
 
       this.pendingCalls.set(id, {
         resolve: resolve as (value: unknown) => void,

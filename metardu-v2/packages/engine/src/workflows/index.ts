@@ -29,7 +29,34 @@ export {
   type SpotHeight,
   type TopoWorkflowInput,
   type TopoWorkflowOutput,
+  type TopographicCoordinateContext,
+  MAX_TOPOGRAPHIC_TIN_POINTS,
 } from "./topographic.js";
+
+export {
+  assessDeliverableReadiness,
+  type CoordinateReferenceField,
+  type DeliverableRequirement,
+  type FeatureRequirement,
+  type OutputRequirement,
+  type DeliverableProfile,
+  type ReferenceValue,
+  type DeliverableReferenceContext,
+  type FeatureReview,
+  type QualityCheckReview,
+  type IncludedArtifact,
+  type DeliverableReadinessInput,
+  type DeliverableReadinessState,
+  type DeliverableIssueSeverity,
+  type DeliverableReadinessIssue,
+  type DeliverableReadinessAssessment,
+} from "./deliverable-readiness.js";
+
+export {
+  summarizeTopographicPointCodes,
+  type TopographicPointCodeCount,
+  type TopographicPointCodeEvidence,
+} from "./topographic-feature-evidence.js";
 
 export {
   runEngineeringWorkflow,

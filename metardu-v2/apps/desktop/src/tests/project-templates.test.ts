@@ -51,6 +51,15 @@ describe("Project templates", () => {
     }
   });
 
+  it("does not imply COGO performs registry checks or legal boundary determination", () => {
+    const cogoPurposes = PROJECT_TEMPLATES.flatMap((template) =>
+      template.views.filter((view) => view.viewId === "cogo").map((view) => view.purpose),
+    );
+    expect(cogoPurposes.length).toBeGreaterThan(0);
+    for (const purpose of cogoPurposes) expect(purpose).toMatch(/draft|planar/i);
+    expect(cogoPurposes.join(" ")).not.toMatch(/verify against registry|boundary determination|Abmarkung/i);
+  });
+
   it("fee defaults have non-negative values", () => {
     for (const tmpl of PROJECT_TEMPLATES) {
       expect(tmpl.feeDefaults.areaHa).toBeGreaterThanOrEqual(0);

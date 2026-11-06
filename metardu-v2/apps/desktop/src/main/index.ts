@@ -22,9 +22,10 @@
  *   - Offline-first: no network call is required to start or use the app.
  */
 
-import { app, BrowserWindow, ipcMain, dialog, BrowserWindowConstructorOptions } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, net, safeStorage, BrowserWindowConstructorOptions, type IpcMainInvokeEvent } from "electron";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { SidecarClient } from "@metardu/electron-integration";
 import { findExporter, listExportFormats, importFieldDataAsync, signPdf, verifyPdf, importPrivateKeyBase64, generateForm3Pdf, type RinexEpochResult, type SurveyorIdentity, type DigitalSignature, type VerificationResult, type Form3Input, generateForm4Pdf, generateLra27Pdf, generateBeaconCertificatePdf, generateAuPlanOfSurveyPdf, generateZaSgDiagramPdf, generateGbMeasuredSurveyReportPdf, generateDeGrenzfeststellungPdf, type Form4Input, type Lra27Input, type BeaconCertificateInput, type AuPlanOfSurveyInput, type ZaSgDiagramInput, type GbMeasuredSurveyReportInput, type DeGrenzfeststellungInput } from "@metardu/engine-flight-planning";
@@ -32,7 +33,54 @@ import { getCountryConfig, crsLabelForCountry, type CountryCode, type TitleBlock
 import { registerSyncIpcHandlers } from "./sync.js";
 import { registerProjectIpcHandlers } from "./projects.js";
 import { registerInstrumentIpcHandlers } from "./instrument.js";
+import {
+  createPointCloudInspection,
+  createPointCloudSource,
+  getActiveProjectId,
+  getDatabase,
+  getProject,
+  listProjectPointCloudSources,
+  setPointCloudSourceCoordinateContext,
+  type StoredPointCloudSource,
+} from "./database.js";
+import {
+  publishPointCloudObject,
+  removeStagedPointCloudSource,
+  stagePointCloudSource,
+  verifyPointCloudObject,
+} from "./point-cloud-store.js";
+import type {
+  PointCloudHeaderDetails,
+  PointCloudImportResult,
+  PointCloudProjectSourceList,
+  PointCloudRecordInspection,
+  PointCloudSourceSummary,
+  PointCloudSourceVerification,
+} from "../shared/point-cloud.js";
 import { makeProjectToWgs84 } from "./geodesy.js";
+import {
+  PLUGIN_RUN_INPUT_SCHEMA,
+  POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA,
+  POINT_CLOUD_PREVIEW_START_INPUT_SCHEMA,
+  POINT_CLOUD_PREVIEW_STATUS_SCHEMA,
+  POINT_CLOUD_SOURCE_ID_SCHEMA,
+  POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA,
+  POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA,
+  PUBLIC_MAP_LINZ_KEY_SCHEMA,
+  PUBLIC_MAP_LINZ_PARCEL_INPUT_SCHEMA,
+  PUBLIC_MAP_PDOK_TILE_INPUT_SCHEMA,
+  type PluginRunInput,
+} from "@metardu/ipc-schemas";
+import {
+  PointCloudInspectionController,
+  registerPointCloudInspectionIpcHandlers,
+} from "./point-cloud-inspection.js";
+import { PointCloudChunkStreamController } from "./point-cloud-chunks.js";
+import { PointCloudPreviewController } from "./point-cloud-preview.js";
+import { parsePointCloudCoordinateContext } from "./point-cloud-coordinate-context.js";
+import { CommunityExtensionPackageStore, MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES } from "./community-extension-packages.js";
+import { registerCommunityExtensionPackageRoutes } from "./community-extension-routes.js";
+import { PublicMapReferenceService } from "./public-map-reference.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -84,6 +132,157 @@ function resolveSidecarBinary(): string | null {
 // ─── Window state ─────────────────────────────────────────────────
 let mainWindow: BrowserWindow | null = null;
 let sidecar: SidecarClient | null = null;
+let publicMapReferenceService: PublicMapReferenceService | null = null;
+
+function getPublicMapReferenceService(): PublicMapReferenceService {
+  if (!publicMapReferenceService) {
+    publicMapReferenceService = new PublicMapReferenceService({
+      userDataPath: app.getPath("userData"),
+      platform: process.platform,
+      safeStorage,
+      fetch: (url, init) => net.fetch(url, init),
+    });
+  }
+  return publicMapReferenceService;
+}
+
+function assertTrustedDesktopMainFrame(event: IpcMainInvokeEvent): void {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents
+    || !event.senderFrame || event.senderFrame !== event.sender.mainFrame) {
+    throw new Error("Public map access is available only to the METARDU Desktop window.");
+  }
+
+  try {
+    if (app.isPackaged) {
+      const expectedPath = path.resolve(__dirname, "..", "..", "renderer-build", "index.html");
+      if (path.resolve(fileURLToPath(event.senderFrame.url)) !== expectedPath) {
+        throw new Error("Untrusted desktop frame.");
+      }
+    } else if (new URL(event.senderFrame.url).origin !== "http://localhost:5173") {
+      throw new Error("Untrusted desktop frame.");
+    }
+  } catch {
+    throw new Error("Public map access is available only to the METARDU Desktop window.");
+  }
+}
+
+function pointCloudSourceSummary(
+  source: StoredPointCloudSource,
+  storageStatus: PointCloudSourceSummary["storageStatus"] = "notChecked",
+  recordInspection?: PointCloudRecordInspection | null,
+): PointCloudSourceSummary {
+  const coordinateContextState = parsePointCloudCoordinateContext(source.coordinateContextJson);
+  const persistedInspection = source.latestRecordInspectionJson
+    ? JSON.parse(source.latestRecordInspectionJson) as Omit<PointCloudRecordInspection, "id" | "sourceSha256" | "inspectedAt">
+    : null;
+  const latestRecordInspection = recordInspection === undefined
+    ? persistedInspection && source.latestRecordInspectionId && source.latestRecordInspectionSha256
+      && source.latestRecordInspectionReaderVersion && source.latestRecordInspectionAt
+      ? {
+          ...persistedInspection,
+          id: source.latestRecordInspectionId,
+          sourceSha256: source.latestRecordInspectionSha256,
+          readerVersion: source.latestRecordInspectionReaderVersion,
+          inspectedAt: source.latestRecordInspectionAt,
+        }
+      : null
+    : recordInspection;
+  return {
+    id: source.id,
+    fileName: path.basename(source.fileName),
+    fileSizeBytes: source.fileSizeBytes,
+    contentSha256: source.contentSha256,
+    format: source.format,
+    importedAt: source.importedAt,
+    storageStatus,
+    ...coordinateContextState,
+    header: JSON.parse(source.headerJson) as PointCloudHeaderDetails,
+    recordInspection: latestRecordInspection,
+  };
+}
+
+const MAX_PLUGIN_MODULE_BYTES = 8 * 1024 * 1024;
+const MAX_CACHED_PLUGIN_MODULES = 5;
+const PLUGIN_MODULE_TTL_MS = 15 * 60 * 1000;
+interface SelectedPluginModule {
+  bytes: Buffer;
+  expiresAt: number;
+}
+const selectedPluginModules = new Map<string, SelectedPluginModule>();
+
+function getCommunityExtensionPackageStore(): CommunityExtensionPackageStore {
+  return new CommunityExtensionPackageStore(app.getPath("userData"));
+}
+
+async function readCommunityExtensionPackage(filePath: string): Promise<Buffer> {
+  const file = await fs.promises.open(filePath, "r");
+  try {
+    const stat = await file.stat();
+    if (!stat.isFile() || stat.size < 22 || stat.size > MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES) {
+      throw new Error(`Community package must be a regular ZIP file no larger than ${MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES} bytes.`);
+    }
+    const bytes = Buffer.allocUnsafe(MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES + 1);
+    let readTotal = 0;
+    while (readTotal < bytes.length) {
+      const { bytesRead } = await file.read(bytes, readTotal, bytes.length - readTotal, readTotal);
+      if (bytesRead === 0) break;
+      readTotal += bytesRead;
+    }
+    if (readTotal > MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES) {
+      throw new Error(`Community package exceeds the ${MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES}-byte limit.`);
+    }
+    return Buffer.from(bytes.subarray(0, readTotal));
+  } finally {
+    await file.close();
+  }
+}
+
+function requirePointCloudSourceId(value: unknown): string {
+  const parsed = POINT_CLOUD_SOURCE_ID_SCHEMA.safeParse(value);
+  if (!parsed.success) throw new Error("Point-cloud source identifier is invalid.");
+  return parsed.data.toLowerCase();
+}
+
+const pointCloudInspectionController = new PointCloudInspectionController({
+  store: {
+    getActiveProject: () => {
+      const database = getDatabase();
+      const activeProjectId = getActiveProjectId(database);
+      return activeProjectId ? getProject(database, activeProjectId) : null;
+    },
+    getProject: (projectId) => getProject(getDatabase(), projectId),
+    getSource: (projectId, sourceId) => listProjectPointCloudSources(getDatabase(), projectId)
+      .find((source) => source.id === sourceId),
+    createInspection: (input) => createPointCloudInspection(getDatabase(), input),
+  },
+  getSidecar: () => sidecar,
+  getUserDataPath: () => app.getPath("userData"),
+  summarizeSource: pointCloudSourceSummary,
+});
+
+const pointCloudChunkStreamController = new PointCloudChunkStreamController({
+  store: {
+    getActiveProject: () => {
+      const database = getDatabase();
+      const activeProjectId = getActiveProjectId(database);
+      return activeProjectId ? getProject(database, activeProjectId) : null;
+    },
+    getSource: (projectId, sourceId) => listProjectPointCloudSources(getDatabase(), projectId)
+      .find((source) => source.id === sourceId),
+  },
+  getSidecar: () => sidecar,
+  getUserDataPath: () => app.getPath("userData"),
+});
+
+const pointCloudPreviewController = new PointCloudPreviewController({
+  streams: pointCloudChunkStreamController,
+});
+
+function pruneSelectedPluginModules(now = Date.now()): void {
+  for (const [token, module] of selectedPluginModules) {
+    if (module.expiresAt <= now) selectedPluginModules.delete(token);
+  }
+}
 
 function createWindow(): BrowserWindow {
   const logoPath = path.resolve(__dirname, "..", "..", "src", "renderer", "assets", "metardu-logo.jpeg");
@@ -179,6 +378,37 @@ async function startSidecar(): Promise<SidecarClient | null> {
 // All inputs are zod-validated in the preload layer before they reach here.
 
 function registerIpcHandlers(): void {
+  ipcMain.handle("metardu:public-map:linz-credential-status", async (event) => {
+    assertTrustedDesktopMainFrame(event);
+    return getPublicMapReferenceService().getLinzCredentialStatus();
+  });
+
+  ipcMain.handle("metardu:public-map:save-linz-key", async (event, input: unknown) => {
+    assertTrustedDesktopMainFrame(event);
+    const parsed = PUBLIC_MAP_LINZ_KEY_SCHEMA.safeParse(input);
+    if (!parsed.success) throw new Error("Enter a valid LINZ Data Service API key.");
+    return getPublicMapReferenceService().saveLinzApiKey(parsed.data);
+  });
+
+  ipcMain.handle("metardu:public-map:clear-linz-key", async (event) => {
+    assertTrustedDesktopMainFrame(event);
+    return getPublicMapReferenceService().clearLinzApiKey();
+  });
+
+  ipcMain.handle("metardu:public-map:pdok-tile", async (event, input: unknown) => {
+    assertTrustedDesktopMainFrame(event);
+    const parsed = PUBLIC_MAP_PDOK_TILE_INPUT_SCHEMA.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid PDOK map tile request.");
+    return getPublicMapReferenceService().fetchPdokTile(parsed.data);
+  });
+
+  ipcMain.handle("metardu:public-map:linz-parcels", async (event, input: unknown) => {
+    assertTrustedDesktopMainFrame(event);
+    const parsed = PUBLIC_MAP_LINZ_PARCEL_INPUT_SCHEMA.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid LINZ map extent. Zoom in within New Zealand and retry.");
+    return getPublicMapReferenceService().fetchLinzPrimaryParcels(parsed.data);
+  });
+
   ipcMain.handle("metardu:sidecar:call", async (_event, method: string, params: unknown) => {
     if (!sidecar || !sidecar.isRunning()) {
       throw new Error("Sidecar is not running");
@@ -197,6 +427,107 @@ function registerIpcHandlers(): void {
     return app.getVersion();
   });
 
+  // Community tools can run only against JSON explicitly supplied in the
+  // UI. The selected Wasm bytes stay in a bounded, expiring main-process
+  // cache; no project path or file handle is forwarded to the extension.
+  ipcMain.handle("metardu:plugins:pickModule", async () => {
+    if (!mainWindow) throw new Error("Desktop window is not available");
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Select a community WebAssembly module",
+      buttonLabel: "Select module",
+      properties: ["openFile"],
+      filters: [{ name: "WebAssembly modules", extensions: ["wasm"] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+
+    const filename = path.basename(result.filePaths[0]!);
+    const file = await fs.promises.open(result.filePaths[0]!, "r");
+    let bytes: Buffer;
+    try {
+      const stat = await file.stat();
+      if (!stat.isFile() || stat.size < 8 || stat.size > MAX_PLUGIN_MODULE_BYTES) {
+        throw new Error(`WebAssembly module must be a regular file between 8 bytes and ${MAX_PLUGIN_MODULE_BYTES} bytes.`);
+      }
+      const boundedRead = Buffer.allocUnsafe(MAX_PLUGIN_MODULE_BYTES + 1);
+      let bytesReadTotal = 0;
+      while (bytesReadTotal < boundedRead.length) {
+        const { bytesRead } = await file.read(boundedRead, bytesReadTotal, boundedRead.length - bytesReadTotal, bytesReadTotal);
+        if (bytesRead === 0) break;
+        bytesReadTotal += bytesRead;
+      }
+      if (bytesReadTotal > MAX_PLUGIN_MODULE_BYTES) {
+        throw new Error(`WebAssembly module exceeds the ${MAX_PLUGIN_MODULE_BYTES}-byte limit.`);
+      }
+      bytes = Buffer.from(boundedRead.subarray(0, bytesReadTotal));
+    } finally {
+      await file.close();
+    }
+    if (bytes.length < 8 || bytes.length > MAX_PLUGIN_MODULE_BYTES || bytes.subarray(0, 4).toString("hex") !== "0061736d") {
+      throw new Error("Selected file is not a valid-sized WebAssembly module.");
+    }
+
+    pruneSelectedPluginModules();
+    let evictedPreviousSelection = false;
+    if (selectedPluginModules.size >= MAX_CACHED_PLUGIN_MODULES) {
+      const oldest = [...selectedPluginModules.entries()].sort((a, b) => a[1].expiresAt - b[1].expiresAt)[0];
+      if (oldest) {
+        selectedPluginModules.delete(oldest[0]);
+        evictedPreviousSelection = true;
+      }
+    }
+
+    const token = randomUUID();
+    const expiresAt = Date.now() + PLUGIN_MODULE_TTL_MS;
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    selectedPluginModules.set(token, { bytes, expiresAt });
+    const expiryTimer = setTimeout(() => {
+      const cached = selectedPluginModules.get(token);
+      if (cached && cached.expiresAt <= Date.now()) selectedPluginModules.delete(token);
+    }, PLUGIN_MODULE_TTL_MS);
+    expiryTimer.unref();
+    return { canceled: false, token, filename, sizeBytes: bytes.length, sha256, expiresAt, evictedPreviousSelection };
+  });
+
+  ipcMain.handle("metardu:plugins:run", async (_event, input: unknown) => {
+    const parsed = PLUGIN_RUN_INPUT_SCHEMA.safeParse(input);
+    if (!parsed.success) {
+      throw new Error(`Invalid community plugin request: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+    }
+    const request: PluginRunInput = parsed.data;
+    pruneSelectedPluginModules();
+    const selected = selectedPluginModules.get(request.moduleToken);
+    if (!selected) throw new Error("Selected module is no longer available. Select it again and retry.");
+    if (!sidecar || !sidecar.isRunning()) throw new Error("Rust sidecar is not running; plugin execution is unavailable.");
+
+    return sidecar.call("plugin.run", {
+      plugin_id: request.pluginId,
+      plugin_version: request.version,
+      module_base64: selected.bytes.toString("base64"),
+      input: request.input,
+    });
+  });
+
+  // Imported packages are local and offline. Import validates data but does
+  // not execute it. The bridge exposes only digests and metadata to the UI.
+  registerCommunityExtensionPackageRoutes({
+    register: (channel, handler) => ipcMain.handle(channel, async (event, ...args) => handler(event, ...args)),
+    installSelectedPackage: async () => {
+      if (!mainWindow) throw new Error("Desktop window is not available");
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: "Install a local community extension",
+        buttonLabel: "Install package",
+        properties: ["openFile"],
+        filters: [{ name: "METARDU extension packages", extensions: ["mdplug"] }],
+      });
+      if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+      const archiveBytes = await readCommunityExtensionPackage(result.filePaths[0]!);
+      const installed = await getCommunityExtensionPackageStore().install(archiveBytes);
+      return { canceled: false, ...installed };
+    },
+    store: getCommunityExtensionPackageStore(),
+    getSidecar: () => sidecar,
+  });
+
   // ─── Integration & Export handlers (ADR-0005) ───────────────────
   // The renderer calls these to export survey data to files. The main
   // process owns the filesystem + "Save As" dialog + sidecar bridge.
@@ -213,11 +544,16 @@ function registerIpcHandlers(): void {
     // the sidecar (Rust) — this callback is the bridge, never in-engine
     // math. Shared with the map overlay via makeProjectToWgs84.
     if (options.outputWgs84) {
-      const toWgs84 = makeProjectToWgs84(options.countryCode as string, sidecar);
+      const sourceSrid = typeof options.crsSrid === "number" ? options.crsSrid : undefined;
+      const toWgs84 = makeProjectToWgs84(
+        typeof options.countryCode === "string" ? options.countryCode : undefined,
+        sidecar,
+        sourceSrid,
+      );
       if (!toWgs84) {
         throw new Error(
-          `WGS84 export is unavailable for '${String(options.countryCode)}'. ` +
-          "A running Rust sidecar and a configured WGS84 source datum are required; export in the native CRS instead.",
+          `WGS84 export is unavailable for project CRS '${String(options.crsSrid ?? options.countryCode)}'. ` +
+          "An explicit supported WGS84 CRS and a running Rust sidecar are required; export in the native CRS instead.",
         );
       }
       options.projectToWgs84 = toWgs84;
@@ -289,6 +625,139 @@ function registerIpcHandlers(): void {
     return importFieldDataAsync(filename, content, { parseRinexEpochs });
   });
 
+  // The native picker and managed source store keep all absolute paths in main.
+  // Only a typed, project-linked source summary crosses the preload bridge.
+  ipcMain.handle("metardu:pointcloud:importToActiveProject", async (): Promise<PointCloudImportResult> => {
+    const database = getDatabase();
+    const activeProjectId = getActiveProjectId(database);
+    const project = activeProjectId ? getProject(database, activeProjectId) : null;
+    if (!project) throw new Error("Create or activate a survey project before importing a point cloud.");
+    if (!sidecar || !sidecar.isRunning()) {
+      throw new Error("Rust sidecar is not running; point-cloud header inspection is unavailable.");
+    }
+    if (!mainWindow) throw new Error("Desktop window is not available");
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: `Import a LAS or LAZ source into ${project.name}`,
+      buttonLabel: "Import source",
+      properties: ["openFile"],
+      filters: [{ name: "LAS / LAZ point clouds", extensions: ["las", "laz"] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true as const };
+
+    const staged = await stagePointCloudSource(result.filePaths[0]!, app.getPath("userData"));
+    try {
+      // Validate the managed staging copy, not the mutable original path. A malformed
+      // source never becomes a project record or a published source object.
+      const header = await sidecar.call<PointCloudHeaderDetails>("pointcloud.inspect_header", {
+        path: staged.stagingPath,
+      });
+      const published = await publishPointCloudObject(staged, app.getPath("userData"));
+      const stored = createPointCloudSource(database, {
+        projectId: project.id,
+        fileName: staged.fileName,
+        storageKey: published.storageKey,
+        contentSha256: staged.contentSha256,
+        fileSizeBytes: staged.fileSizeBytes,
+        sourceExtension: staged.sourceExtension,
+        format: header.format,
+        headerJson: JSON.stringify(header),
+      });
+      return {
+        canceled: false,
+        projectName: project.name,
+        source: pointCloudSourceSummary(stored, "verified"),
+      };
+    } finally {
+      await removeStagedPointCloudSource(staged.stagingPath).catch((error) => {
+        console.warn("[point-cloud] Could not remove staging file:", (error as Error).message);
+      });
+    }
+  });
+
+  ipcMain.handle("metardu:pointcloud:listActiveProjectSources", (): PointCloudProjectSourceList => {
+    const database = getDatabase();
+    const projectId = getActiveProjectId(database);
+    const project = projectId ? getProject(database, projectId) : null;
+    if (!project) return { activeProjectName: null, sources: [] };
+    return {
+      activeProjectName: project.name,
+      sources: listProjectPointCloudSources(database, project.id).map((source) => pointCloudSourceSummary(source)),
+    };
+  });
+
+  ipcMain.handle("metardu:pointcloud:setActiveProjectSourceCoordinateContext", (_event, input: unknown) => {
+    const parsed = POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid point-cloud coordinate declaration.");
+    const database = getDatabase();
+    const projectId = getActiveProjectId(database);
+    if (!projectId) throw new Error("Activate a survey project before editing source coordinate context.");
+    const source = setPointCloudSourceCoordinateContext(
+      database,
+      projectId,
+      parsed.data.sourceId,
+      parsed.data.coordinateContext,
+    );
+    const result = POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA.safeParse({
+      sourceId: source.id,
+      coordinateContext: parsed.data.coordinateContext,
+    });
+    if (!result.success) throw new Error("Point-cloud coordinate declaration could not be validated.");
+    return result.data;
+  });
+
+  ipcMain.handle("metardu:pointcloud:startActiveProjectPreview", async (_event, input: unknown) => {
+    const parsed = POINT_CLOUD_PREVIEW_START_INPUT_SCHEMA.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid point-cloud preview request.");
+    return pointCloudPreviewController.start(parsed.data.sourceId);
+  });
+
+  ipcMain.handle("metardu:pointcloud:activeProjectPreviewStatus", (_event, jobId: unknown) => {
+    const parsed = POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA.safeParse(jobId);
+    if (!parsed.success) throw new Error("Point-cloud preview job identifier is invalid.");
+    const status = pointCloudPreviewController.status(parsed.data);
+    const validated = POINT_CLOUD_PREVIEW_STATUS_SCHEMA.safeParse(status);
+    if (!validated.success) throw new Error("Point-cloud preview returned an invalid result.");
+    return validated.data;
+  });
+
+  ipcMain.handle("metardu:pointcloud:cancelActiveProjectPreview", async (_event, jobId: unknown) => {
+    const parsed = POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA.safeParse(jobId);
+    if (!parsed.success) throw new Error("Point-cloud preview job identifier is invalid.");
+    return pointCloudPreviewController.cancel(parsed.data);
+  });
+
+  ipcMain.handle("metardu:pointcloud:verifyActiveProjectSource", async (_event, sourceId: unknown): Promise<PointCloudSourceVerification> => {
+    const validatedSourceId = requirePointCloudSourceId(sourceId);
+    const database = getDatabase();
+    const projectId = getActiveProjectId(database);
+    const source = projectId
+      ? listProjectPointCloudSources(database, projectId).find((candidate) => candidate.id === validatedSourceId)
+      : undefined;
+    if (!source) throw new Error("Point-cloud source is not attached to the active project.");
+
+    const verification = await verifyPointCloudObject(
+      app.getPath("userData"),
+      source.storageKey,
+      source.contentSha256,
+      source.fileSizeBytes,
+    );
+    return {
+      sourceId: validatedSourceId,
+      status: verification.status,
+      recordedSha256: source.contentSha256,
+      actualSha256: verification.actualSha256,
+      recordedSizeBytes: source.fileSizeBytes,
+      actualSizeBytes: verification.actualSizeBytes,
+    };
+  });
+
+  registerPointCloudInspectionIpcHandlers(
+    (channel, handler) => {
+      ipcMain.handle(channel, (_event, ...args: unknown[]) => handler(_event, ...args));
+    },
+    pointCloudInspectionController,
+  );
+
   // ─── Digital signature + seal (Tier 1 #4) ─────────────────────────
   // Signing uses Web Crypto in the main process (never in the renderer
   // so the private key never enters the V8 sandbox of the renderer).
@@ -333,19 +802,31 @@ function registerIpcHandlers(): void {
   // display on the OpenLayers basemap. Same sidecar dispatch as export.
   ipcMain.handle("metardu:geo:projectToWgs84", async (
     _event,
-    countryCode: string,
+    countryCode: string | undefined,
     points: Array<{ easting: number; northing: number }>,
+    sourceSrid?: number,
   ): Promise<Array<{ lat: number; lon: number }>> => {
-    const toWgs84 = makeProjectToWgs84(countryCode, sidecar);
+    let resolvedSrid = sourceSrid;
+    if (resolvedSrid === undefined && countryCode?.trim()) {
+      try {
+        resolvedSrid = getCountryConfig(countryCode.trim().toUpperCase() as CountryCode)
+          .geodeticFramework.primarySRID;
+      } catch {
+        // Projects without a configured jurisdiction must provide an explicit CRS.
+      }
+    }
+    if (typeof resolvedSrid !== "number" || !Number.isSafeInteger(resolvedSrid)) {
+      throw new Error("Map reprojection requires an explicit project EPSG CRS or a configured jurisdiction profile.");
+    }
+
+    const toWgs84 = makeProjectToWgs84(countryCode, sidecar, resolvedSrid);
     if (!toWgs84) {
       throw new Error(
-        `WGS84 map reprojection is unavailable for '${countryCode}'. ` +
-        "A running Rust sidecar and a configured WGS84 source datum are required.",
+        `WGS84 map reprojection is unavailable for EPSG:${resolvedSrid}. ` +
+        "A running Rust sidecar and a verified supported WGS84 coordinate operation are required.",
       );
     }
-    const config = getCountryConfig(countryCode as CountryCode);
-    const sourceSrid = config.geodeticFramework.primarySRID;
-    const results = await Promise.all(points.map((p) => toWgs84(p.easting, p.northing, sourceSrid)));
+    const results = await Promise.all(points.map((p) => toWgs84(p.easting, p.northing, resolvedSrid)));
     return results.map((r) => ({ lat: r.lat, lon: r.lon }));
   });
 
@@ -733,7 +1214,14 @@ function registerIpcHandlers(): void {
 
   // ─── Project store (persisted local layer that sync reconciles) ──────────
   console.log("[main] Registering project IPC...");
-  registerProjectIpcHandlers(() => mainWindow);
+  registerProjectIpcHandlers(() => mainWindow, () => {
+    void pointCloudChunkStreamController.cancelActiveStreams();
+  }, async (sourcePath) => {
+    if (!sidecar || !sidecar.isRunning()) {
+      throw new Error("Rust sidecar is not running; point-cloud header inspection is unavailable.");
+    }
+    return sidecar.call<PointCloudHeaderDetails>("pointcloud.inspect_header", { path: sourcePath });
+  });
   console.log("[main] All IPC handlers registered successfully");
 }
 
@@ -764,6 +1252,7 @@ app.on("activate", () => {
 // Clean shutdown: stop the sidecar before the app exits, otherwise the
 // child process can be orphaned and hold file locks / sockets open.
 app.on("window-all-closed", async () => {
+  await pointCloudChunkStreamController.cancelActiveStreams();
   if (sidecar) {
     try {
       await sidecar.stop();
@@ -780,6 +1269,7 @@ app.on("before-quit", async (event) => {
   if (sidecar && sidecar.isRunning()) {
     event.preventDefault();
     try {
+      await pointCloudChunkStreamController.cancelActiveStreams();
       await sidecar.stop();
     } catch (err) {
       console.error("[main] sidecar stop failed on before-quit:", (err as Error).message);

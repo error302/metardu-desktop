@@ -2489,3 +2489,2286 @@ Test Files  1 passed (1)
 
 - Engine lint/build and desktop `npx tsc --noEmit` all exited 0. Desktop typecheck printed no diagnostics. `git diff --check` on the scoped files exited 0.
 - Product limits remain: no user-driven mission-area editor/export flow in the desktop UI; no installed, byte-verified EGM96 package; no physical DJI device validation. The commit is an engine contract correction, not a field-ready desktop feature claim.
+
+---
+Task ID: international-desktop-product-plan
+Agent: Codex (2026-10-12)
+Task: Write an evidence-backed international product direction and staged release plan for METARDU Desktop.
+
+Work Log:
+- Read the repository operating manual, hard invariants, Rust-sidecar/Electron ADR, geoid safety brief, and recent geodesy and flight-planning worklog entries. Confirmed the referenced controlling `upload/METARDU-DESKTOP-MASTER-PLAN.md` is absent.
+- Inspected the existing engine geoid API and flight-planning state. The engine accepts a checksum-shaped metadata string without authenticating source bytes, has no installed official grid, and uses bilinear interpolation.
+- Retrieved the official NGA EGM96 interpolation archive for inspection. Archive SHA-256: `f051316cdf794a87e8291bcb7aee82d0e49a99c35301b6b82462fbe5078b7216`; extracted `WW15MGH.GRD` SHA-256: `4bcc2c8b2314528530de6d1dccbd0ff26cd15912c892d48a6ad38b3ed79bdbae`. These are locally computed hashes for the downloaded snapshot, not NGA-published or signed checksums.
+- Compared bilinear values with six official `OUTINTPT.DAT` sample outputs from the NGA archive. Those sample values are rounded to 0.001 m; the absolute differences ranged from about 3 mm to 56 mm. NGA's supplied `INTPT.F` uses a 4-by-4 spline window. This is an interpolation compatibility finding, not a model accuracy claim.
+- Added `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md` and its scoped task brief. The plan separates global computation from jurisdiction packs, specifies surveyor-facing context/evidence states and release gates, and flags unresolved model licensing, missing master plan, and desktop field-readiness work.
+
+Verification evidence:
+
+~~~text
+$ Test-Path upload/METARDU-DESKTOP-MASTER-PLAN.md
+False
+~~~
+
+~~~text
+$ official NGA archive inspection
+archive bytes: 2870765
+archive SHA-256: f051316cdf794a87e8291bcb7aee82d0e49a99c35301b6b82462fbe5078b7216
+WW15MGH.GRD bytes: 9756647
+WW15MGH.GRD SHA-256: 4bcc2c8b2314528530de6d1dccbd0ff26cd15912c892d48a6ad38b3ed79bdbae
+grid values: 1038961 (721 x 1441)
+absolute differences vs millimetre-rounded official samples: 0.003280 m, 0.019132 m, 0.041528 m, 0.055661 m, 0.029724 m, 0.007044 m
+~~~
+
+Stage Summary:
+- The plan is product direction, not a replacement for the absent owner-controlled master plan and not evidence that METARDU is already survey-grade or globally field-ready.
+- The next concrete engineering brief should implement a licence-aware, byte-verifying geoid package and sidecar interpolation that matches a declared reference method, after redistribution terms and authoritative model checkpoints are resolved.
+- `git diff --cached --check` exited 0 with no whitespace diagnostics on the scoped plan, brief, and worklog. Final review showed a pre-existing staged deletion at `metardu-v2/frontend/main.tsx`; it is excluded from this task commit along with the other unrelated workspace changes.
+
+---
+Task ID: desktop-license-honesty
+Agent: Codex (2026-10-12)
+Task: Remove fabricated desktop license and account authorization claims.
+
+Work Log:
+- Replaced the local default Professional subscription, random machine fingerprint, signature-shaped strings, and simulated 30-day lease with an explicit unconfigured state.
+- `loadLicenseInfo()` ignores renderer-local legacy lease data. Sign-in and lease renewal now reject with clear “not configured” errors; sign-out can only return an unconfigured state.
+- Replaced the credential form and fabricated entitlement matrix with an honest status panel. The shell now labels licensing as unconfigured and says this display does not gate survey tools.
+- Added focused tests for rejecting legacy localStorage entitlements, refusing sign-in/renewal, and returning an unconfigured state on sign-out.
+
+Verification evidence:
+
+~~~text
+$ npm run test --workspace @metardu/desktop
+Test Files  14 passed | 1 skipped (15)
+     Tests  215 passed | 7 skipped (222)
+~~~
+
+~~~text
+$ npx tsc --noEmit -p apps/desktop/tsconfig.json
+(exit 0; no output)
+$ npx tsc --noEmit (packages/engine)
+(exit 0; no output)
+~~~
+
+~~~text
+$ npm test (packages/engine)
+Test Files  45 passed (45)
+     Tests  862 passed (862)
+~~~
+
+~~~text
+$ npx tsc --noEmit -p tsconfig.renderer-check.json --pretty false
+exit_code=2 error_count=49
+first=apps/desktop/src/renderer/views/DwgCadView.tsx(77,26): error TS2339: Property 'surveyState' does not exist on type 'SurveyStateContextValue'.
+last=packages/ui-components/src/panels/AppShell.tsx(707,59): error TS2322: Type 'ViewId' is not assignable to type 'CommandPaletteViewId'.
+~~~
+
+~~~text
+$ cargo build --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+$ cargo test --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+~~~
+
+~~~text
+$ git diff --check (scoped files)
+(exit 0; no whitespace diagnostics)
+~~~
+
+Stage Summary:
+- The license panel no longer invents an account, entitlement, token, device binding, seat allocation, or offline lease. This does not select commercial licensing policy or connect a real issuer.
+- Desktop tests and the desktop main/preload type check pass. The renderer-wide type check still has 49 errors in the existing pending UI changes; the sidecar build/test cannot run because this Windows environment lacks `gdal_i.lib`.
+- The current GitHub CLI credential for `error302` is invalid. The user approved an exact 11-commit push to `main`, but GitHub authentication prevented it; no remote ref was changed.
+- Next gates: resolve the renderer type errors, provide the GDAL import library for Windows verification, and choose the desktop licensing policy before implementing a real issuer or removing account surfaces.
+
+---
+Task ID: desktop-renderer-contract-integrity
+Agent: Codex (2026-10-12)
+Task: Restore renderer data contracts, remove guessed map/demo defaults, and record the shared Web subscription integration contract.
+
+Work Log:
+- Reconciled renderer views and shared UI components with the current project, engine, and typed preload contracts. Instrument and level-book imports preserve blank or invalid readings instead of turning them into plausible measurements; local calculations no longer claim sidecar verification or silently hand off unsupported results.
+- Removed the MapView sample parcel that wrote fabricated beacons and uncertainty into survey state. New or unsupported jurisdictions open at a neutral global map view; only a configured country center uses a country-level zoom.
+- Replaced the fake Professional license state with an unconfigured, fail-closed account state. The placeholder accepts no email, password, server URL, or tier input. The UI now states the owner's chosen product rule: a qualifying paid METARDU Web subscription includes Desktop access.
+- Inspected the local Web source: `/api/subscription` uses the browser session and returns `free`/`active` on unauthenticated and server-error paths. Documented why Desktop must not consume that response as an entitlement and added a scoped follow-up brief for a shared, server-authoritative account flow. No Web service or payment code was changed.
+- Added map-center regression coverage and appended this entry without rewriting earlier worklog evidence.
+
+Changed paths:
+- `metardu-v2/apps/desktop/src/renderer/SurveyStateContext.tsx`
+- `metardu-v2/apps/desktop/src/renderer/cross-import-bus.ts`
+- `metardu-v2/apps/desktop/src/renderer/instrument-import.ts`
+- `metardu-v2/apps/desktop/src/renderer/views/COGOView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/DwgCadView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/ExportPanel.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/FieldBookView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/FlightPlanningView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/GnssPostProcessingView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/ImportPanel.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/InstrumentMonitorView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/LSAView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/LandPortalSubmissionView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/LicensingView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/MapView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/OfficeManagementView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/PointCloudView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/SigningPanel.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/SubdivisionView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/SyncPanel.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/TopographicView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/TraverseView.tsx`
+- `metardu-v2/apps/desktop/src/tests/instrument-import.test.ts`
+- `metardu-v2/apps/desktop/src/tests/license-service.test.ts`
+- `metardu-v2/apps/desktop/src/tests/map-default-center.test.ts`
+- `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`
+- `metardu-v2/docs/agent-briefs/desktop-license-honesty.md`
+- `metardu-v2/docs/agent-briefs/desktop-renderer-contract-integrity.md`
+- `metardu-v2/docs/agent-briefs/desktop-shared-subscription.md`
+- `metardu-v2/packages/ui-components/src/canvas/useSurveyViewport.ts`
+- `metardu-v2/packages/ui-components/src/hooks/useInstrumentConnection.ts`
+- `metardu-v2/packages/ui-components/src/index.ts`
+- `metardu-v2/packages/ui-components/src/panels/AppShell.tsx`
+- `metardu-v2/packages/ui-components/src/panels/CommandPalette.tsx`
+- `metardu-v2/packages/ui-components/src/services/license-service.ts`
+- `metardu-v2/packages/ui-components/src/styles/theme-toggles.ts`
+- `metardu-v2/tsconfig.renderer-check.json`
+- `worklog.md`
+
+Verification evidence:
+
+~~~text
+$ npx --no-install tsc --noEmit -p tsconfig.renderer-check.json --pretty false
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npx --no-install tsc --noEmit -p apps/desktop/tsconfig.json --pretty false
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npx --no-install tsc --noEmit (packages/engine)
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npm run test --workspace @metardu/desktop
+Test Files  15 passed | 1 skipped (16)
+     Tests  221 passed | 7 skipped (228)
+~~~
+
+~~~text
+$ npm test (packages/engine)
+Test Files  45 passed (45)
+     Tests  862 passed (862)
+~~~
+
+~~~text
+$ cargo build --release (packages/metardu-sidecar)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+~~~
+
+~~~text
+$ cargo test --release (packages/metardu-sidecar)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+~~~
+
+~~~text
+$ git diff --check
+exit 0; no whitespace diagnostics (Git emitted line-ending warnings for LF-to-CRLF conversion)
+~~~
+
+Stage Summary:
+- Renderer, Desktop, and engine TypeScript checks pass; Desktop tests pass (221 passed, 7 skipped); engine tests pass (862 passed). The sidecar build and tests remain unverified because this Windows environment lacks `gdal_i.lib`.
+- The shared subscription product decision is recorded, but real account verification is not implemented. The Web endpoint needs a desktop-compatible authenticated contract that fails closed before Desktop access can be enabled. Offline lease and revocation behavior still require a server policy.
+- No preload or IPC boundary changed, so Electron smoke testing was not applicable to this pass. No new jurisdiction, statutory renderer, or survey-grade release claim was added.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx`, generated test outputs, temporary files, and untracked geodesy fallback prototypes were excluded from this work.
+
+Post-stage verification:
+
+~~~text
+$ git diff --cached --check
+exit 0; no whitespace diagnostics
+~~~
+
+---
+Task ID: desktop-capability-claims-honesty
+Date: 2026-10-12
+Task: Remove unsupported claims from deliverables and registry workspace
+
+Changed files:
+- metardu-v2/packages/ui-components/src/panels/AppShell.tsx
+- metardu-v2/apps/desktop/src/renderer/views/DeedPlanView.tsx
+- metardu-v2/apps/desktop/src/renderer/views/MapView.tsx
+- metardu-v2/apps/desktop/src/renderer/views/RegistryArchiveView.tsx
+- metardu-v2/apps/desktop/src/tests/capability-claims-honesty.test.ts
+- metardu-v2/docs/agent-briefs/desktop-capability-claims-honesty.md
+- worklog.md
+
+Verification evidence:
+
+~~~text
+$ npx --no-install vitest run src/tests/capability-claims-honesty.test.ts
+Test Files 1 passed (1)
+     Tests 2 passed (2)
+~~~
+
+~~~text
+$ npm run test --workspace @metardu/desktop
+Test Files 16 passed | 1 skipped (17)
+     Tests 223 passed | 7 skipped (230)
+~~~
+
+~~~text
+$ npx --no-install tsc --noEmit -p tsconfig.renderer-check.json --pretty false
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npx --no-install tsc --noEmit -p apps/desktop/tsconfig.json --pretty false
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npx --no-install tsc --noEmit (packages/engine)
+exit 0; no TypeScript diagnostics
+~~~
+
+~~~text
+$ npm test (packages/engine)
+Test Files 45 passed (45)
+     Tests 862 passed (862)
+~~~
+
+~~~text
+$ cargo build --release (packages/metardu-sidecar)
+error: failed to run custom build command for gdal-sys v0.10.0; windows-msvc requires gdal_i.lib in GDAL_LIB_DIR or GDAL_HOME\\lib.
+~~~
+
+~~~text
+$ cargo test --release (packages/metardu-sidecar)
+error: failed to run custom build command for gdal-sys v0.10.0; windows-msvc requires gdal_i.lib in GDAL_LIB_DIR or GDAL_HOME\\lib.
+~~~
+
+~~~text
+$ git diff --check
+exit 0; no whitespace diagnostics
+~~~
+
+Scope notes:
+- The registry view no longer displays synthetic title/parcel records or an inert national-search control. Navigation and workflow copy no longer claim unsupported module counts, certified statutory plans, signing, or portal submission.
+- No IPC or preload boundary changed. No statutory document geometry or computation behavior changed.
+- The shared METARDU Web/Desktop subscription remains the product decision; this change does not implement server account verification. Desktop must not unlock from unverified local or browser state.
+- The sidecar could not compile or run tests in this Windows environment because GDAL's MSVC import library is absent.
+- The pre-existing staged deletion of metardu-v2/frontend/main.tsx and unrelated untracked/generated files were left untouched.
+
+---
+Task ID: desktop-shared-subscription-policy-clarification
+Date: 2026-10-12
+Task: Apply the owner's confirmation that every paid METARDU Web plan includes Desktop
+
+Changed files:
+- metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md
+- metardu-v2/docs/agent-briefs/desktop-shared-subscription.md
+- metardu-v2/apps/desktop/src/renderer/views/LicensingView.tsx
+- worklog.md
+
+Policy now stated:
+- Every active paid Web plan (Pro, Team, Firm, Enterprise) includes Desktop for the same entitled account; existing Web seat assignments apply.
+- No separate Desktop subscription, add-on, or checkout is required.
+- This policy does not mean Desktop verification is connected: the account panel still says no account or subscription has been verified.
+
+Backend audit finding (read-only METARDU Web source):
+- `src/app/api/subscription/route.ts` returns HTTP 401 with `{ plan: 'free', status: 'active' }` when there is no browser session, and returns HTTP 500 with the same payload when its handler errors. Desktop must not consume this as entitlement state.
+- The shared Web subscription engine reads the existing server-side account subscription and seat count. A Desktop-compatible authenticated account flow and versioned entitlement contract remain unimplemented/unverified.
+- No Web repository files were changed in this pass.
+
+Verification:
+- `git diff --check` will be recorded after the final edit and before commit.
+- No automated tests were run; this pass changes account-policy copy and documentation only.
+
+Remaining gate:
+- Implement and test a fail-closed, Desktop-compatible server account flow and entitlement response before Desktop can grant paid access.
+
+Post-edit verification for desktop-shared-subscription-policy-clarification:
+~~~text
+$ git diff --check
+exit 0; no whitespace diagnostics (Git emitted LF-to-CRLF conversion warnings only)
+~~~
+
+---
+Task ID: subscription-api-fail-closed
+Agent: Codex (2026-10-12)
+Task: Prevent Web subscription errors from looking like valid account state
+
+Work Log:
+- Created `metardu-v2/docs/agent-briefs/web-subscription-route-fail-closed.md` to keep this server-side fix scoped and state the remaining Desktop entitlement work.
+- Audited Web subscription consumers: the subscription context and AI access client already check `response.ok` and fail closed; the account and billing views catch API errors instead of granting paid access.
+- In an isolated Web worktree based on `origin/main` (`a8b94a46`), changed GET `/api/subscription` so signed-out requests return 401 `UNAUTHORIZED` without plan/status, and subscription-service failures return 503 `SUBSCRIPTION_UNAVAILABLE` without plan/status. Both errors set `Cache-Control: no-store`.
+- Preserved the authenticated no-row response as the legitimate `free`/`active` account state.
+- Added three regression cases and appended Web `worklog.md` evidence. Web change is committed locally as `6b6dc6a` on `codex/desktop-shared-entitlement`.
+- The original Web checkout contains unpublished local changes and was not modified. The isolated branch is based on published `origin/main` and includes only this route fix, its test, and the Web worklog.
+
+Verification:
+~~~text
+$ npm test -- --runInBand src/app/api/subscription/route.test.ts
+Test Suites: 1 passed, 1 total
+Tests:       3 passed, 3 total
+Snapshots:   0 total
+~~~
+
+~~~text
+$ npm run typecheck
+src/lib/pdf/generatePdf.ts(41,7): error TS2322: Type '"networkidle0"' is not assignable to type '"load" | "domcontentloaded" | ("load" | "domcontentloaded")[] | undefined'.
+~~~
+
+~~~text
+$ git diff --check (Web worktree)
+exit 0; no whitespace diagnostics
+~~~
+
+Stage Summary:
+- The route regression tests pass. The full Web typecheck remains red on the unrelated Puppeteer `waitUntil` type at `src/lib/pdf/generatePdf.ts:41`.
+- Automatic review rejected pushing to the separate Web GitHub repository because its ownership/trust could not be verified. I did not retry or use another push path; the commit remains local pending owner approval.
+- No Web deployment was performed or verified. Desktop account authorization, entitlement API, protected credential storage, server revocation, and offline policy remain unimplemented; Desktop still does not verify or grant access.
+
+---
+Task ID: desktop-lulc-data-integrity
+Date: 2026-10-12
+Task: Replace misleading LULC defaults and calculations with explicit draft data handling
+
+Changed files:
+- `metardu-v2/apps/desktop/src/renderer/views/LULCView.tsx`
+- `metardu-v2/apps/desktop/src/tests/lulc-integrity.test.ts`
+- `metardu-v2/docs/agent-briefs/desktop-lulc-data-integrity.md`
+- `worklog.md`
+
+Work Log:
+- Removed the preloaded Kenya polygons and default Kenya jurisdiction. The jurisdiction now comes from the active project or a user selection when the project has no jurisdiction.
+- Replaced country-branded class lists with generic thematic tags, clearly marked as non-statutory and not image-derived. Imported polygons start unclassified and can be manually tagged.
+- Removed keyword/size classification, false confidence values, renderer-side shoelace area, fabricated imagery metadata, and the bounding-box geometry synthesized from topographic points.
+- Kept raw polygon coordinates and source attributes. GeoJSON import accepts simple 2D Polygon rings only and rejects unsupported rings or malformed coordinates as a whole. Draft CSV carries raw coordinates, project context, original identifiers, generic tags, and source attributes.
+- Project save and export now state `DRAFT` / `UNVERIFIED`; no area, CRS, units, statutory class, raster metadata, or plan export is inferred. North arrow and scale bar are hidden on the raw-coordinate preview.
+- Added regression coverage for empty/no-sample source state, raw GeoJSON import, strict unsupported geometry rejection, and draft CSV metadata round-trip.
+- Read `AGENT.md`, invariants, ADR-0001, product plan, relevant renderer context, map geometry extraction, sidecar sources, and recent worklog entries. The master plan required by `AGENT.md` is absent from this checkout; no new compute or jurisdiction capability was introduced.
+- No IPC, main-process, preload, subscription, or Web repository files changed. The shared paid Web account policy remains as documented in the product plan.
+
+Verification:
+~~~text
+$ npx vitest run --config vitest-desktop-final-dcf018c83e014f38a3ba562de4022853.mjs apps/desktop/src/tests
+Test Files  17 passed | 1 skipped (18)
+     Tests  227 passed | 7 skipped (234)
+Exit code: 0
+~~~
+
+~~~text
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No TypeScript diagnostics; exit code 0.
+
+$ npx tsc --noEmit -p apps/desktop/tsconfig.json
+No TypeScript diagnostics; exit code 0.
+
+$ npx tsc --noEmit (packages/engine)
+No TypeScript diagnostics; exit code 0.
+~~~
+
+~~~text
+$ npx vitest run --config ../../vitest-desktop-2e9e5448a16e4be9884460ec742bfd35.mjs src (packages/engine)
+Test Files  45 passed (45)
+     Tests  862 passed (862)
+Exit code: 0
+~~~
+
+The repository's default Vitest config failed to load because its `vite.config.ts` ESM imports were loaded through a CommonJS config path. The desktop and engine suites were run successfully with temporary `.mjs` configs, then those temporary files were removed.
+
+~~~text
+$ cargo build --release (packages/metardu-sidecar)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\\lib.
+Exit code: 1
+
+$ cargo test --release (packages/metardu-sidecar)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\\lib.
+Exit code: 1
+~~~
+
+~~~text
+$ git diff --check
+Exit code: 0; no whitespace diagnostics.
+~~~
+
+Stage Summary:
+- The LULC workspace now preserves geometry as explicitly unverified raw input. CRS-aware measurements, raster parsing/classification, and statutory land-use schemes remain unavailable and are not represented as working features.
+- Desktop and engine TypeScript checks and their test suites passed. Rust build/test remain blocked by the absent GDAL MSVC import library; this renderer-only task did not change Rust code or the IPC boundary.
+- This closes one concrete integrity defect, not the full international survey-grade release gates. Continue the wider module audit and implement CRS/units and sidecar-backed raster/area workflows before claiming those capabilities.
+
+---
+Task ID: desktop-project-jurisdiction-default
+Date: 2026-10-12
+Task: Remove the implicit Kenya jurisdiction from project creation
+
+Changed files:
+- `metardu-v2/apps/desktop/src/renderer/views/ProjectsPanel.tsx`
+- `metardu-v2/apps/desktop/src/tests/project-store-core.test.ts`
+- `metardu-v2/apps/desktop/src/tests/projects-panel-jurisdiction.test.ts`
+- `metardu-v2/docs/agent-briefs/desktop-project-jurisdiction-default.md`
+- `worklog.md`
+
+Work Log:
+- Project creation now starts with an empty jurisdiction and labels it optional. The picker uses the canonical configured-country registry; the surveyor may create a neutral project without choosing one.
+- A jurisdiction change clears any selected jurisdiction-specific template and its detail panel. The project list shows `Not specified` for neutral projects.
+- Confirmed the local project store and SQLite schema preserve the empty country code; no database migration was needed. Added a core regression test for neutral project storage and UI contract tests for the no-default behavior.
+- The existing product plan and licensing view already state that active paid METARDU Web accounts include Desktop on the same account, with Web-owned seat assignments. This milestone did not alter subscription authentication. The server verification path remains explicitly unconnected until the Web service exposes a safe desktop-capable entitlement contract.
+
+Verification:
+~~~text
+$ npx vitest run --config vitest-desktop-project-jurisdiction-20261012.mjs apps/desktop/src/tests
+Test Files  18 passed | 1 skipped (19)
+Tests  230 passed | 7 skipped (237)
+Exit code: 0
+~~~
+
+~~~text
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No TypeScript diagnostics; exit code 0.
+
+$ npx tsc --noEmit -p apps/desktop/tsconfig.json
+No TypeScript diagnostics; exit code 0.
+~~~
+
+Stage Summary:
+- Project setup no longer chooses Kenya implicitly; local statutory templates remain limited to configured jurisdictions and are never implied for neutral projects.
+- Shared Web/Desktop subscription semantics remain as documented; real server verification, desktop sign-in, and OS-protected credential storage remain release gates.
+
+---
+Task ID: desktop-cogo-sidecar-draft-integrity
+Date: 2026-10-29
+Task: Route COGO calculations through Rust and preserve unverified draft evidence
+
+Changed files:
+- `metardu-v2/apps/desktop/src/preload/index.ts`
+- `metardu-v2/apps/desktop/src/renderer/SurveyStateContext.tsx`
+- `metardu-v2/apps/desktop/src/renderer/cross-import-bus.ts`
+- `metardu-v2/apps/desktop/src/renderer/project-templates.ts`
+- `metardu-v2/apps/desktop/src/renderer/views/COGOView.tsx`
+- `metardu-v2/apps/desktop/src/renderer/views/TraverseView.tsx`
+- `metardu-v2/apps/desktop/src/tests/cogo-integrity.test.ts`
+- `metardu-v2/apps/desktop/src/tests/project-templates.test.ts`
+- `metardu-v2/docs/agent-briefs/desktop-cogo-sidecar-draft-integrity.md`
+- `metardu-v2/packages/ipc-schemas/src/index.ts`
+- `metardu-v2/packages/ipc-schemas/src/namespaces/cogo.ts`
+- `metardu-v2/packages/ipc-schemas/src/tests/cogo.test.ts`
+- `metardu-v2/packages/metardu-sidecar/src/cogo/area.rs`
+- `metardu-v2/packages/metardu-sidecar/src/cogo/intersection.rs`
+- `metardu-v2/packages/metardu-sidecar/src/cogo/mod.rs`
+- `metardu-v2/packages/metardu-sidecar/src/compute_handlers.rs`
+- `metardu-v2/packages/metardu-sidecar/src/dispatcher.rs`
+- `metardu-v2/packages/metardu-sidecar/src/main.rs`
+- `metardu-v2/scripts/test_sidecar_e2e.py`
+- `worklog.md`
+
+Work Log:
+- Rebuilt COGO with empty text-backed numeric fields and strict finite/range checks. Radiation, forward bearing intersection, distance intersection, midpoint offset, polygon area, perimeter, and edge bearings now call the Rust sidecar; the renderer contains no geometric computation formulas.
+- Added strict preload Zod schemas and Rust-side validation. Polygon calculations reject invalid rings and non-finite results, use translated compensated shoelace area, and cap input at 5,000 vertices to bound quadratic self-intersection checks.
+- Removed fabricated adjustment/uncertainty fields, the Form 4 handoff, and the auto-export path from COGO saves. COGO saves only `draft_unverified` evidence through `saveDraftToProject`, which writes to the local project store without updating export state or triggering statutory export.
+- Marked CAD and Traverse imports as candidate/draft coordinates. Corrected COGO workflow-template descriptions that claimed registry verification or legal boundary determination.
+- Fixed the sidecar stdin reader. A long-lived reader now handles sequential RPC messages without the unused stdin lock deadlock or losing buffered request data.
+- Expanded the sidecar end-to-end smoke to cover radiation, bearing intersection, distance intersection, midpoint offset, planar area metrics, and invalid-distance rejection in one live process.
+
+Verification:
+~~~text
+$ cargo test --no-default-features --features instrument cogo (packages/metardu-sidecar)
+running 31 tests
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out
+Exit code: 0
+~~~
+
+~~~text
+$ cargo build --release --no-default-features --features instrument (packages/metardu-sidecar)
+Finished `release` profile [optimized] target(s) in 1m 27s
+Exit code: 0
+~~~
+
+~~~text
+$ python scripts/test_sidecar_e2e.py
+All 11 end-to-end tests PASSED
+Exit code: 0
+~~~
+
+~~~text
+$ npm run build --workspace @metardu/ipc-schemas
+Exit code: 0
+
+$ npx vitest run (packages/ipc-schemas)
+Test Files  2 passed (2)
+Tests  30 passed (30)
+Exit code: 0
+~~~
+
+~~~text
+$ npx vitest run --config .codex-cogo-final-vitest.mjs (Desktop suite)
+Test Files  19 passed | 1 skipped (20)
+Tests  234 passed | 7 skipped (241)
+Exit code: 0
+~~~
+
+~~~text
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No TypeScript diagnostics; exit code 0.
+
+$ npx tsc --noEmit -p apps/desktop/tsconfig.json
+No TypeScript diagnostics; exit code 0.
+
+$ npx tsc --noEmit (packages/engine)
+No TypeScript diagnostics; exit code 0.
+
+$ npx vitest run (packages/engine)
+Test Files  45 passed (45)
+Tests  862 passed (862)
+Exit code: 0
+~~~
+
+~~~text
+$ cargo build --release (default features)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code: 1
+
+$ cargo test --release (default features)
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code: 1
+~~~
+
+The full `cargo test --no-default-features --features instrument` run reached tests but had 3 unrelated existing failures: two error-message assertions did not match the Windows error strings, and an ODM test attempted to create `/tmp/output` and received access denied. The focused COGO set passed all 31 tests.
+
+The COGO Playwright smoke was attempted but could not launch because the Playwright Chromium executable is absent. The sidecar RPC smoke above passed; it does not verify the rendered Electron UI. The repository-referenced `scripts/electron-smoke.sh` is absent in this checkout.
+
+~~~text
+$ git diff --check
+Exit code: 0; no whitespace diagnostics.
+~~~
+
+Stage Summary:
+- COGO is now a sidecar-backed local-planar drafting tool with explicit unverified evidence, and its standalone IPC smoke passes through a live sidecar process.
+- Production GDAL-enabled sidecar build/test and rendered Electron UI smoke remain unverified in this environment. This closes a concrete COGO integrity defect and does not establish international release readiness or full survey-grade capability.
+
+---
+Task ID: global-project-crs-and-durable-local-store
+Agent: Codex 2026-10-29
+Task: Persist explicit project CRS independently of jurisdiction and enable a global WGS 84 / UTM project foundation
+
+Work Log:
+- Replaced the live in-memory project database mock with Better SQLite at Electron `userData/metardu.db`; configures the path before project IPC initialization and retains WAL/foreign-key behavior.
+- Added SQLite schema v2 with nullable `crsSrid`, an idempotent v1 migration, project CRUD/JSON-import mapping, undo/redo preservation, and real close/reopen persistence coverage.
+- Added the EPSG WGS 84 / UTM series 32601–32660 and 32701–32760 as an explicit global CRS catalog, independent of jurisdiction. The source reference is the DGIWG GeoPackage Profile 1.1 EPSG registry crosswalk; this does not validate area-of-use or provide datum/epoch operations.
+- Routed the project CRS through map reprojection. Country profile datum checks remain fail-closed; an unknown country may use only an explicitly selected supported global WGS 84 / UTM CRS.
+- Added a project CRS selector and metadata-only warning. Added an export guard so current jurisdiction-based exporters refuse when an explicit project CRS conflicts with the jurisdiction primary CRS.
+- Added `metardu-v2/docs/agent-briefs/global-project-crs-and-durable-local-store.md`. The AGENT.md-referenced `upload/METARDU-DESKTOP-MASTER-PLAN.md` is absent in this checkout.
+- Preserved the pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked assets/artifacts; none are included in this task commit.
+
+Verification:
+~~~text
+$ npm run build --workspace @metardu/country-config
+> @metardu/country-config@0.1.0 build
+> tsc -p tsconfig.json
+Exit code: 0
+
+$ npm run build --workspace @metardu/desktop
+> @metardu/desktop@0.2.0 build
+> tsc -p tsconfig.json
+Exit code: 0
+~~~
+
+~~~text
+$ npm run test --workspace @metardu/desktop
+Test Files  21 passed | 1 skipped (22)
+Tests  245 passed | 7 skipped (252)
+Exit code: 0
+
+$ npm run test --workspace @metardu/country-config
+Test Files  4 passed (4)
+Tests  158 passed (158)
+Exit code: 0
+~~~
+
+~~~text
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No diagnostics; exit code 0.
+
+$ git diff --check
+Exit code: 0; no whitespace diagnostics.
+~~~
+
+The repository-referenced `scripts/electron-smoke.sh` is absent, so no rendered Electron/IPC end-to-end smoke was run. No Rust or engine math was changed. The focused tests and builds above establish local code/package behavior only; they do not prove international field accuracy, CRS area-of-use, statutory acceptance, or receiving-CAD behavior.
+
+Stage Summary:
+- Neutral projects can persist a selected global WGS 84 / UTM CRS and invoke the existing Rust inverse projection for map display. Existing coordinates are never silently transformed when metadata changes.
+- This is an international foundation, not an all-country survey-grade release: most workflows/exports still require implemented country profiles, and arbitrary CRS catalogs, regional datum/epoch operations, geoid grids, instrument validation, and country-specific legal acceptance remain future work.
+
+---
+Task ID: global-topographic-draft-integrity
+Agent: Codex 2026-10-29
+Task: Make topographic drafts project-referenced, neutral-jurisdiction capable, and explicit about unverified survey evidence
+
+Work Log:
+- Removed the seeded Kenya survey, default jurisdiction, fabricated surveyor identity, and zero-filling CSV parser from the topographic UI.
+- Bound the workflow to the active project's catalogued CRS. Required the user to confirm metre input and declare the shared vertical reference; preserved both with the output as unverified context.
+- Added strict headerless CSV parsing, finite/complete coordinate validation, unique point-ID checks, positive contour/spot spacing validation, and a safe contour-level cap.
+- Made country profile tolerance optional and changed the uncomputed residual from `0` to `null`. The UI now says when the tolerance or residual is not established.
+- Added a draft-only persistence path that updates the active survey/project state without triggering statutory auto-export. Added the reference context and draft status to the cross-view surface event and GeoJSON/GeoPackage metadata.
+- Replaced silent empty-TIN results for large inputs with a visible 100-point cap. The brute-force triangulator is not robust or scalable and is explicitly disclosed as a draft limitation.
+- Added `metardu-v2/docs/agent-briefs/global-topographic-draft-integrity.md`.
+
+Verification:
+~~~text
+$ npm run build --workspace @metardu/engine-flight-planning
+> @metardu/engine-flight-planning@0.1.0 build
+> tsc -p tsconfig.json
+Exit code: 0
+~~~
+
+~~~text
+$ npx tsc --noEmit -p packages/engine/tsconfig.json
+No diagnostics; exit code 0.
+
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No diagnostics; exit code 0.
+
+$ npm run build --workspace @metardu/desktop
+> @metardu/desktop@0.2.0 build
+> tsc -p tsconfig.json
+Exit code: 0
+~~~
+
+~~~text
+$ npm test --workspace @metardu/engine-flight-planning
+Test Files  45 passed (45)
+Tests  866 passed (866)
+Exit code: 0
+~~~
+
+~~~text
+$ npx vitest run src/workflows/tests/all-workflows.test.ts src/integration/tests/geojson-export-topo-eng.test.ts src/integration/tests/detect-survey-type-extended.test.ts
+Test Files  3 passed (3)
+Tests  59 passed (59)
+Exit code: 0
+~~~
+
+~~~text
+$ npm test --workspace @metardu/desktop
+Test Files  22 passed | 1 skipped (23)
+Tests  253 passed | 7 skipped (260)
+Exit code: 0
+~~~
+
+~~~text
+$ git diff --check
+Exit code: 0; no whitespace diagnostics. Git reported only its configured LF-to-CRLF conversion notices for three edited renderer files.
+~~~
+
+Rust verification limits:
+~~~text
+$ cargo build --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+thread 'main' panicked at ... gdal-sys-0.10.0/build.rs:204:9:
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code: 101
+
+$ cargo test --release
+thread 'main' panicked at ... gdal-sys-0.10.0/build.rs:204:9:
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code: 101
+
+$ cargo test --no-default-features --features instrument
+test result: FAILED. 155 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out
+The three existing failures are `gdal::tests::test_generate_contours_rejects_nonpositive_interval`, `odm::tests::test_process_photos_rejects_empty_photos_directory`, and `odm::tests::test_process_photos_rejects_unknown_mode` (the latter attempts to create `/tmp/output`). No Rust source was changed in this task.
+~~~
+
+Stage Summary:
+- Unsupported jurisdictions can now produce a project-referenced, local topographic draft without receiving Kenya data, an invented tolerance/residual, or automatic statutory output.
+- This is not survey-grade terrain readiness: the current TIN uses a bounded brute-force algorithm capped at 100 points, does not validate co-circular/near-collinear geometry robustly, and no neutral-country export path is available in ExportPanel yet. These are blockers for a global field-to-delivery promise.
+- The standard Rust build remains blocked on missing Windows GDAL libraries; no-GDAL Rust tests have three existing failures. The renderer and engine checks above pass, but the missing GDAL build and test failures remain release blockers.
+
+---
+Task ID: gcp-export-primary-crs-label
+Agent: Codex 2026-10-29
+Task: Match a GCP export's CRS display label to its actual configured primary EPSG code
+
+Work Log:
+- Changed GCP CRS label selection from the first country projection zone to the zone whose SRID equals the configured primary SRID.
+- Added `metardu-v2/docs/agent-briefs/gcp-export-primary-crs-label.md`.
+- The GCP regression cases passed in the full engine suite below; an EPSG:21037 record now uses its matching configured display name rather than the first zone in the array.
+
+Verification:
+~~~text
+$ npm test --workspace @metardu/engine-flight-planning
+Test Files  45 passed (45)
+Tests  866 passed (866)
+Exit Code: 0
+~~~
+
+Stage Summary:
+- The GCP file now reports a display zone consistent with the EPSG code carried in its CRS URN.
+- This fix does not perform a coordinate transformation or establish the CRS area of use.
+
+---
+Task ID: robust-topographic-tin-sidecar
+Agent: Codex 2026-10-29
+Task: Replace the capped TypeScript topographic triangulator with validated Rust-sidecar Delaunay construction
+
+Work Log:
+- Added ADR-0006 and the scoped brief. Chose Spade 2.15.1 after checking its primary API documentation, stable bulk loader, robust-predicate implementation, and MIT OR Apache-2.0 license.
+- Added `topographic.build_tin` in the Rust sidecar. It returns triangle indices into original input order, caps requests at 100,000 points, rejects non-finite values, exact duplicate horizontal positions, collinear inputs, and coordinate spans that overflow finite arithmetic. No survey point is rounded or silently dropped.
+- Added the method to the renderer allowlist and finite, strict IPC payload schema. TopographicView sends only easting/northing/elevation to the sidecar, then joins returned indices to the original project points.
+- Removed production TypeScript brute-force triangulation. The engine now validates sidecar indices, keeps the output draft-only, and caps contour triangle-level work at 20,000,000 combinations so extreme requests fail with an actionable error.
+- Updated the GeoJSON golden fixture to the 32-face planar triangulation for its 5x5 grid. Added Rust topology, IPC schema, renderer response, workflow, and live sidecar protocol coverage.
+- Changed files: `metardu-v2/docs/decisions/0006-topographic-delaunay-sidecar.md`, `metardu-v2/docs/agent-briefs/robust-topographic-tin-sidecar.md`, `metardu-v2/packages/metardu-sidecar/Cargo.toml`, `Cargo.lock`, `src/main.rs`, `src/dispatcher.rs`, new `src/topographic.rs`, `metardu-v2/packages/ipc-schemas/src/namespaces/cogo.ts`, `src/index.ts`, `src/tests/cogo.test.ts`, `metardu-v2/apps/desktop/src/preload/index.ts`, `src/renderer/topographic-csv.ts`, `src/renderer/views/TopographicView.tsx`, `src/tests/topographic-csv.test.ts`, `metardu-v2/packages/engine/src/workflows/topographic.ts`, new `src/workflows/tests/topographic-fixtures.ts`, workflow and integration tests, the topographic GeoJSON fixture, `metardu-v2/scripts/test_sidecar_e2e.py`, and this worklog.
+
+Verification:
+~~~text
+$ cargo test --offline --no-default-features --features instrument topographic::tests
+running 10 tests
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 159 filtered out; finished in 0.40s
+Exit code: 0
+
+$ cargo test --offline --no-default-features --features instrument dispatcher::tests::test_topographic_build_tin_dispatches_sidecar_geometry
+running 1 test
+test dispatcher::tests::test_topographic_build_tin_dispatches_sidecar_geometry ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 167 filtered out; finished in 0.00s
+Exit code: 0
+
+$ cargo build --offline --no-default-features --features instrument
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 27.48s
+Exit code: 0
+
+$ METARDU_SIDECAR_BIN=target/debug/metardu-sidecar.exe python scripts/test_sidecar_e2e.py
+All 13 end-to-end tests PASSED
+Exit code: 0
+~~~
+
+~~~text
+$ npm test --workspace @metardu/engine-flight-planning  (local-loopback access enabled)
+Test Files 45 passed (45)
+Tests 868 passed (868)
+Exit code: 0
+
+$ npm run build --workspace @metardu/engine-flight-planning
+Exit code: 0
+
+$ npm test --workspace @metardu/desktop
+Test Files 22 passed | 1 skipped (23)
+Tests 261 passed | 7 skipped (268)
+Exit code: 0
+
+$ npm run build --workspace @metardu/desktop
+Exit code: 0
+
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No diagnostics; exit code 0.
+
+$ npm test --workspace @metardu/ipc-schemas -- --run src/tests/cogo.test.ts
+Test Files 1 passed (1)
+Tests 7 passed (7)
+Exit code: 0
+
+$ npm run build --workspace @metardu/ipc-schemas
+Exit code: 0
+
+$ npm test --workspace @metardu/desktop -- --run src/tests/topographic-csv.test.ts
+Test Files 1 passed (1)
+Tests 16 passed (16)
+Exit code: 0
+~~~
+
+Build and suite blockers:
+~~~text
+$ cargo build --offline --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code: 101
+
+$ cargo test --offline --no-default-features --features instrument
+running 169 tests
+test result: FAILED. 166 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out
+Failures: gdal::tests::test_generate_contours_rejects_nonpositive_interval; odm::tests::test_process_photos_rejects_empty_photos_directory; odm::tests::test_process_photos_rejects_unknown_mode (/tmp/output permission denied).
+Exit code: 101
+~~~
+
+`cargo fmt -- --check` reports existing formatting differences throughout unrelated Rust files. The new `src/topographic.rs` was formatted directly with rustfmt; unrelated Rust files were left untouched. The repository's `scripts/electron-smoke.sh` remains absent.
+
+Stage Summary:
+- The topographic draft no longer uses the O(n^4), 100-point TypeScript triangulator. A local sidecar round-trip demonstrated the new method with a 4-point square and duplicate-position rejection; Rust tests exercised 10,000 points in 0.40s on this development machine.
+- The supported operation remains planar Delaunay construction only. It does not transform CRS, check area of use, validate units/vertical datum, adjust observations, estimate accuracy, or make the draft statutory. The interface still requires a CRS from the bundled project catalog, which is narrower than worldwide CRS support.
+- Default Windows release compilation and the three pre-existing no-GDAL test failures remain blockers for a complete release build; no-GDAL debug build plus the 13-call sidecar protocol smoke passed.
+
+Final verification addendum after preserving an unsupported project's jurisdiction code:
+~~~text
+$ npx vitest run src/workflows/tests/all-workflows.test.ts src/integration/tests/gcp-export.test.ts src/integration/tests/geojson-export-topo-eng.test.ts src/integration/tests/detect-survey-type-extended.test.ts
+Test Files  4 passed (4)
+Tests  83 passed (83)
+Exit code: 0
+
+$ npm test --workspace @metardu/desktop
+Test Files  22 passed | 1 skipped (23)
+Tests  253 passed | 7 skipped (260)
+Exit code: 0
+
+$ npm run build --workspace @metardu/engine-flight-planning
+Exit code: 0
+
+$ npm run build --workspace @metardu/desktop
+Exit code: 0
+
+$ npx tsc --noEmit -p packages/engine/tsconfig.json
+No diagnostics; exit code 0.
+
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No diagnostics; exit code 0.
+~~~
+
+---
+Task ID: desktop-community-extension-architecture
+Agent: Codex 2026-10-29
+Task: Record a safe, community-supported extension direction for the international Desktop product
+
+Work Log:
+- Audited the Electron sandbox, typed preload bridge, Rust sidecar authority, offline invariants, existing international product plan, and ADR-0005's GIS/plugin scope decision. The controlling `upload/METARDU-DESKTOP-MASTER-PLAN.md` is absent from this checkout; this documentation change does not invent or rewrite it.
+- Added ADR-0007 to supersede only ADR-0005's blanket rejection of an in-app plugin ecosystem. It defines a versioned WebAssembly/WIT interface direction, no ambient capabilities, project-scoped inputs, derived outputs with provenance, offline package pinning, distinct publisher/security/method trust states, and staged implementation gates.
+- Updated the international product plan to include the extension ecosystem while keeping QGIS/CAD integration, statutory evidence requirements, and current implementation status explicit.
+- Added a scoped task brief. No runtime, package manager, catalog, SDK, or plugin UI was implemented in this documentation task.
+- Changed files: `metardu-v2/docs/decisions/0007-community-extension-ecosystem.md`, `metardu-v2/docs/agent-briefs/desktop-community-extension-architecture.md`, `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`, and this entry.
+
+Verification:
+~~~text
+$ git diff --cached --check -- metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md metardu-v2/docs/agent-briefs/desktop-community-extension-architecture.md metardu-v2/docs/decisions/0007-community-extension-ecosystem.md
+Exit code: 0; no whitespace diagnostics.
+
+$ git diff --cached --stat -- metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md metardu-v2/docs/agent-briefs/desktop-community-extension-architecture.md metardu-v2/docs/decisions/0007-community-extension-ecosystem.md
+3 files changed, 158 insertions(+)
+~~~
+
+Stage Summary:
+- The accepted architecture direction gives the community a path to extend survey workflows without loading arbitrary scripts into Electron or letting an extension promote its own results to verified survey outputs.
+- Next gate: prototype and threat-model the component host and prove resource limits, cancellation, package validation, reproducibility, and Windows/macOS/Linux packaging before enabling third-party code execution.
+
+---
+Task ID: desktop-community-plugin-runtime-v1
+Agent: Codex 2026-10-29
+Task: Add a restricted WebAssembly community-tool execution preview to METARDU Desktop
+
+Work Log:
+- Rechecked the Electron main/preload boundary, Rust sidecar dispatcher, UI navigation, IPC schema package, ADR-0007, product plan, and worklog. The controlling `upload/METARDU-DESKTOP-MASTER-PLAN.md` is absent; this scoped task did not recreate it.
+- Added Wasmtime 43.0.0 ABI v1 for WebAssembly core modules with no imports/WASI, a 100M fuel limit, 64 MiB memory cap, 10,000 table-element cap, 8 MiB module cap, 4 MiB JSON input/output caps, JSON validation, and a host-authored Community / Draft result with claimed ID and SHA-256 digests.
+- Added a typed IPC path that lets the user choose a local `.wasm` file. Main-process bytes are read with a bounded buffer, held in memory only, capped at five selected modules, and deleted by an expiry timer after 15 minutes. The plugin receives only explicit JSON; no project path, file, instrument, network, or store capability is exposed.
+- Added an Extensions preview screen, ABI v1 documentation and WAT sample, IPC validation tests, Rust runtime/handler tests, a task brief, and updates to ADR-0007 and the international product plan.
+- Inspected the opened LinkedIn post: it describes a surveyor prototyping a point-cloud classification tool with Claude and asking about CloudCompare functions. The post does not disclose the algorithm, input formats, class list, or accuracy. The product plan now records large point-cloud processing as a future chunked host API and notes that CloudCompare licensing must be reviewed before code reuse.
+- This preview does not install or persist modules, provide a catalog/SDK/signature system, connect plugins to project data, process LAS/LAZ/COPC, call CloudCompare, write derived project artifacts, or make a survey accuracy claim.
+
+Verification:
+~~~text
+$ npm test --workspace @metardu/ipc-schemas
+Test Files  3 passed (3)
+     Tests  37 passed (37)
+Exit code: 0
+
+$ npm run build --workspace @metardu/ipc-schemas
+> tsc -p tsconfig.json
+Exit code: 0
+
+$ npm run build --workspace @metardu/desktop
+> tsc -p tsconfig.json
+Exit code: 0
+
+$ npx tsc --noEmit -p tsconfig.renderer-check.json
+No diagnostics; exit code 0.
+
+$ npm run build:renderer
+✓ built in 7.66s
+Exit code: 0. The build printed externalization warnings for existing `node:zlib`/Node built-ins in engine and `better-sqlite3` imports.
+
+$ cargo test --offline --locked --no-default-features --features instrument plugins::tests
+running 11 tests
+test plugins::tests::rejects_invalid_plugin_identity ... ok
+test plugins::tests::rejects_any_host_or_system_import ... ok
+test plugins::tests::rejects_memory_declared_above_the_runtime_limit ... ok
+test plugins::tests::rejects_tables_declared_above_the_runtime_limit ... ok
+test plugins::tests::rejects_output_outside_guest_memory ... ok
+test plugins::tests::sidecar_handler_accepts_the_documented_json_request_shape ... ok
+test plugins::tests::rejects_non_json_output ... ok
+test plugins::tests::documented_hello_surveyor_example_runs_under_abi_v1 ... ok
+test plugins::tests::rejects_wrong_abi_version ... ok
+test plugins::tests::runs_closed_abi_module_and_host_marks_output_as_community_draft ... ok
+test plugins::tests::fuel_budget_traps_an_infinite_plugin_loop ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 169 filtered out; finished in 0.16s
+Exit code: 0
+
+$ cargo build --offline --locked --release --no-default-features --features instrument
+warning: `metardu-sidecar` (bin "metardu-sidecar") generated 60 warnings
+Finished `release` profile [optimized] target(s) in 9m 50s
+Exit code: 0.
+
+$ cargo build --offline --locked --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code: 101. The default GDAL-enabled release build remains blocked by the machine's missing GDAL development library.
+
+$ rustfmt --edition 2021 --check packages/metardu-sidecar/src/plugins.rs
+Exit code: 0.
+
+$ git diff --check
+Exit code: 0; only Git LF-to-CRLF notices for existing Windows checkout settings.
+
+$ Test-Path scripts/electron-smoke.sh
+False. The repository smoke script is absent, so no full Electron IPC smoke run is claimed.
+~~~
+
+The release-mode focused test compilation was stopped after prolonged Cranelift test-profile compilation; no release-mode test result is claimed. Debug focused tests passed as shown above.
+
+Stage Summary:
+- ABI v1 now executes a documented, locally selected Wasm example through the sidecar and visible Extensions preview, with tested import, resource, ABI, and output checks.
+- The product is not yet a complete community ecosystem or a universal survey workflow suite. The next substantive plugin gate is a read-only, chunked project-data interface for large point clouds/raster datasets, followed by derived-artifact provenance and license-aware SDK/package governance. Do not route LAS/LAZ/COPC through the current JSON ABI.
+
+## 29 October 2026 — Point-cloud prototype honesty and implementation gate
+
+Changed files:
+- `metardu-v2/apps/desktop/src/renderer/views/PointCloudView.tsx`
+- `metardu-v2/packages/engine/src/workflows/lidar-classification.ts`
+- `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`
+- `worklog.md`
+
+Changes:
+- Removed the Point Cloud screen's invented LAZ filename, 145,820-point count, random sample geometry, made-up 42% ground result, fixed elevation range, and CSF success state. The screen now clearly says point-cloud processing is unavailable in this build and distinguishes future workflow requirements from current capability.
+- Marked the in-memory TypeScript PMF routine as an unvalidated experiment and added an explicit warning to its returned results. It is not CSF, not a LAS/LAZ/COPC pipeline, and must not be presented for professional deliverables.
+- Added a staged point-cloud product gate covering source metadata and format limits, immutable originals, bounded chunk processing, genuine named classifiers, separate derived outputs, round-trip checks, independent reference data, and practitioner review.
+- Reviewed official PDAL documentation. It documents LAS and compressed LAZ reading, with exclusions/limitations for waveform point formats and some Extra Bytes; CSF and PMF are separate named filters. PDAL is a candidate backend only, not integrated here. CloudCompare's upstream project is GPL-licensed, so reuse requires a component-specific distribution review.
+
+Verification:
+~~~text
+$ npm run build --workspace @metardu/desktop
+> @metardu/desktop@0.2.0 build
+> tsc -p tsconfig.json
+Exit code: 0
+
+$ npm run build --workspace @metardu/engine-flight-planning
+> @metardu/engine-flight-planning@0.1.0 build
+> tsc -p tsconfig.json
+Exit code: 0
+
+$ npm run build:renderer
+✓ 2455 modules transformed.
+✓ built in 14.43s
+Exit code: 0. Existing Node built-in externalization warnings for `node:zlib`, `fs`, `path`, and `util` remain.
+
+$ git diff --check
+Exit code: 0; Git printed only existing Windows LF-to-CRLF notices.
+
+$ Get-Command pdal, CloudCompare, laszip
+None of the three commands are available on PATH; no point-cloud runtime is installed in this environment.
+~~~
+
+No automated tests or full Electron interaction were run for this UI/documentation correction. Successful builds do not verify LAS/LAZ parsing or classifier accuracy.
+
+Next product gate: select and package a supported point-cloud backend; implement bounded LAS/LAZ intake and project-managed immutable source storage; then integrate one named ground classifier and derived LAS/LAZ/DTM output with the evidence and validation gates above. Do not enable professional classification output until those checks pass.
+
+---
+
+## 29 October 2026 — Read-only LAS/LAZ header inspection
+
+Changed files:
+- `metardu-v2/apps/desktop/src/main/index.ts`
+- `metardu-v2/apps/desktop/src/preload/index.ts`
+- `metardu-v2/apps/desktop/src/renderer/views/PointCloudView.tsx`
+- `metardu-v2/packages/metardu-sidecar/Cargo.toml`
+- `metardu-v2/packages/metardu-sidecar/Cargo.lock`
+- `metardu-v2/packages/metardu-sidecar/src/dispatcher.rs`
+- `metardu-v2/packages/metardu-sidecar/src/import/mod.rs`
+- `metardu-v2/packages/metardu-sidecar/src/import/point_cloud.rs`
+- `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`
+- `worklog.md`
+
+Changes:
+- Added a native file-picker flow that passes a selected LAS/LAZ path only from Electron main to the Rust sidecar. The renderer receives a basename and header data, not the source path.
+- Added bounded, read-only LAS/LAZ header inspection with declared point counts, point-format attributes, raw bounds, coordinate scales and offsets, per-return counts, CRS-record evidence, raw WKT when valid UTF-8, and a COPC-info-record indicator. VLR/EVLR metadata is capped at 32 MiB and 100,000 records; every EVLR is inspected so CRS metadata in later records is not missed.
+- Replaced the inactive Point Cloud placeholder with an actual header-inspection panel and explicit warnings. It does not report point-record validation, project storage, classification, or survey deliverables.
+- Updated the international point-cloud gate to mark header inspection as implemented and retain the next gates for record-level reading, immutable storage, classification, derived export, and validation.
+- The LinkedIn post describes a surveyor-built classification prototype but does not identify its algorithm, class scheme, test data, or accuracy. It is a workflow signal, not evidence for a specific classifier. Ground classification can support bare-earth elevation products and terrain analysis; vegetation/building and other classes can feed their own downstream tasks. The selected method and project-specific output still need review.
+
+Verification:
+~~~text
+$ cargo check --offline --locked --no-default-features --features instrument
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.36s
+Exit code: 0. The existing sidecar emits unrelated compiler warnings.
+
+$ cargo test -q --offline --locked --no-default-features --features instrument import::point_cloud::tests
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out; finished in 0.45s
+Exit code: 0.
+
+$ npm run build --workspace @metardu/desktop
+> @metardu/desktop@0.2.0 build
+> tsc -p tsconfig.json
+Exit code: 0.
+
+$ npm run build:renderer
+✓ 2455 modules transformed.
+✓ built in 10.67s
+Exit code: 0. Existing Node built-in externalization warnings for `node:zlib`, `fs`, `path`, and `util` remain.
+
+$ rustfmt --edition 2021 --check src/import/point_cloud.rs
+Exit code: 0.
+
+$ git diff --check
+Exit code: 0; Git printed only existing Windows LF-to-CRLF notices.
+~~~
+
+No full Electron launch or user-selected LAS/LAZ file run was performed. The Rust tests use generated LAS and LAZ fixtures and confirm parser behavior and read-only source handling, not professional point-cloud processing or classification accuracy.
+
+Next product gate: support durable project-managed source data and full point-record inspection, then validate one named classifier on independent fixtures and representative field datasets before exposing classified deliverables.
+
+---
+
+## 29 October 2026 — Project-linked LAS/LAZ source storage
+
+Changed files:
+- `metardu-v2/apps/desktop/src/main/database.ts`
+- `metardu-v2/apps/desktop/src/main/index.ts`
+- `metardu-v2/apps/desktop/src/main/point-cloud-store.ts`
+- `metardu-v2/apps/desktop/src/preload/index.ts`
+- `metardu-v2/apps/desktop/src/renderer/views/PointCloudView.tsx`
+- `metardu-v2/apps/desktop/src/shared/point-cloud.ts`
+- `metardu-v2/apps/desktop/src/tests/database-point-cloud.test.ts`
+- `metardu-v2/apps/desktop/src/tests/database-project-crs.test.ts`
+- `metardu-v2/apps/desktop/src/tests/point-cloud-store.test.ts`
+- `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`
+- `metardu-v2/docs/agent-briefs/desktop-pointcloud-project-source-store.md`
+- `metardu-v2/docs/decisions/0008-pointcloud-source-store.md`
+- `worklog.md`
+
+Changes:
+- Added a transactional SQLite v2-to-v3 migration and project-linked source metadata. Existing project rows remain unchanged; deleting a project detaches source metadata and does not delete the stored bytes.
+- LAS/LAZ import is now project-scoped. Electron main copies the selected file through a constant-memory staging stream, hashes the copied bytes, inspects the staged header in the Rust sidecar, then publishes an exclusive content-addressed copy and verifies its final byte count and SHA-256 before inserting metadata. The selected original is never modified.
+- The renderer gets a typed project source summary without absolute paths or storage keys. It can list sources for the active project and explicitly recheck the full stored-file hash; source IDs outside the active project are rejected.
+- The managed object store lives in the current Desktop installation's `userData` directory. It is not a portable project bundle or backup. An interrupted object copy may leave an incomplete content-keyed file; later imports fail closed on that file, and a reviewed recovery tool remains future work.
+- The LinkedIn post is a product signal: its author describes building a small point-cloud classification tool with Claude, but does not identify its method, class schema, reference data, or accuracy. The current product still does not read every point record, classify, generate DTM/contours, or produce survey deliverables.
+
+Verification:
+~~~text
+$ npm run test --workspace @metardu/desktop -- --run src/tests/point-cloud-store.test.ts src/tests/database-point-cloud.test.ts src/tests/database-project-crs.test.ts
+Test Files  3 passed (3)
+Tests       8 passed (8)
+Exit code 0.
+
+$ npm run test --workspace @metardu/desktop -- --run
+Test Files  24 passed | 1 skipped (25)
+Tests      267 passed | 7 skipped (274)
+Exit code 0. The skipped cases include the existing IPC round-trip suite.
+
+$ npm run build --workspace @metardu/desktop
+Exit code 0.
+
+$ npx tsc --noEmit  # apps/desktop
+Exit code 0.
+
+$ npm run build:renderer
+2,455 modules transformed; built in 11.19s.
+Exit code 0. Existing Node built-in externalization warnings remain.
+
+$ npx tsc --noEmit  # packages/engine
+Exit code 0.
+
+$ npm test --workspace @metardu/engine-flight-planning
+Test Files  45 passed (45)
+Tests      868 passed (868)
+Exit code 0. The loopback mock-server suite required approved host access because sandbox networking denied its 127.0.0.1 bind.
+
+$ cargo test --release --no-default-features --features instrument import::point_cloud::tests
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out
+Exit code 0.
+
+$ cargo test --release --no-default-features --features instrument
+test result: FAILED. 181 passed; 3 failed; 0 ignored
+Exit code 1. The unrelated failures are two existing tests whose asserted error messages do not match and one test that cannot create the hard-coded /tmp/output directory (Windows access denied). Rerunning with approved host access did not change these failures.
+
+$ cargo build --release
+Exit code 101. The default GDAL-enabled build requires missing `gdal_i.lib` (`GDAL_LIB_DIR` or `GDAL_HOME\lib`). The default release test has the same missing-library blocker.
+
+$ Test-Path scripts/electron-smoke.sh
+False. No Electron IPC runtime smoke or actual GUI import is claimed.
+
+$ git diff --check
+Exit code 0; Git printed only Windows LF-to-CRLF notices.
+~~~
+
+Next product gate: stream and validate actual point records, expose cancellable host-managed chunk reads to trusted processing code, then evaluate a named classifier against independent reference datasets. Preserve source hash and method provenance in every derived artifact; keep classification and professional delivery unavailable until accuracy and round-trip evidence is established.
+
+---
+
+## 29 October 2026 — LAS/LAZ record-level source inspection
+
+Changes:
+- Added a read-only Rust sidecar operation that decodes the LAS/LAZ point range declared by the source header in reusable batches capped by point-record bytes and point count. The compact report contains decoded versus declared counts, numeric source class-code counts, return-number comparisons, finite decoded bounds after LAS scale/offset, invalid return and non-finite coordinate counts, reader version, and warnings.
+- Added a dedicated Electron main-process IPC capability. It scopes the source ID to the active project, keeps the object path in main, verifies the complete source SHA-256 before and after decoding, and saves a report only after both checks pass.
+- Added SQLite v3-to-v4 transactional migration and append-only inspection history bound to the retained source digest and reader version. The Point Cloud screen can inspect and reopen the saved report, shows its source digest, and warns when the managed file has not been reverified in the current session.
+- Added ADR-0009, the implementation brief, and roadmap gates. The LinkedIn post remains an example of a surveyor-led prototype, not evidence of a particular method, class schema, or accuracy.
+- The UI reports numeric class codes only. ASPRS defines different class tables for point formats and supports lookup metadata, which this reader does not currently interpret.
+
+Verification:
+~~~text
+$ cargo check --offline --locked --no-default-features --features instrument
+Exit code 0. Existing sidecar warnings remain; the default GDAL-enabled release build was not attempted in this slice.
+
+$ rustfmt --edition 2021 --check src/import/point_cloud.rs
+Exit code 0.
+
+$ npm run build --workspace @metardu/electron-integration
+Exit code 0.
+
+$ npm run build --workspace @metardu/desktop
+Exit code 0.
+
+$ npm run build:renderer
+Exit code 0; 2,455 modules transformed. Existing Node built-in externalization warnings remain.
+
+$ Test-Path scripts/electron-smoke.sh
+False. No Electron IPC runtime or actual customer-file scan is claimed.
+
+$ git diff --check
+Exit code 0; Git printed only Windows LF-to-CRLF notices.
+~~~
+
+The focused Rust and Desktop database tests were added but not run to completion in this slice. Database migration and IPC behavior therefore remain unverified at runtime. The workspace-wide `cargo fmt --all -- --check` reports existing formatting differences across unrelated Rust files; the changed point-cloud module passes its targeted formatter check. This scan does not validate trailing bytes or complete LAS/LAZ conformance, interpret CRS/units/epoch/vertical reference or classification lookup tables, verify the correctness of source classifications, or run a classifier. It has no progress or cancellation control, and retained sources are not portable project bundles.
+
+Next product gate: validate full LAS/LAZ structure, add cancellable host-managed data access for extension workflows, and evaluate a named classification implementation against independent reference data before creating classified outputs or survey deliverables.
+
+---
+Task ID: desktop-pointcloud-cancellable-inspection
+Agent: Codex, 29 October 2026
+Task: Add bounded progress and cooperative cancellation to project-linked LAS/LAZ record inspection
+
+Work Log:
+- Replaced the Desktop UI's single long-running record-inspection request with start/status/cancel job calls. The Rust sidecar runs one scan in a background blocking task, updates decoded-versus-declared point counts after bounded point batches, and checks cancellation between batches.
+- Added a dedicated main/preload job contract. Main resolves the source ID only in the active project, keeps the managed file path private, verifies the stored SHA-256 before starting and after successful completion, and persists the digest-bound inspection only after the completion and active-project checks pass.
+- Added host-issued UUID job IDs with Zod checks in preload and main, one-active-scan enforcement, bounded terminal job retention, cancellation cleanup after the screen closes or the active project changes, and no partial report on cancellation/failure.
+- Updated the Point Cloud screen with decoded point progress and a Cancel inspection action. Updated ADR-0010, the scoped implementation brief, and the international product plan. This is still inspection only: no chunk stream is exposed to plugins, no point classifier runs, and no survey deliverable is produced.
+
+Verification:
+~~~text
+$ cargo test --offline --no-default-features --features instrument import::point_cloud::tests -- --nocapture
+running 11 tests
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out
+Exit code 0. The existing sidecar emits unrelated compiler warnings.
+
+$ npm run test --workspace @metardu/ipc-schemas
+Test Files  4 passed (4)
+Tests       39 passed (39)
+Exit code 0.
+
+$ npm run build --workspace @metardu/ipc-schemas
+Exit code 0.
+
+$ npm run test --workspace @metardu/desktop -- --run
+Test Files  24 passed | 1 skipped (25)
+Tests      268 passed | 7 skipped (275)
+Exit code 0. The 7 skipped tests are the existing Electron IPC round-trip suite; this run does not exercise the new handlers in Electron.
+
+$ npm run build --workspace @metardu/desktop
+Exit code 0.
+
+$ npm run build:renderer
+✓ 2455 modules transformed.
+✓ built in 7.69s
+Exit code 0. Existing Node built-in externalization warnings remain.
+
+$ rustfmt --edition 2021 --check metardu-v2/packages/metardu-sidecar/src/import/point_cloud.rs
+Exit code 0.
+
+$ git diff --check
+Exit code 0; Git printed only Windows LF-to-CRLF notices.
+
+$ Test-Path scripts/electron-smoke.sh
+False. No Electron IPC runtime smoke or actual large-file GUI cancellation is claimed.
+~~~
+
+Evidence limits: Rust job lifecycle and cancellation are covered with generated LAS fixtures; the new Zod contract rejects malformed IDs. The Desktop route-level behavior for project scoping, full-file hash checks, persistence and UI cancellation has not been exercised in a running Electron process because `scripts/electron-smoke.sh` is absent and the repository's existing IPC round-trip suite is skipped. The default GDAL-enabled sidecar release build was not run. Cancellation remains cooperative and may wait for the active bounded batch to finish.
+
+Next product gate: exercise these IPC handlers through a real Electron test harness, then add the separate host-managed chunk API for trusted point-cloud tools. Classification remains unavailable until a named method, derived-output provenance, and independent reference-data validation are implemented.
+
+---
+Task ID: point-cloud-inspection-controller-verification
+Agent: Codex, 29 October 2026
+Task: Isolate and directly verify the main-process LAS/LAZ inspection job controller
+
+Work Log:
+- Extracted the project-scoped inspection job lifecycle from the Electron entrypoint into `main/point-cloud-inspection.ts`, retaining the same three dedicated IPC channel names through a single production route binder.
+- Added rechecks that the source still belongs to the active project after the asynchronous pre-scan hash completes and again after the sidecar job is created. A source-membership change cancels the new sidecar job where possible and prevents the renderer job from being created.
+- Hardened malformed sidecar job IDs and invalid cancellation states so the controller attempts cleanup and fails closed rather than leaving an unknown job pending.
+- Added controller tests using the production route binder, real SQLite project/source/inspection tables, the real content-addressed object store and hash verifier, and a controlled fake sidecar. Cases cover route registration, project scope, malformed IDs, pre-scan tampering, source detachment, progress, final digest mismatch, single persistence, project switching, and cancellation/completion races.
+- Updated the international product plan, ADR-0010, and the task brief to distinguish controller/adapter coverage from a real Electron IPC runtime test.
+
+Verification:
+~~~text
+$ npm run build --workspace @metardu/desktop
+Exit code 0.
+
+$ npm run test --workspace @metardu/desktop -- --run src/tests/point-cloud-inspection-controller.test.ts
+Test Files  1 passed (1)
+Tests       9 passed (9)
+Exit code 0.
+
+$ npm run test --workspace @metardu/desktop -- --run
+Test Files  25 passed | 1 skipped (26)
+Tests       277 passed | 7 skipped (284)
+Exit code 0. The seven skipped tests are the existing Electron-to-sidecar round-trip suite; this is not Electron runtime proof.
+~~~
+
+Evidence limits: the new tests exercise main-process controller logic and its route binder with a fake sidecar, not a launched Electron app or real sidecar job. Renderer cancellation interaction, packaged operation, and large-file behavior remain unverified in the live app.
+
+Next product gate: add a real Electron IPC integration harness, then continue the documented LAS/LAZ structure-validation and host-managed chunk-access gates. No classification or survey deliverable is enabled by this task.
+
+---
+Task ID: point-cloud-las-version-support-gate
+Agent: Codex, 29 October 2026
+Task: Reject LAS/LAZ versions that the pinned reader does not model
+
+Work Log:
+- Inspected the pinned `las-rs 0.11.2` version implementation. Its point-format support ends at version 1.4, while its generic header-size fallback treats future minor versions like the 1.4 layout.
+- Added a fail-closed version check to the bounded raw-header preflight: only LAS major version 1, minor versions 0 through 4 are accepted. Other versions return a clear unsupported-version error before downstream code uses their offsets or metadata.
+- Added a generated LAS 1.5 boundary fixture and verified that the LAS 1.4 fixture continues to be handled by the existing focused suite.
+- Updated the international product plan and added ADR-0011 to reference the current ASPRS LAS 1.4 R16 and LAS 1.5 R00 publications. The documentation explicitly states that this gate does not establish R16 conformance and that LAS 1.5 remains unsupported.
+
+Verification:
+~~~text
+$ cargo test --offline --no-default-features --features instrument import::point_cloud::tests -- --nocapture
+running 12 tests
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out
+Exit code 0. Existing unrelated sidecar compiler warnings remain.
+
+$ rustfmt --edition 2021 --check metardu-v2/packages/metardu-sidecar/src/import/point_cloud.rs
+Exit code 0.
+
+$ git diff --check
+Exit code 0; Git printed only Windows LF-to-CRLF notices.
+~~~
+
+Evidence limits: the test proves explicit rejection of a LAS 1.5 version byte and continued passing of current LAS 1.4 fixtures. No LAS 1.4 R16 producer matrix, LAS 1.5 reader, whole-file conformance claim, or point classification is delivered.
+
+Next product gate: validate the pinned reader against LAS 1.4 R16 known-answer and producer fixtures, then complete waveform/EVLR/padding and pointwise-LAZ structure handling before exposing large point chunks to extension tools.
+
+---
+Task ID: sidecar-cross-platform-test-fixtures
+Agent: Codex, 29 October 2026
+Task: Remove Unix-only filesystem assumptions from sidecar tests
+
+Work Log:
+- Replaced the GDAL nonpositive-interval test's `/etc/hostname` path with an existing temporary file; the test is specifically checking parameter validation before raster decoding.
+- Replaced hard-coded `/tmp/output` paths in two ODM validation tests with temporary output directories, preserving automatic cleanup and allowing the tests to run on Windows.
+- No production GDAL or ODM behavior was changed.
+
+Verification:
+~~~text
+$ cargo test --offline --no-default-features --features instrument
+running 192 tests
+test result: ok. 192 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+Exit code 0. Existing unrelated sidecar compiler warnings remain.
+~~~
+
+This confirms the current sidecar unit suite passes on the Windows development host with these platform-neutral fixtures. It is not packaged-app, device, or field-workflow evidence.
+
+---
+Task ID: desktop-pointcloud-vlr-sequence-bounds
+Agent: Codex, 29 October 2026
+Task: Bound LAS/LAZ VLR extents before parsing and surface pre-point gaps
+
+Work Log:
+- Added a bounded VLR preflight before `las-rs` header parsing. It walks the declared 54-byte record headers and 16-bit payload sizes and rejects any VLR header or payload extending beyond the declared point-data offset or file size.
+- The record-inspection structure report now includes the VLR count, byte range, gap size, and whether the gap is all zero. Gaps remain explicitly unclassified; the code does not call them valid padding or infer a record type.
+- Added malformed-payload, zero-gap, and nonzero-gap LAS fixtures. Both gap fixtures still decode the two header-declared points, while the malformed VLR is rejected before header decoding and the source remains unchanged during inspection.
+- Extended the Point Cloud view with the optional VLR summary and gap disclosure. Previously saved reports without this field remain supported; no IPC or database migration was added.
+- Updated ADR-0012, the scoped task brief, and the international point-cloud gate. This work does not validate reserved-field semantics, record schemas, special LASzip EVLRs, waveform extents, pointwise LAZ, producer interoperability, or full LAS 1.4 Revision 16 conformance.
+
+Verification:
+~~~text
+$ cargo test --offline --no-default-features --features instrument import::point_cloud::tests -- --nocapture
+running 15 tests
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out
+Exit code 0
+
+$ cargo test --offline --release --no-default-features --features instrument
+running 195 tests
+test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+Exit code 0. The sidecar reports existing unrelated compiler warnings.
+
+$ cargo build --offline --release --no-default-features --features instrument
+warning: `metardu-sidecar` (bin "metardu-sidecar") generated 61 warnings
+Finished `release` profile [optimized] target(s) in 8m 00s
+Exit code 0
+
+$ cargo build --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+thread 'main' panicked: windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code 1
+
+$ cargo test --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+thread 'main' panicked: windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code 1
+
+$ npx tsc --noEmit (packages/engine)
+Exit code 0. No output.
+
+$ npx tsc --noEmit (apps/desktop)
+Exit code 0. No output.
+
+$ npm test -- --run (apps/desktop)
+Test Files  25 passed | 1 skipped (26)
+Tests       277 passed | 7 skipped (284)
+Exit code 0. The seven skipped cases are the existing Electron IPC round-trip suite.
+
+$ npm test (packages/engine; sandboxed)
+Test Files  1 failed | 44 passed (45)
+Tests       15 failed | 853 passed (868)
+Cause: connect EACCES to the suite's local mock server at 127.0.0.1:55040.
+Exit code 1
+
+$ npm test (packages/engine; rerun with approved loopback access)
+Test Files  45 passed (45)
+Tests       868 passed (868)
+Exit code 0
+
+$ npm run build:renderer
+✓ 2455 modules transformed.
+✓ built in 16.60s
+Exit code 0. Existing Node built-in externalization warnings remain.
+
+$ rustfmt --edition 2021 --check src/import/point_cloud.rs
+Exit code 0.
+
+$ git diff --check
+Exit code 0; Git printed only Windows LF-to-CRLF notices.
+~~~
+
+Evidence limits: the optimized Rust sidecar build and full 195-test suite pass with GDAL disabled. The default GDAL-enabled build and test remain unverified on this Windows host because `gdal_i.lib` is unavailable. The app renderer built and its types/tests passed, but no live Electron UI screenshot or point-cloud producer matrix was run. Full LAS/LAZ conformance remains unproven.
+
+Next product gate: validate supported LAS 1.4 variants and the reader against independent producer/known-answer fixtures, then cover pointwise LAZ, special EVLR and waveform boundaries before exposing chunk data to analysis extensions.
+
+Verification detail addendum (exact default-feature GDAL failure excerpts):
+~~~text
+$ cargo build --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+thread 'main' (20820) panicked at C:\Users\user\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gdal-sys-0.10.0\build.rs:204:9:
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code 1
+
+$ cargo test --release
+error: failed to run custom build command for `gdal-sys v0.10.0`
+thread 'main' (20508) panicked at C:\Users\user\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gdal-sys-0.10.0\build.rs:204:9:
+windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+Exit code 1
+~~~
+
+---
+Task ID: pointwise-laz-block-boundary
+Agent: Codex — 2026-10-29
+Task: Report the enclosing point-data region for pointwise LAZ without inventing an exact compressed-stream end.
+
+Work Log:
+- Checked the pinned LAS/LAZ reader and OGC LAZ 1.4 Community Standard clauses 6.5, 7.1, 9.5, and 11.2. Pointwise LAZ is one chunk without a chunk table, and the arithmetic stream has no end marker. The file-level enclosing region is bounded by the first ordinary EVLR or EOF; this is distinct from the exact final byte consumed by a decoder.
+- Pointwise reports now expose `pointDataRegionEndByte`, `pointDataRegionByteCount`, and the boundary source when LASzip special-EVLR fields are the required `(-1, -1)` pair. `pointDataEndByte` and `pointDataByteCount` remain null. Special-EVLR references outside that pair remain incomplete and do not receive a guessed boundary.
+- The Point Cloud view labels the enclosing region and explains that its boundary is not the exact stream end. The international product plan and scoped task brief record this capability and its remaining limitations.
+- Tests derive valid compressor-1 fixtures from a single chunk written by the existing LAS/LAZ writer, removing the chunk pointer/table and adjusting EVLR offsets. The pinned reader decodes both points for EOF and first-EVLR cases. A separate case confirms non-default special-EVLR references remain unresolved. These generated fixtures validate the implementation path; they do not establish third-party producer interoperability or full LAZ conformance.
+- `rustfmt --edition 2021 --check src/import/point_cloud.rs` passed. A repository-wide `cargo fmt --all -- --check` reported existing formatting differences in unrelated sidecar modules; no broad formatting was applied.
+- An initial release-test filter used `--exact` without the module-qualified test name and matched zero tests. It was not counted as verification; the corrected `pointwise_laz` filter executed both new tests.
+- `git diff --check` passed with only Git's existing LF-to-CRLF notices. Existing staged deletion `metardu-v2/frontend/main.tsx` and unrelated untracked files were preserved and excluded.
+
+Stage Summary:
+- `cargo test --release --no-default-features --features instrument pointwise_laz -- --nocapture`:
+  ~~~text
+  running 2 tests
+  test import::point_cloud::tests::does_not_claim_pointwise_laz_boundary_with_special_evlr_references ... ok
+  test import::point_cloud::tests::reports_pointwise_laz_region_boundary_without_inventing_stream_end ... ok
+
+  test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 195 filtered out; finished in 0.09s
+  Exit code 0
+  ~~~
+- `cargo test --release --no-default-features --features instrument`:
+  ~~~text
+  test result: ok. 197 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+  Exit code 0
+  ~~~
+- `cargo build --release --no-default-features --features instrument`:
+  ~~~text
+  warning: `metardu-sidecar` (bin "metardu-sidecar") generated 61 warnings (run `cargo fix --bin "metardu-sidecar"` to apply 38 suggestions)
+  Finished `release` profile [optimized] target(s) in 7m 26s
+  Exit code 0
+  ~~~
+- `npx tsc --noEmit` in `apps/desktop/`: Exit code 0; no output.
+- `npm test` in `apps/desktop/`:
+  ~~~text
+  Test Files  25 passed | 1 skipped (26)
+       Tests  277 passed | 7 skipped (284)
+  Exit code 0
+  ~~~
+- `npm run build:renderer`:
+  ~~~text
+  ✓ 2455 modules transformed.
+  ✓ built in 33.90s
+  Exit code 0
+  ~~~
+- Default `cargo build --release` and `cargo test --release` both fail before compiling the sidecar because this Windows host lacks `gdal_i.lib`:
+  ~~~text
+  windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+  Exit code 1
+  ~~~
+- No Electron runtime or real third-party point-cloud producer was exercised. The renderer build confirms compilation, not live UI behavior. Whole-file LAS/LAZ conformance, exact stream-end detection, waveform extents, and special-EVLR interpretation remain unproven.
+- Artifacts: `metardu-v2/packages/metardu-sidecar/src/import/point_cloud.rs`, `metardu-v2/apps/desktop/src/shared/point-cloud.ts`, `metardu-v2/apps/desktop/src/renderer/views/PointCloudView.tsx`, `metardu-v2/docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`, and this task brief/worklog.
+- Next: verify the explicit stage allowlist, commit, push to the Desktop repository only, and verify the remote branch SHA.
+
+---
+Task ID: pointwise-laz-block-boundary — delivery addendum
+Agent: Codex — 2026-10-29
+Task: Record the verified Desktop commit and remote branch state.
+
+Work Log:
+- Reviewed the staged task paths before committing. The task commit used an explicit path allowlist, so the pre-existing staged deletion of `metardu-v2/frontend/main.tsx` was excluded.
+- Commit `212e285a34b0487c4b8e42aeda857c77cca4fdf1` (`fix(point-cloud): report pointwise LAZ block boundary`) was pushed to `origin` at `https://github.com/error302/metardu-desktop.git`, branch `codex/international-desktop-product-plan`.
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `212e285a34b0487c4b8e42aeda857c77cca4fdf1`, matching local `HEAD` at verification time.
+- Existing staged deletion and unrelated untracked work remain outside this task commit.
+
+---
+Task ID: desktop-pointcloud-host-managed-chunks
+Agent: Codex — 2026-11-01
+Task: Add the first bounded, source-verified LAS/LAZ point stream for trusted Desktop host tools.
+
+Work Log:
+- Added a Rust sidecar stream actor that keeps one LAS/LAZ reader open and yields source-order chunks capped at 2,048 points. Each point carries its original index, scale/offset-applied XYZ, intensity, existing numeric classification, return data, scan angle, user data, source ID, and optional GPS time, RGB, and NIR. Metadata explicitly lists optional/omitted dimensions and says CRS, units, coordinate epoch, and vertical reference are not interpreted.
+- Added a main-process-only controller. It accepts a source ID from the active project, resolves the private managed path itself, verifies byte size and SHA-256 before starting and after verified EOF, enforces contiguous point/chunk indices, rejects stale project/source membership, and confirms cancellation through sidecar status. Project changes and app shutdown request cancellation. No renderer/preload route or ABI v1 project-data capability was added.
+- Updated ADR-0013, the task brief, and the international product plan. The plan now records this as a read-only data-streaming foundation; community plug-ins do not consume it yet, and classification, derived-output writing, and usable end-to-end LiDAR workflows remain unavailable.
+- The first count-mismatch fixture edit updated the LAS 1.4 extended point count but not the legacy count, so the reader still saw two records. The test fixture was corrected to create an unambiguous mismatch; the final focused test and full Rust suite pass.
+
+Verification:
+- `npm run build` in `packages/ipc-schemas`: Exit 0.
+- `npx tsc --noEmit` in `apps/desktop`: Exit 0.
+- `npm test` in `apps/desktop`: 26 test files passed, 1 skipped; 284 tests passed, 7 skipped; Exit 0.
+- `npm run build:renderer` in `metardu-v2`: 2,455 modules transformed; build completed in 10.95 seconds; Exit 0. Existing browser-externalization warnings for Node modules remain. This is a renderer compilation check, not an Electron runtime test.
+- `cargo test --no-default-features --features instrument` in `packages/metardu-sidecar`: 198 passed, 0 failed; Exit 0. This includes the new LAS/LAZ stream test for chunk bounds/order, scale/offset, dimensions, sequential indices, count mismatch, single in-flight reads, cancellation, malformed IDs, one active stream, and unchanged source bytes.
+- `rustfmt --edition 2021 --config skip_children=true --check src/import/point_cloud.rs`: Exit 0.
+- `git diff --check`: Exit 0; Git emitted only its existing Windows LF-to-CRLF notices.
+
+Evidence limits: This does not run an Electron instance, exercise a real third-party LAS/LAZ producer or processing plug-in, validate classifier methods, write derived point-cloud files, or prove full LAS/LAZ conformance or field use. The default GDAL-enabled build was not run for this delivery; the earlier worklog records that this host lacks `gdal_i.lib`.
+
+Next LiDAR gate: use representative surveyor-owned LAS/LAZ datasets to validate producer compatibility and performance, then design a versioned capability-scoped extension interface and a separate derived-artifact/provenance writer before enabling any classification workflow.
+
+Stage Summary:
+- The verified pointwise-LAZ boundary change is committed and available on the METARDU Desktop feature branch. This delivery record is appended after the verification above.
+
+---
+Task ID: desktop-las14-class-interpretation — delivery record
+Agent: Codex — 2026-11-01
+Task: Show LAS 1.4 point-format-aware meanings for stored classes and separate source-provided lookup descriptions.
+
+Changes:
+- Inspection reports preserve each numeric class and count, add LAS 1.4 base meanings selected by legacy point formats 0-5 or modern formats 6-10, and keep other LAS versions numeric-only.
+- A classification lookup is used only when a single `LASF_Spec` record ID 0 VLR contains the complete 4,096-byte table, all 256 class codes exactly once, and printable ASCII descriptions. Duplicate VLRs, malformed payloads, and lookalike EVLRs are ignored; invalid VLR metadata adds a warning.
+- Source descriptions remain separate from standard meanings. Codes 39-63 are marked profile-dependent; user-defined and reserved codes are described conservatively. The UI states that metadata does not validate class correctness and no classifier ran. Old saved reports retain their numeric fallback.
+- Added ADR-0014 and an implementation brief; updated the international product plan.
+
+Verification (terminal evidence):
+- `cargo test --no-default-features --features instrument point_cloud::tests -- --nocapture`:
+  ~~~text
+  running 22 tests
+  test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out; finished in 0.24s
+  ~~~
+- `cargo test --no-default-features --features instrument`:
+  ~~~text
+  test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+  ~~~
+- `npx tsc --noEmit`: Exit code 0; no output.
+- `npm test` in `apps/desktop/`:
+  ~~~text
+  Test Files  26 passed | 1 skipped (27)
+       Tests  284 passed | 7 skipped (291)
+  ~~~
+- `npm run build:renderer` in `metardu-v2/`:
+  ~~~text
+  ✓ 2455 modules transformed.
+  ✓ built in 4.10s
+  ~~~
+  Exit code 0. Existing browser-externalization warnings for Node modules remain; this is compilation evidence, not an Electron runtime check.
+- `rustfmt --edition 2021 --config skip_children=true --check metardu-v2\packages\metardu-sidecar\src\import\point_cloud.rs`: Exit code 0.
+- `git diff --check`: Exit code 0; Git emitted only its Windows LF-to-CRLF notices for the four modified tracked source/docs files.
+
+Evidence limits: The LinkedIn post shows a point-cloud class-visualization workflow but does not establish its algorithm, accuracy, or license. This task improves reading of existing LAS labels; it does not classify points, create derived LAS/LAZ or terrain artifacts, validate domain profiles or classification correctness, prove full-file conformance or third-party producer compatibility, or exercise the live Electron workflow. GDAL-enabled default builds and field use were not verified.
+
+Stage only the seven task-owned files listed in the task brief, then append the commit and Desktop remote verification here. Do not include the unrelated staged deletion or untracked work already present in the checkout.
+---
+
+---
+Task ID: desktop-las14-class-interpretation — delivery addendum
+Agent: Codex — 2026-11-01
+
+- Commit `985f9d97fc2244c8b552c26b9816ff540b8951a0` (`feat(point-cloud): explain LAS 1.4 class labels`) contains only the seven scoped implementation, documentation, and worklog paths.
+- Push output:
+  ~~~text
+  To https://github.com/error302/metardu-desktop.git
+     ece2067..985f9d9  codex/international-desktop-product-plan -> codex/international-desktop-product-plan
+  ~~~
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan`:
+  ~~~text
+  985f9d97fc2244c8b552c26b9816ff540b8951a0	refs/heads/codex/international-desktop-product-plan
+  ~~~
+  This matched local `HEAD` at verification time.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside the implementation commit.
+---
+
+---
+Task ID: desktop-nmea-absent-observation-semantics
+Agent: Codex — 2026-11-03
+Task: Preserve missing GNSS measurements, reject malformed typed observations, and retain rejected GGA/GSA serial evidence.
+
+Work Log:
+- Changed the Rust sidecar parser and both TypeScript GNSS parser copies to represent absent GGA/GSA measurements as `None`/`null`, preserve explicit numeric zeros, keep altitude and geoid fields separate from their receiver-provided unit tokens, and reject malformed or out-of-range values.
+- Kept quality metrics unavailable when required receiver DOP/fix values are missing. A `no_fix` assessment is produced only from an explicit GGA fix-quality code of `0`; a missing DOP no longer creates a synthetic `99` or accuracy estimate.
+- Changed the live serial reader to retain rejected GGA/GSA inputs as `nmea_rejected` raw records without parsed coordinates or quality values. Typed NMEA parsing still rejects invalid checksums and invalid fields.
+- Added tests for missing/zero/malformed values, coordinate validation, strict integer syntax, non-ASCII talker safety, and rejected raw serial retention. The two TypeScript parser copies have matching SHA-256 hashes.
+- Did not add CRS inference, height conversion, or survey-accuracy claims. Kept the pre-existing staged deletion and unrelated untracked paths outside this task.
+
+Verification:
+- Focused engine GNSS tests:
+  ~~~text
+  Test Files  2 passed (2)
+       Tests  92 passed (92)
+  Exit code 0
+  ~~~
+- Full engine suite with loopback enabled for its local sync mock server:
+  ~~~text
+  Test Files  45 passed (45)
+       Tests  876 passed (876)
+  Exit code 0
+  ~~~
+- Engine and Desktop `npx tsc --noEmit`: both exit code 0.
+- Sidecar instrument feature suite:
+  ~~~text
+  test result: ok. 210 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+  Exit code 0
+  ~~~
+- Default sidecar `cargo test` stops before test compilation because `gdal-sys` cannot find `gdal_i.lib` under `$GDAL_LIB_DIR` or `$GDAL_HOME\lib`. The instrument-feature suite above compiles and passes without the GDAL feature.
+- The first full engine suite attempt failed its 15 localhost sync tests with `connect EACCES 127.0.0.1`; rerunning the same `npm test` command with loopback access passed all 876 tests. No external service was contacted.
+- `git diff --check`: exit code 0; Windows line-ending notice only.
+- A fresh instrument-feature release build was still running at this entry; its final output is recorded in the verification addendum.
+
+Evidence limits: Type-level and fixture tests do not establish interoperability with a live receiver or field accuracy. Rejected records preserve the received line for review but do not explain which parser/checksum condition failed. The default-feature Rust test/build gate remains constrained by the missing GDAL Windows import library.
+Task ID: community-extension-project-artifact-v1
+Agent: Codex - 6 November 2026
+Task: Save bounded community extension outputs as portable, project-linked draft artifacts.
+
+Work Log:
+- Added a host-validated project artifact schema and bounded run/list IPC. The host records canonical input/output JSON, exact package/module digests, input/output SHA-256, plugin metadata claims, project ID/version, timestamp, and immutable Community / Draft state.
+- Added a SQLite v8 migration and version-checked persistence. The project version is checked both before extension execution and immediately before storing the result. Per-project stored extension JSON is capped at 32 MiB and 10,000 artifacts.
+- Added a user-triggered “Run and save to active project” action and a project artifact viewer in Community Extensions.
+- Advanced project bundles to v2 with artifact JSON/digest checks and v1 import compatibility.
+- Added ADR-0029 and a scoped implementation brief. No survey method or accuracy is inferred from a saved artifact or its digests.
+
+Verification (build/typecheck only; no runtime or field acceptance):
+~~~text
+npm run build --workspace @metardu/ipc-schemas
+> @metardu/ipc-schemas@0.1.0 build
+> tsc -p tsconfig.json
+exit code 0.
+
+npm exec --workspace @metardu/desktop -- tsc --noEmit
+exit code 0; no output.
+
+npx tsc -p tsconfig.renderer-check.json --noEmit
+exit code 0; no output.
+
+npm run build --workspace @metardu/desktop
+> @metardu/desktop@0.2.0 build
+> tsc -p tsconfig.json && node ../../scripts/build-desktop-preload.mjs
+Sandboxed preload bundled; only Electron remains external.
+
+npm run build:renderer
+vite v8.1.5 building client environment for production...
+✓ 2491 modules transformed.
+✓ built in 2.05s
+Existing browser-externalization warnings for node:zlib, fs, path, and util remain.
+
+git diff --check: exit code 0; no whitespace diagnostics.
+~~~
+- Tests were not run. No Electron runtime smoke, SQLite migration exercise, run/save UI interaction, bundle round trip, source-data processing, geometry/coverage/residual check, recipient-system round trip, real survey, or professional review was performed.
+
+Stage Summary and limits:
+- Small bounded JSON extension results can now be retained with project/version and digest provenance and preserved in a portable project bundle. The community module still receives only explicit JSON and has no live project, file, network, database, point-cloud, or instrument access.
+- This is a persistence step toward extensible international survey workflows, not the complete capture-to-delivery automation described by the example practice. Automated feature geometry, curve sampling, breaklines, coverage, control residuals, actual deliverable-file verification, large LiDAR processing, CAD/GIS/BIM recipient checks, and human professional review remain separate gates.
+- Preserve the staged frontend deletion and all concurrent work. Commit only the artifact feature paths and this task's worklog append.
+
+Stage Summary:
+- Source and focused verification are complete locally. Commit and Desktop-branch push evidence will be appended after delivery.
+---
+
+---
+Task ID: desktop-nmea-absent-observation-semantics — verification addendum
+Agent: Codex — 2026-11-03
+
+- Fresh instrument-feature release build:
+  ~~~text
+  warning: `metardu-sidecar` (bin "metardu-sidecar") generated 59 warnings
+  Finished `release` profile [optimized] target(s) in 5m 35s
+  Exit code 0
+  ~~~
+- Optimized instrument-feature sidecar suite:
+  ~~~text
+  Finished `release` profile [optimized] target(s) in 7m 14s
+  test result: ok. 210 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+  Exit code 0
+  ~~~
+- These feature-specific release checks do not remove the default-feature test limitation: Windows `gdal-sys` requires `gdal_i.lib`, which is not available in this environment.
+- The 59/56 compiler warning counts are existing broader sidecar warnings; this task does not alter unrelated warning sources.
+---
+
+---
+Task ID: desktop-project-coordinate-declarations
+Agent: Codex — 2026-11-01
+Task: Persist user-declared coordinate units, epoch, and vertical reference on Desktop projects.
+
+Work Log:
+- Added a versioned IPC schema and SQLite schema v5 field for project horizontal units, optional decimal-year coordinate epoch, and optional named vertical reference with explicit units. Every saved context is fixed to `user_declared_unverified`; no CRS, jurisdiction, or coordinate-value inference was added.
+- Added create/edit/clear controls in Projects. Blank optional values remain absent. Existing projects remain undeclared until an explicit save; the panel labels declarations unverified and says they do not transform coordinates or verify a datum.
+- Preserved valid context through project persistence, local undo/redo, and the Desktop sync envelope. Imported malformed context is surfaced as invalid and its raw database value remains intact after unrelated edits.
+- Fixed project recreation in undo/redo to clear and restore the active-project foreign key around the generated-ID replacement; tests cover create, update, and delete restore paths with context.
+- Updated the international product plan and added ADR-0016 plus this task brief. The opened LinkedIn post confirms an early surveyor-built point-cloud classification prototype, but provides no algorithm or accuracy evidence. CloudCompare's official plugin catalog shows existing classification extensions; its GPL-3.0 source requires a reviewed distribution strategy before reuse.
+
+Verification:
+- `npm run build --workspace @metardu/ipc-schemas`:
+  ~~~text
+  > @metardu/ipc-schemas@0.1.0 build
+  > tsc -p tsconfig.json
+  Exit code 0
+  ~~~
+- `npm test --workspace @metardu/ipc-schemas`:
+  ~~~text
+  Test Files  5 passed (5)
+       Tests  44 passed (44)
+  Exit code 0
+  ~~~
+- Focused Desktop tests (`database-project-crs`, `database-point-cloud`, `project-store-core`, `sync-projects`, `undo-redo-coordinate-context`):
+  ~~~text
+  Test Files  5 passed (5)
+       Tests  35 passed (35)
+  Exit code 0
+  ~~~
+- `npm test` in `apps/desktop`:
+  ~~~text
+  Test Files  28 passed | 1 skipped (29)
+       Tests  293 passed | 7 skipped (300)
+  Exit code 0
+  ~~~
+- `npm run build --workspace @metardu/desktop`: `tsc -p tsconfig.json`; Exit code 0.
+- `npm run build:renderer`: 2,476 modules transformed; Vite build completed in 5.25 seconds; Exit code 0. Existing Node module externalization warnings for `node:zlib`, `fs`, `path`, and `util` remain. This is compilation evidence, not an Electron runtime test.
+- `git diff --check`: Exit code 0; Git emitted only Windows LF-to-CRLF notices.
+- The first full Desktop suite run caught a migration test that still expected schema version 4. Updated the assertion for schema v5 and reran the full suite successfully.
+
+Evidence limits: The Projects UI was compiled but not exercised in a live Electron session. Unit declarations are not checked against EPSG, do not unlock transformations or vertical conversion, and are not shown in the persistent status strip yet. The sync test verifies only Desktop's outgoing envelope; Web-side persistence/round-trip is not established. The LinkedIn prototype does not establish classifier accuracy or CloudCompare reuse rights.
+
+Stage Summary:
+- Project coordinate declarations are implemented and verified. The scoped implementation was committed and pushed to the METARDU Desktop repository; the delivery addendum below records the remote SHA. The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files are excluded.
+---
+
+---
+Task ID: desktop-project-coordinate-declarations — delivery addendum
+Agent: Codex — 2026-11-01
+
+- Commit `e32110362f28bd2f619accb867de27be61663213` (`feat(projects): store coordinate context declarations`) contains the 19 explicitly scoped project-context implementation, tests, plan, ADR, brief, and worklog paths.
+- Push output:
+  ~~~text
+  To https://github.com/error302/metardu-desktop.git
+     55456ef..e321103  codex/international-desktop-product-plan -> codex/international-desktop-product-plan
+  ~~~
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan`:
+  ~~~text
+  e32110362f28bd2f619accb867de27be61663213	refs/heads/codex/international-desktop-product-plan
+  ~~~
+  This matched local `HEAD` at verification time.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked work remain outside both commits.
+---
+
+---
+Task ID: desktop-pointcloud-sampled-viewport — delivery entry
+Agent: Codex — 2026-11-01
+
+- Added a bounded, class-colored LAS/LAZ visual preview to the Point Cloud screen. The trusted main process reads the full header-declared stream through the existing project-scoped, before-and-after hash-verified chunk controller. It retains a deterministic source-index stride sample capped at 25,000 points, exposes scan progress and cancellation, and clears partial samples after cancellation/failure. The renderer receives only the bounded sample and sanitized source name, not a source path or storage key.
+- The viewport supports rotate, zoom, local XYZ axes, sample class counts, class visibility filters, and sampled-coordinate ranges. It labels the view as local and visualization-only; the coordinates use LAS scale/offset, while CRS, units, epoch, and vertical reference are not interpreted. Display colors identify existing class codes and do not assert the source classifications are correct.
+- The opened LinkedIn post says its author built a small point-cloud classification tool with Claude in 3–4 hours; it does not disclose an algorithm, accuracy evaluation, or an integration license. This implementation is a read-only preview, not a classifier, derived LAS/LAZ writer, terrain model, or community plug-in.
+- Verification:
+  - `npm run build` in `packages/ipc-schemas`: exit 0.
+  - `npm test` in `packages/ipc-schemas`: 4 files passed; 41 tests passed.
+  - `npm test` in `apps/desktop`: 27 files passed, 1 skipped; 287 tests passed, 7 skipped.
+  - `npx tsc --noEmit` in `apps/desktop`: exit 0.
+  - `npm run build:renderer` in `metardu-v2`: exit 0; Vite emitted existing Node-module externalization warnings.
+  - `git diff --check`: exit 0; Windows line-ending notices only.
+- Evidence limit: renderer compilation and controller/schema tests do not prove Electron runtime interaction, third-party LAS/LAZ producer compatibility, accuracy of a future classification algorithm, or survey deliverable suitability. Real-world file fixtures, runtime viewport review, performance profiling, and independently validated classifiers remain future gates.
+- Commit `b622eac0c0692a515f7f79365d99dc14cd688b5c` (`feat(point-cloud): add sampled class viewport`) contains the 15 scoped implementation, test, plan, decision, and worklog paths.
+- The METARDU Desktop branch `codex/international-desktop-product-plan` was pushed to `https://github.com/error302/metardu-desktop.git`. `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `b622eac0c0692a515f7f79365d99dc14cd688b5c`, matching local `HEAD` at that verification point.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside the implementation commit.
+---
+
+---
+Task ID: desktop-active-project-coordinate-status
+Agent: Codex — 2026-11-03
+
+Work Log:
+- Wired the always-visible AppShell status bar to the existing `projects.list` and `projects.onChanged` bridge. It now displays the active project's stored CRS code, horizontal unit, coordinate epoch, vertical reference, and evidence state while the surveyor changes workflows.
+- Added explicit loading and unavailable states so asynchronous project loading or a failed local project read cannot be mistaken for an empty project. Legacy and incomplete projects show missing values as not recorded. Invalid stored declarations show all declaration fields as unreadable and direct the user to Projects; no partial invalid declaration is exposed.
+- Added a pure formatter with runtime shape checks. A CRS integer is displayed only as `EPSG:<stored code>`; the formatter does not resolve a CRS definition, infer units from jurisdiction or code, validate a coordinate operation, or transform coordinates. User declarations remain labeled unverified.
+- The change uses the existing project IPC and grants no new capability. Source-specific coordinate contexts, geodetic validation, and coordinate transformations remain out of scope.
+- Updated the international product plan and marked this task brief complete.
+
+Verification:
+- `npm test --workspace @metardu/desktop`:
+  ~~~text
+  Test Files  29 passed | 1 skipped (30)
+       Tests  300 passed | 7 skipped (307)
+  Exit code 0
+  ~~~
+- `npm run build --workspace @metardu/desktop`:
+  ~~~text
+  > @metardu/desktop@0.2.0 build
+  > tsc -p tsconfig.json
+  Exit code 0
+  ~~~
+- `npm run build:renderer`:
+  ~~~text
+  ✓ 2477 modules transformed.
+  ✓ built in 2.91s
+  Exit code 0
+  ~~~
+  Existing browser-compatibility warnings remain for `node:zlib`, `fs`, `path`, and `util` imports in other renderer dependencies.
+- `git diff --check`: Exit code 0; Git emitted only existing Windows LF-to-CRLF notices for the edited product plan and stylesheet.
+
+Evidence limits: Tests exercise all seven coordinate-status cases, including loading, unavailable project state, no project, legacy values, user declarations, malformed declarations, and malformed CRS codes. The Electron application was not launched for a live window check. Builds and tests do not prove geodetic correctness, field usability, statutory acceptance, or survey accuracy; this change only renders project metadata.
+
+Stage Summary:
+- Status-strip implementation is complete locally and passed the checks above. Commit and push evidence will be appended after delivery.
+---
+
+---
+Task ID: desktop-active-project-coordinate-status — delivery addendum
+Agent: Codex — 2026-11-03
+
+- Commit `c3757b2ac7acc42d7a53a1dafed5daeb8358c5a0` (`feat(projects): show coordinate context in shell`) contains only the eight task-owned implementation, test, plan, decision, brief, and worklog paths.
+- Push output:
+  ~~~text
+  To https://github.com/error302/metardu-desktop.git
+     08e00a7..c3757b2  codex/international-desktop-product-plan -> codex/international-desktop-product-plan
+  ~~~
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned:
+  ~~~text
+  c3757b2ac7acc42d7a53a1dafed5daeb8358c5a0  refs/heads/codex/international-desktop-product-plan
+  ~~~
+  It matched local `HEAD` at verification time.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside the implementation commit.
+---
+
+---
+Task ID: desktop-nmea-absent-observation-semantics — delivery addendum
+Agent: Codex — 2026-11-03
+
+- Commit `38f623abf283d43f1c3477fec8ef863b57748454` (`fix(gnss): preserve absent NMEA observations`) contains the scoped GNSS parser, live serial raw-retention, tests, ADR, brief, and verification entry.
+- Push output:
+  ~~~text
+  To https://github.com/error302/metardu-desktop.git
+     bddb2e4..38f623a  codex/international-desktop-product-plan -> codex/international-desktop-product-plan
+  ~~~
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned:
+  ~~~text
+  38f623abf283d43f1c3477fec8ef863b57748454  refs/heads/codex/international-desktop-product-plan
+  ~~~
+  It matched local `HEAD` at verification time.
+- Only task-owned paths were included in the commit. The earlier staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside it.
+---
+
+---
+Task ID: desktop-pointcloud-source-coordinate-context
+Agent: Codex — 2026-11-03
+Task: Record explicit coordinate context separately for each LAS/LAZ source.
+
+Work Log:
+- Added schema version 6 with a nullable source coordinate declaration. Existing v5 sources migrate with no inferred declaration and keep their source metadata unchanged.
+- Added validated, active-project-scoped save/clear IPC for a free-text horizontal CRS label, horizontal unit, optional coordinate epoch, and optional named vertical reference with unit.
+- Added Point Cloud controls that distinguish missing, invalid, and saved declarations. Every saved declaration is visibly user-declared and unverified; no values are copied from the project or interpreted from LAS WKT.
+- Invalid JSON or schema values are retained in SQLite and summarized as invalid without exposing partial values to the renderer. Explicit replacement or clear is required to overwrite them.
+- Updated ADR-0019 and the international product plan. Source declarations remain local metadata; source-context edit history, Web sync, backup bundles, CRS operations, and classification remain future gates.
+- The first full Desktop test run found one test still expecting database schema v5. Updated the migration assertion and added a direct v5 source-table migration test; the rerun passed.
+
+Verification:
+- `npm run build --workspace @metardu/ipc-schemas`:
+  ~~~text
+  > @metardu/ipc-schemas@0.1.0 build
+  > tsc -p tsconfig.json
+  Exit code 0
+  ~~~
+- `npm test --workspace @metardu/ipc-schemas`:
+  ~~~text
+  Test Files  5 passed (5)
+       Tests  47 passed (47)
+  Exit code 0
+  ~~~
+- `npm test --workspace @metardu/desktop`:
+  ~~~text
+  Test Files  30 passed | 1 skipped (31)
+       Tests  306 passed | 7 skipped (313)
+  Exit code 0
+  ~~~
+- `npm run build --workspace @metardu/desktop`:
+  ~~~text
+  > @metardu/desktop@0.2.0 build
+  > tsc -p tsconfig.json
+  Exit code 0
+  ~~~
+- `npm run build:renderer`:
+  ~~~text
+  > metardu-v2@0.2.0 build:renderer
+  > vite build
+  ✓ built in 3.07s
+  Exit code 0
+  ~~~
+  Existing browser-compatibility externalization warnings remain for Node modules including `node:zlib`, `fs`, and `path`.
+- `git diff --check`: exit 0, no whitespace diagnostics; Git emitted only existing LF-to-CRLF notices.
+
+Evidence limits:
+- These tests establish schema validation, SQLite migration/persistence, active-project source scope, and UI compilation. They do not establish CRS correctness, coordinate operations, vertical datum validity, survey accuracy, or safe classification parameters.
+- The Desktop application was not launched for a live UI check. Source-context changes are not yet versioned in an audit history and are not in a portable project bundle or Web sync.
+- LiDAR classification and derived point-cloud output remain unavailable for professional delivery. Complete LAS/LAZ conformance and independent surveyor validation remain required.
+
+Stage Summary:
+- Source-specific coordinate declarations are implemented and locally verified. Only task-owned paths will be committed. Commit/push proof will be appended after delivery; the pre-existing staged deletion and unrelated untracked work remain outside this task.
+---
+
+---
+Task ID: desktop-pointcloud-source-coordinate-context — delivery addendum
+Agent: Codex — 2026-11-03
+
+- Commit `257229cbecf4df422dc660f1bed7f600ed68bd8e` (`feat(point-cloud): declare source coordinate context`) contains the 16 task-owned implementation, test, plan, ADR, brief, and worklog paths. The pre-existing staged deletion is excluded.
+- Push output:
+  ~~~text
+  To https://github.com/error302/metardu-desktop.git
+     edb0b23..257229c  codex/international-desktop-product-plan -> codex/international-desktop-product-plan
+  ~~~
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned:
+  ~~~text
+  257229cbecf4df422dc660f1bed7f600ed68bd8e  refs/heads/codex/international-desktop-product-plan
+  ~~~
+  This matched local `HEAD` at verification time.
+- The pre-existing deletion of `metardu-v2/frontend/main.tsx` remains staged after the feature commit; unrelated untracked work remains untouched.
+---
+
+---
+Task ID: desktop-pointcloud-r16-header-extrema
+Agent: Codex — 2026-11-03
+Task: Compare decoded LAS point extrema with source header bounds and correct the stale LiDAR status claim.
+
+Work Log:
+- Added `headerBoundsMatchDecodedExtrema` to record-inspection output. It compares the six LAS header min/max values with decoded coordinates after LAS scale/offset using a four-binary64-epsilon magnitude-scaled representation tolerance; the UI explicitly says this is not positional-accuracy evidence.
+- Kept `headerBoundsContainDecodedPoints` and applies the same representation tolerance to its boundaries. Incomplete point ranges, non-finite coordinates, and non-finite header values produce an inconclusive extrema comparison. Empty complete files match only when all six header extrema equal zero.
+- Added LAS fixture coverage for exact extrema, a stale but still enclosing Max X, one-ULP tolerance, inconclusive scans, empty-file semantics, and source immutability.
+- Updated the international Desktop plan and ADR-0020. Marked `STATUS-AND-REMAINING.md` as a historical snapshot and corrected its unsupported claim that Desktop LiDAR classification/DTM/DSM are complete.
+- The repository's default `cargo build --release` was attempted and failed because this Windows environment lacks `gdal_i.lib`. The supported no-default-features instrument build completed successfully. The engine's first sandboxed test attempt could not connect to its local mock server (`EACCES` on loopback); rerunning the same suite with loopback permission passed all tests.
+
+Verification:
+- `cargo test --release import::point_cloud::tests --no-default-features --features instrument`:
+  ~~~text
+  test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 188 filtered out; finished in 0.21s
+  ~~~
+- `cargo test --release --no-default-features --features instrument`:
+  ~~~text
+  test result: ok. 213 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+  ~~~
+- `cargo build --release --no-default-features --features instrument`:
+  ~~~text
+  warning: `metardu-sidecar` (bin "metardu-sidecar") generated 59 warnings (run `cargo fix --bin "metardu-sidecar" -p metardu-sidecar` to apply 36 suggestions)
+      Finished `release` profile [optimized] target(s) in 6m 19s
+  ~~~
+- `cargo build --release`:
+  ~~~text
+  error: failed to run custom build command for `gdal-sys v0.10.0`
+  thread 'main' (35872) panicked at C:\Users\user\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gdal-sys-0.10.0\build.rs:204:9:
+  windows-msvc requires gdal_i.lib to be present in either $GDAL_LIB_DIR or $GDAL_HOME\lib.
+  ~~~
+- `npm test --workspace @metardu/desktop`:
+  ~~~text
+  Test Files  30 passed | 1 skipped (31)
+       Tests  306 passed | 7 skipped (313)
+  ~~~
+- `npm run build --workspace @metardu/desktop`:
+  ~~~text
+  > @metardu/desktop@0.2.0 build
+  > tsc -p tsconfig.json
+  ~~~
+- `npx tsc --noEmit` in `apps/desktop/` and `packages/engine/`: both exited 0 with no output.
+- `npm test` in `packages/engine/`:
+  ~~~text
+  Test Files  45 passed (45)
+       Tests  876 passed (876)
+  ~~~
+- `npm run build:renderer`:
+  ~~~text
+  ✓ 2477 modules transformed.
+  ✓ built in 3.04s
+  ~~~
+  Existing warnings remain for browser externalization of `node:zlib`, `fs`, `path`, and `util` imports.
+- `git diff --check`: exit 0; only the repository's Windows LF-to-CRLF notices were emitted.
+
+Evidence limits:
+- The default GDAL-enabled release build remains unverified on this machine because its required import library is absent; the no-GDAL release build and full no-GDAL Rust suite pass.
+- No live Electron window or independent LAS producer interoperability test was run. This report checks source-header consistency only; it does not verify CRS, units, epoch, positional accuracy, classification, or whole-file LAS/LAZ conformance.
+- The LiDAR classification workflow remains unavailable; only the historical status claim was corrected.
+
+Stage Summary:
+- The R16 header-extrema comparison is implemented and locally verified. The product's next LiDAR gate remains full structure/conformance review, then a named classifier and separate derived LAS/LAZ writer. Task-owned commit and push evidence will be appended after delivery; unrelated staged and untracked work remains outside this task.
+---
+
+Delivery Addendum:
+- Commit `a0f9020ef071b823eec9b8915c8a3a1ff106802c` (`fix(point-cloud): verify LAS header extrema`) contains only the eight task-owned implementation, UI contract, plan, status correction, ADR, brief, and worklog paths.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` was excluded with a path-scoped commit. Other untracked work remains untouched.
+- Remote push and GitHub branch-tip verification will be recorded after delivery.
+
+Push Verification Addendum:
+- Push completed to `https://github.com/error302/metardu-desktop.git`: `7c5edcc..fe7c949 HEAD -> codex/international-desktop-product-plan`.
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `fe7c949a804c3fa43c190c89e617bb19243573c4`, matching local `HEAD` at verification time.
+- The pre-existing staged deletion and unrelated untracked files remain outside the task commits.
+
+---
+Task ID: desktop-community-extension-package-v1
+Agent: Codex — 2026-11-03
+Task: Import, store, list, and explicitly run bounded offline community extension packages.
+
+Work Log:
+- Implemented `.mdplug` ZIP v1 with an exact root-member allowlist (`manifest.json`, `module.wasm`, `LICENSE.txt`), strict canonical manifest parsing, bounded decompression, SHA-256 module/package checks, and content-addressed local storage. Import does not execute code; list and run recheck package contents and hashes.
+- Added typed IPC schemas and a narrow preload API for install/list/run. Separated route registration for direct tests; tests prove package import does not call the sidecar and a storage integrity error prevents execution.
+- Updated Extensions view to make local package import/list/select/run the primary flow. The raw `.wasm` picker remains in a collapsed developer preview. Metadata and output remain Community / Draft.
+- Updated ABI v1, ADR-0007, ADR-0021, the international product plan, and this worklog. The LinkedIn LiDAR prototype remains a target example; current ABI v1 has no point-cloud or project-data access and does not classify clouds.
+- Added `yauzl` as a Desktop runtime dependency and `fflate`/`@types/yauzl` as development dependencies; `npm ls --workspace @metardu/desktop --depth=0` resolved them from the checked-in lockfile.
+
+Verification:
+- Focused package-store and route tests:
+  ~~~text
+  Test Files  2 passed (2)
+       Tests  10 passed (10)
+  ~~~
+- `npm test --workspace @metardu/desktop`:
+  ~~~text
+  Test Files  32 passed | 1 skipped (33)
+       Tests  316 passed | 7 skipped (323)
+  ~~~
+- `npm run test:ipc-schemas`:
+  ~~~text
+  Test Files  5 passed (5)
+       Tests  49 passed (49)
+  ~~~
+- `npm run build --workspace @metardu/ipc-schemas`, `npm run build --workspace @metardu/desktop`, `npx tsc --noEmit -p apps/desktop/tsconfig.json`, and `npx tsc --noEmit -p packages/engine/tsconfig.json` all exited 0. The two TypeScript no-emit checks produced no output.
+- `npm run build:renderer`:
+  ~~~text
+  ✓ 2477 modules transformed.
+  ✓ built in 5.00s
+  ~~~
+  Existing browser-externalization warnings remain for `node:zlib`, `fs`, `path`, and `util` imports.
+- Engine suite first failed in the sandbox because its local mock REST server could not connect to `127.0.0.1` (`EACCES`); rerunning with loopback permission passed:
+  ~~~text
+  Test Files  45 passed (45)
+       Tests  876 passed (876)
+  ~~~
+- `cargo build --release` and `cargo test --release` both failed in `gdal-sys` because this Windows environment has no `gdal_i.lib` in `GDAL_LIB_DIR` or `GDAL_HOME\lib`. With the supported GDAL-free instrument build:
+  ~~~text
+  cargo build --release --no-default-features --features instrument
+  warning: `metardu-sidecar` (bin "metardu-sidecar") generated 59 warnings
+      Finished `release` profile [optimized] target(s) in 5m 59s
+  cargo test --release --no-default-features --features instrument
+  test result: ok. 213 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+  ~~~
+- `npm run test:e2e --workspace @metardu/desktop -- e2e/smoke.spec.ts` (Vite/Chromium renderer smoke, not Electron):
+  ~~~text
+  14 passed (1.6m)
+  ~~~
+- The complete Playwright run passed 20 of 24 tests and failed 4 instrument-connection tests because their expected Live Mode controls were not found. All 14 app-shell smoke tests passed. No Electron/native preload launch check ran; the `scripts/electron-smoke.sh` path required by `AGENT.md` is absent in this checkout.
+- `git diff --check` is recorded after the final worklog update.
+
+Evidence limits:
+- `.mdplug` v1 is local-only. It has no publisher signature/authentication, catalog, SDK, package update/removal workflow, project or instrument capability, or point-cloud chunk capability. Publisher and licence fields are claims. Its 4 MiB JSON input cannot carry real LAS/LAZ/COPC clouds; this change does not implement or validate a LiDAR classifier.
+- Wasmtime ABI v1 output is Community / Draft, not a survey-grade or legally accepted result. The browser smoke suite does not prove the Electron preload/IPC runtime path.
+- Default GDAL-enabled Rust build/test remains unavailable due to the missing Windows GDAL import library. The instrument-feature build and tests do not cover GDAL.
+
+Stage Summary:
+- Offline package import/list/explicit-run path is implemented and locally verified at package-store, route, schema, Desktop, renderer-build, engine, and GDAL-free sidecar levels. The next LiDAR milestone needs a separate host-managed streaming capability, safe derived-output workflow, named classification method, and validation data. Only task-owned files will be committed; unrelated staged and untracked work remains excluded.
+
+Delivery Addendum:
+- Implementation commit: `83034c576edea86c6edcc5b8de7798b3c04c6e35` (`feat(extensions): install local community packages`). Its path-scoped commit excluded the pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and all unrelated untracked files.
+- Push completed to `https://github.com/error302/metardu-desktop.git`: `925077a..83034c5 codex/international-desktop-product-plan -> codex/international-desktop-product-plan`.
+- `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `83034c576edea86c6edcc5b8de7798b3c04c6e35`, matching the implementation commit at verification time.
+
+---
+Task ID: desktop-laszip-vlr-structure
+Agent: Codex — 2026-11-03
+Task: Fail closed on malformed LASzip VLR structure before LAZ point inspection.
+
+Work Log:
+- Compressed LAZ inspection now requires exactly one LASzip VLR, the exact 34-byte fixed prefix plus declared six-byte item records, aggregate item widths matching the LAS public-header point-record length, and a compressor family compatible with the point-format family. The check runs before pointwise and chunked branches and does not alter source bytes.
+- Added malformed fixtures for duplicate LASzip VLRs, a physically shortened fixed prefix, a physically shortened item table, an inconsistent declared item count, item widths that disagree with the public point-record length, and an incompatible compressor/format pair. Existing valid chunked and pointwise fixtures and the non-default special-EVLR incomplete result remain covered.
+- Updated `docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md` with the newly validated structural subset and remaining waveform, reserved-field, item-semantic, padding, producer-interoperability, and full-file conformance gaps. Corrected its extension status to reflect the local `.mdplug` installer/list/run already present while disclosing missing SDK, project/point-cloud capabilities, signatures, and catalog.
+- ADR-0022 and this scoped task brief capture the implementation boundary and acceptance evidence. No shared IPC or renderer contract changed.
+
+Verification:
+- Focused malformed-file run:
+  ~~~text
+  cargo test --manifest-path packages/metardu-sidecar/Cargo.toml --release --no-default-features --features instrument import::point_cloud::tests::rejects_
+  test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 208 filtered out
+  ~~~
+- Full sidecar suite:
+  ~~~text
+  cargo test --manifest-path packages/metardu-sidecar/Cargo.toml --release --no-default-features --features instrument --quiet
+  running 219 tests
+  test result: ok. 219 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+  ~~~
+- GDAL-free release build:
+  ~~~text
+  cargo build --manifest-path packages/metardu-sidecar/Cargo.toml --release --no-default-features --features instrument
+  warning: `metardu-sidecar` (bin "metardu-sidecar") generated 59 warnings
+      Finished `release` profile [optimized] target(s) in 6m 07s
+  ~~~
+- `rustfmt --edition 2021 --check packages/metardu-sidecar/src/import/point_cloud.rs` and `git diff --check` both exited 0. Git emitted only its existing Windows LF-to-CRLF notices.
+- The default GDAL-enabled build remains unavailable in this environment because `gdal-sys` requires `gdal_i.lib`, absent from `GDAL_LIB_DIR` and `GDAL_HOME\lib`; this machine limitation was already reproduced in the preceding desktop point-cloud task. The no-GDAL build and test do not cover GDAL.
+
+Evidence limits:
+- The checks validate this bounded LASzip VLR subset only. They do not establish full LAS 1.4 R16 or LAZ 1.4 conformance or producer interoperability. Non-default special-EVLR references remain incomplete; item ordering and semantic versions, other reserved fields, waveform extents, padding, and full-file layout remain outside validation.
+- The inspector does not interpret a CRS, units, epoch, vertical reference, or classification correctness and makes no positional-accuracy claim. It does not classify a cloud or write derived LAS/LAZ output; the LinkedIn classification example is still not supported by the current plugin ABI.
+- No Electron launch, real survey-cloud interoperability set, downstream CAD/GIS receipt, or field-workflow validation was performed in this task.
+
+Stage Summary:
+- The malformed LASzip metadata cases now fail before any bounded LAZ layout report, and the current no-GDAL Rust suite and release build pass. Broader standards, producer, CRS, derived-output, plugin capability, and field evidence gates remain active. The task-owned commit and Desktop-repository push are recorded in the delivery addendum; unrelated staged and untracked work remains outside this task.
+
+Delivery Addendum:
+- Implementation commit `453f462e0e286bda311b6eb6c6ae63e56194d3e3` (`fix(point-cloud): validate LASzip VLR structure`) contains only the five task-owned source, plan, brief, ADR, and worklog paths.
+- Push completed to `https://github.com/error302/metardu-desktop.git`: `ee20ed1..453f462 codex/international-desktop-product-plan -> codex/international-desktop-product-plan`.
+- Immediately after that push, `git ls-remote origin refs/heads/codex/international-desktop-product-plan` returned `453f462e0e286bda311b6eb6c6ae63e56194d3e3`, matching local `HEAD`.
+- The pre-existing staged deletion of `metardu-v2/frontend/main.tsx` and unrelated untracked files remain outside the implementation commit.
+
+---
+Task ID: desktop-portable-project-bundle-v1
+Agent: Codex — 2026-11-05
+Task: Add offline, portable project backup and recovery for persisted projects and linked point-cloud sources.
+
+Work Log:
+- Added a versioned `.mdp` directory bundle with a bounded JSON manifest, SHA-256 manifest sidecar, and hash-named LAS/LAZ source files. Export streams source bytes with constant memory, checks recorded size and digest, inspects each source header through the Rust sidecar, compares the persisted project/source/inspection snapshot again, and only then renames its temporary folder into place.
+- Added native-folder-picker export and restore routes to the main process. IPC inputs contain only validated UUIDs; progress and cancellation are scoped by operation ID. The renderer can never submit an arbitrary path.
+- Restore checks the exact member list, regular files/directories, manifest structure, manifest digest, source sizes and source digests; it re-inspects staged bytes before publishing. Verified sources are placed in the existing content-addressed store. One SQLite transaction creates a new project identity, new source and inspection IDs, all links, and the active-project pointer. Database failure rolls the project rows back; any objects already published remain harmless content-addressed orphans.
+- Preserved stored project/source JSON, coordinate declaration text, inspection history, output and timestamps. Restore applies no CRS interpretation or coordinate conversion. The Projects panel now exposes backup/restore, progress and cancellation, and clearly identifies bundles as unencrypted local files. V1 does not include transient viewport samples, plugins, settings, instrument profiles, or future project-linked asset types.
+- Fixed two existing point-cloud renderer type-check issues (browser timer handle type and failed-status discriminant narrowing) so the full renderer type check can pass without changing workflow behavior.
+
+Verification:
+- `npm run build --workspace @metardu/ipc-schemas` and `npm run build --workspace @metardu/desktop`: passed; the latter also bundled the sandbox preload successfully.
+- `npx tsc -p tsconfig.renderer-check.json`: passed.
+- `npm test --workspace @metardu/desktop`: 39 test files passed, 1 skipped; 359 tests passed, 7 skipped. This final run includes 10 bundle tests and the SQLite round-trip/rollback cases. The seven skipped cases are the existing sidecar IPC round-trip checks requiring a built sidecar.
+- `npm run build:renderer`: passed; 2,481 modules transformed. Vite reported browser-externalization warnings for Node modules referenced by engine and `better-sqlite3` dependencies.
+- Electron smoke gate check: both root and `metardu-v2/scripts/electron-smoke.sh` are absent. No Electron process/native dialog runtime smoke ran.
+- Bundle tests use synthetic byte fixtures and an injected header-inspector double; they prove file streaming, consistency checks, cleanup/cancellation, path/membership rejection, and raw-row preservation, not interoperability with field-produced LAS/LAZ files. SQLite tests use a temporary in-memory database.
+
+Evidence limits:
+- Bundle checksums detect accidental corruption and bind restored bytes to the manifest; they do not authenticate a publisher or provide confidentiality. Users must store the unencrypted bundle securely.
+- This is backup/recovery and transfer support only. It does not validate a CRS, datum, units, vertical reference, survey accuracy, point classification, legal acceptance, or export suitability. Real-surveyor review, real LAS/LAZ producer coverage, large-file performance, and a native Electron run remain future evidence gates.
+- The `scripts/electron-smoke.sh` gate required by `AGENT.md` is unavailable in this checkout. The renderer build and static checks do not replace it.
+
+Stage Summary:
+- The current persisted project and point-cloud record set can now be exported to and restored from an offline `.mdp` folder, subject to the stated asset scope. Source bytes and stored declarations are retained without coordinate transformation. Broader instrument, CAD/GIS handoff, CRS-operation, plugin-processing, classification, field, and native runtime claims remain separate work.
+
+---
+Task ID: public-map-reference-layer-v1
+Agent: Codex - 6 November 2026
+Task: Add an explicit, visual-only public cadastral map layer and document the international workflow boundary.
+
+Work Log:
+- Added a hidden-by-default Netherlands Kadaster/PDOK WMS cadastral-boundary layer. It is only added after user opt-in, and map tile load/error state is visible.
+- The overlay is separate from survey features and is not persisted, used in calculations, or included in plan exports. UI shows provider, attribution/licence, freshness statement, and the custodian's approximate-map use limit.
+- Integrated PDOK into the single finite renderer CSP while retaining named OSM, Esri, and OpenTopoMap image hosts. Renderer `connect-src` remains self-only; no generic HTTPS or wildcard source is allowed.
+- Added tests for source metadata, hidden state, WMS parameters, and CSP constraints. Extended the international product plan with the deliverable-first workflow prompted by engineering survey production examples: data intake, CRS/control/provenance, feature extraction and breaklines, deliverable completeness QA, coordinated outputs, staged issue management, and native-Revit interoperability gates.
+- Added ADR-0024 and the provider task brief. Public-provider workflow remains a visual pilot; no global source catalogue, downloads, offline pinning, or new survey computations are claimed.
+
+Verification (renderer/source only; not field or professional acceptance):
+~~~text
+npx tsc -p tsconfig.renderer-check.json --noEmit: passed with exit code 0.
+npm run build:renderer: passed; 2,482 modules transformed. Existing browser-externalization warnings remain for node:zlib, fs, path, and util.
+npm exec --workspace @metardu/desktop -- vitest run src/tests/map-reference-sources.test.ts: 1 file passed, 3 tests passed.
+npm test --workspace @metardu/desktop: 40 files passed, 1 skipped; 362 tests passed, 7 skipped.
+Production artifact CSP audit: exactly one policy; PDOK image host allowed; no generic HTTPS or wildcard image source; connect-src 'self'.
+git diff --check: passed.
+~~~
+- The local machine could not resolve the PDOK host during implementation. A live WMS response and actual Electron display are therefore not proven.
+- Kadaster says the map shows the global/approximate position of cadastral boundaries and has no exact boundaries or dimensions; public use requires the attribution CC-BY Kadaster NL. Recheck provider metadata as the service evolves.
+
+Stage Summary and limits:
+- This enables visual context for one national provider. It does not yet support queryable parcel features, downloads, offline reference packages, legal boundary work, title/ownership lookups, or other countries.
+- Real WMS response, native Electron runtime acceptance, broad packaging/security gates, receiving-CAD checks, and professional field validation remain separate work.
+- The task-owned paths and isolated MapView/worklog entries were staged after the approval service cooldown. The unrelated staged frontend deletion and concurrent topographic work remain outside this change.
+
+---
+Task ID: public-map-provider-broker-and-linz-v1
+Agent: Codex - 6 November 2026
+Task: Move public map network access into the Electron main process and add an opt-in LINZ NZ Primary Parcels reference.
+
+Work Log:
+- Replaced direct renderer-to-PDOK image loads with a fixed main-process WMS request and bounded PNG bytes delivered over the preload bridge. Removed the PDOK host from renderer image CSP; only basemaps and blob/data/self remain.
+- Added a fixed, viewport-limited LINZ WFS adapter for layer 50772. It asks only for visible primary parcel polygon geometry, caps responses at 1,000 features/10 MiB, sanitizes geometry, drops attributes, applies a short request rate limit, and labels the layer as incomplete and reference-only.
+- Added a user-owned LINZ key field and remove action. Keys are encrypted with Electron asynchronous safeStorage in app user data; renderer receives only configured/secure-store state. Linux `basic_text` and unknown storage backends fail closed. Public map IPC validates input in preload and main, rejects non-main-frame senders and redirects, pins provider URLs, and has request timeouts.
+- Kept both providers opt-in, hidden by default, separate from survey/project feature sources, excluded from project storage, calculation, and plan export. Added ADR-0025 and updated ADR-0024 plus the international product plan with the change and remaining gates.
+
+Verification (source/build checks only; no live provider or native Electron claim):
+~~~text
+npm run build --workspace @metardu/ipc-schemas: passed.
+npm run build --workspace @metardu/desktop: passed; sandboxed preload bundled with Electron external.
+npx tsc -p tsconfig.renderer-check.json --noEmit: passed.
+npm run build:renderer: passed; 2,486 modules transformed; existing node:zlib/fs/path/util browser-externalization warnings remain.
+npm exec --workspace @metardu/desktop -- vitest run src/tests/public-map-reference.test.ts src/tests/map-reference-sources.test.ts: 2 files passed; 9 tests passed.
+git diff --check: passed.
+~~~
+- Production renderer CSP contains no cadastral provider origin; provider requests are brokered in the main process. The renderer build contains no real or fixture API key.
+- LINZ credentials are user-owned and were not available for live provider validation. Neither a live PDOK response nor native Electron rendering was tested in this change. Local map-service failures do not affect survey computations.
+
+Stage Summary and limits:
+- METARDU can now display one public cadastral reference for the Netherlands and one queryable public primary-parcel reference for New Zealand, with conservative limits and main-process network boundaries.
+- This is not a country catalogue, offline/downloaded reference package, complete New Zealand cadastre, legal-boundary service, survey-control dataset, or global jurisdiction workflow. Verify actual LINZ key configuration, provider response and native UI on a real device before release.
+- Preserve the unrelated staged frontend deletion, the user's concurrent topographic/export changes, and untracked recovery/geodesy files; stage only this task's paths and isolated hunks.
+
+---
+Task ID: deliverable-readiness-engine-v1
+Agent: Codex - 6 November 2026
+Task: Add a country-neutral deliverable completeness gate for project-defined survey outputs.
+
+Work Log:
+- Added a reusable engine evaluator for profile-defined coordinate references, feature reviews, QA checks, and deliverable artifacts. Missing required evidence blocks readiness; declared references, warnings, and explicitly allowed not-applicable features remain visible for surveyor review.
+- Re-exported the evaluator from the workflow and engine APIs, added a scoped task brief, and documented the implementation boundary in the international product plan.
+- Kept requirements practice/client-defined. The evaluator does not inspect geometry or spatial coverage, compute accuracy, validate hash bytes, persist profiles, show a UI, or approve professional work.
+
+Verification (engine/unit and type checks; not UI, field, or professional acceptance):
+~~~text
+npm exec --workspace @metardu/engine-flight-planning -- vitest run src/workflows/tests/deliverable-readiness.test.ts
+Test Files  1 passed (1)
+Tests       9 passed (9)
+
+npx tsc --noEmit (packages/engine): exit 0; no output.
+npx tsc --noEmit (apps/desktop): exit 0; no output.
+
+npm test (packages/engine, with local loopback access):
+Test Files  47 passed (47)
+Tests       894 passed (894)
+Duration    7.22s
+
+npm test in the default sandbox initially failed 15 SyncClient mock-server tests with connect EACCES 127.0.0.1; rerunning with local loopback access passed the full suite.
+
+cargo build --release (default features): failed because gdal-sys requires Windows gdal_i.lib, which is not installed.
+cargo test --release (default features): failed for the same missing gdal_i.lib.
+cargo build --release --no-default-features --features instrument:
+warning: `metardu-sidecar` (bin "metardu-sidecar") generated 59 warnings
+Finished `release` profile [optimized] target(s) in 3m 17s
+cargo test --release --no-default-features --features instrument:
+test result: ok. 219 passed; 0 failed; 0 ignored; 0 measured; finished in 0.19s
+
+git diff --check: passed.
+~~~
+
+Stage Summary and limits:
+- METARDU can now evaluate whether a configured survey deliverable package has the references, feature-review records, QA evidence, and required files declared by its profile before presenting it for surveyor review.
+- Profiles are not yet stored in projects and the evaluator is not connected to a delivery QA screen or export/issue flow. Output hashes are syntax-checked only. Default GDAL-enabled sidecar build remains unavailable on this machine; the instrument-enabled non-GDAL build and tests passed.
+- Next: persist versioned client profiles and evidence, connect the evaluator to a delivery QA view and manifest, then validate real CAD/GIS receiving workflows and professional review.
+
+---
+Task ID: project-delivery-readiness-ui-v1
+Agent: Codex - 6 November 2026
+Task: Persist project delivery requirements and expose a country-neutral Delivery QA workflow.
+
+Work Log:
+- Added strict IPC-schema validation and project-scoped SQLite persistence for a practice/client delivery profile, coordinate reference declarations, feature review, QA checks, and expected output records. Bumped the DB schema to v7; old projects and old project bundles remain readable.
+- Connected the evaluator to the Delivery QA navigation screen and project update path. Invalid persisted records are surfaced as invalid. The evaluator stops at readiness for surveyor review and never reports professional approval.
+- Added editable starter profiles for topographic/corridor, measured-building, UAV, river/bathymetry, and underground-utility work. Requirements remain client/practice-defined; starter outputs are expectations, not claims that METARDU creates them.
+- Added ADR-0026, the implementation brief, and an update to the international desktop plan.
+
+Verification (source/build only; not native runtime, field, or professional acceptance):
+~~~text
+npm run build --workspace @metardu/engine-flight-planning: passed.
+npm run build --workspace @metardu/ipc-schemas: passed.
+npx tsc --noEmit (apps/desktop): passed.
+npx tsc -p tsconfig.renderer-check.json --noEmit: passed.
+npm run build --workspace @metardu/desktop: passed; sandboxed preload bundled with Electron external.
+npm run build:renderer: passed; 2,489 modules transformed. Existing node:zlib, fs, path, and util browser-externalization warnings remain.
+git diff --check: passed.
+~~~
+- The database (14 tests), engine (11 tests), and IPC schema (3 tests) focused suites passed before the final renderer-only starter-profile addition; they were not rerun after that UI addition.
+- No Electron runtime smoke, real project file selection/hash verification, geometry or spatial coverage inspection, output generation, CAD/GIS/BIM recipient round trip, independent survey, or field/professional review was performed for this task.
+
+Stage Summary and limits:
+- A project can now retain an editable deliverable checklist and QA review through the local database and portable bundle workflow. Starter profiles reduce setup time for several common global survey job types.
+- This is the first project workflow layer, not end-to-end processing automation. Data ingest/processing, measured spatial completeness, automated residual/coverage checks, actual-byte manifest hashing, coordinated output generation, deadline/stage orchestration, and recipient validation remain separate product gates.
+- Only the task-owned paths and this appended worklog entry are to be committed. Preserve the pre-existing staged frontend deletion and concurrent topographic, export, dependency, and recovery work.
+
+---
+Task ID: topographic-feature-code-evidence-v1
+Agent: Codex - 6 November 2026
+Task: Connect country-neutral Delivery QA feature requirements to saved topographic point-code evidence.
+
+Work Log:
+- Added optional, bounded, case-insensitively unique project/practice point-code mappings to feature requirements.
+- Added a pure engine summarizer for retained unadjusted topographic draft TIN vertices. Delivery QA recomputes counts from the active project's current TopographicView output and blocks a required mapped feature when code evidence is unavailable/invalid or no mapped code is present.
+- Kept feature review and evidence references separate from code presence. The UI shows coded-vertex counts and a filterable table capped at 250 visible code groups. A match does not assert geometry, curve sampling, breaklines, density, coverage, CRS applicability, residuals, or accuracy.
+- Preserved optional allowed not-applicable behavior. No global point-code dictionary or jurisdiction assumptions were added.
+
+Verification (source/build only; not native runtime, field, or professional acceptance):
+~~~text
+Focused engine readiness/evidence tests: 2 files, 19 passed.
+Focused IPC schema test: 1 file, 4 passed.
+Full IPC schema suite: 6 files, 53 passed.
+Full engine suite with local loopback access: 48 files, 904 passed. The default sandbox first denied 127.0.0.1 mock-server access; rerun with loopback access passed.
+Full Desktop suite: 42 files, 370 passed, 7 skipped.
+npx tsc --noEmit (engine and Desktop): passed.
+npx tsc -p tsconfig.renderer-check.json --noEmit: passed after the final UI adjustment.
+Engine, IPC schema, Desktop, and renderer builds: passed. Renderer transformed 2,490 modules; existing browser-externalization warnings for node:zlib, fs, path, and util remain.
+git diff --check: passed.
+~~~
+- No Electron smoke was run because the required smoke script is absent. No independent geometry/coverage inspection, receiving-CAD/GIS round trip, real field survey, or professional review was performed. The master plan file noted by AGENT.md was absent from this checkout.
+
+Stage Summary and limits:
+- A saved topographic draft now supplies limited code-presence evidence to a project's configured delivery checklist. It is an incremental review aid, not end-to-end survey processing or automated feature-completeness QA.
+- Preserve the pre-existing staged frontend deletion and all concurrent topographic, map, export, dependency, recovery, and worklog changes. Commit only this task's files/hunks and this task's worklog entry.
+
+---
+Task ID: community-extension-project-output-input-v1
+Agent: Codex - 6 November 2026
+Task: Connect local community extensions to bounded saved project workflow output.
+
+Work Log:
+- Exported the existing bounded-JSON validator for reuse by renderer preflight and IPC. ABI v1 size, depth, and value-count checks remain unchanged.
+- Added the `metardu-project-output-input/v1` wrapper with the saved output, survey type, source view, declared country code, declared horizontal CRS, and declared coordinate context/state. Project name/ID, linked files, point-cloud source bytes, and live project access are excluded.
+- Added a user-triggered “Load active project output” action. It confirms replacement of non-default JSON, reports the point-in-time project/version and byte count, warns on project changes, clears the association on manual edits, and rejects invalid or oversized input without truncation.
+- ABI v1 remains no-import Wasm. Results remain Community / Draft previews and are not persisted as project artifacts.
+
+Verification (focused source/build evidence; no native runtime or field acceptance):
+~~~text
+npm run build --workspace @metardu/ipc-schemas: passed.
+npm exec --workspace @metardu/ipc-schemas -- vitest run src/tests/plugins.test.ts:
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+npm exec --workspace @metardu/desktop -- vitest run src/tests/community-project-input.test.ts:
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+npx tsc --noEmit (apps/desktop): passed with no output.
+npx tsc -p tsconfig.renderer-check.json --noEmit (metardu-v2 root): passed with no output.
+npm run build:renderer: passed. Existing browser-externalization warnings for node:zlib, fs, path, and util remain.
+git diff --check: passed.
+~~~
+- No Electron smoke was run because `scripts/electron-smoke.sh` is absent. No native app interaction, plugin method validation, saved-artifact persistence, large-cloud processing, receiving-system round trip, or field/professional review was performed.
+
+Stage Summary and limits:
+- Surveyors can now explicitly pass a small saved project output to a local community tool without granting the tool project-store or filesystem access. The core remains country-neutral and preserves declared-versus-verified context.
+- Inputs above the v1 limit are not processed. Chunked LAS/LAZ/COPC processing, durable project-linked plugin artifacts and provenance, publisher verification, and method review remain required gates.
+- Preserve the pre-existing staged frontend deletion and concurrent topographic, map, export, dependency, recovery, and worklog changes. Commit only this task's files/hunks and this task's appended worklog entry.

@@ -7,78 +7,37 @@
  *   - Statutory submission packet generator (Survey Report Form P + Computation Sheets + Form No. 4)
  */
 
-import React, { useState } from "react";
+import React from "react";
+import { AlertTriangle, Archive } from "lucide-react";
 
-export const RegistryArchiveView: React.FC = () => {
-  const [searchQuery, setSearchQuery] = useState("KIAMBU/RIRUTA/247");
-
-  const [records] = useState([
-    {
-      parcelNo: "KIAMBU/RIRUTA/247",
-      status: "Subdivided",
-      areaHa: 2.000,
-      rimSheet: "116/4/SEC_2",
-      parentTitle: "KIAMBU/RIRUTA/18",
-      children: ["KIAMBU/RIRUTA/247/1", "KIAMBU/RIRUTA/247/2", "KIAMBU/RIRUTA/247/3", "KIAMBU/RIRUTA/247/4"],
-      surveyor: "J. M. Kamau (LSK/0481)",
-      year: 2024,
-    },
-    {
-      parcelNo: "NAIROBI/BLOCK_82/104",
-      status: "Active / Clean Title",
-      areaHa: 0.125,
-      rimSheet: "128/1/NW",
-      parentTitle: "NAIROBI/BLOCK_82/4",
-      children: [],
-      surveyor: "E. O. Omondi (LSK/0392)",
-      year: 2025,
-    },
-  ]);
-
-  return (
-    <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "12px", height: "100%", overflow: "auto" }}>
-      <h2 style={{ fontSize: "var(--text-xl)", color: "var(--accent-primary)", fontFamily: "var(--font-mono)" }}>
-        Cadastral Registry Archive & Mutation Chain Tracker
-      </h2>
-      <p style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>
-        Search, verify, and trace historical title deed mutations, Registry Index Map (RIM) sheets, and statutory survey lodgements.
-      </p>
-
-      <div style={{ display: "flex", gap: "8px", background: "var(--bg-tertiary)", padding: "12px", border: "1px solid var(--border-default)" }}>
-        <input
-          type="text"
-          placeholder="Search by Parcel / LR Number, RIM Sheet, or Surveyor License..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          style={{ flex: 1 }}
-        />
-        <button className="primary">Search National Registry Archive</button>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "8px" }}>
-        {records.map((rec, idx) => (
-          <div key={idx} style={{ background: "var(--bg-tertiary)", padding: "14px", border: "1px solid var(--border-default)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-              <div style={{ fontSize: "var(--text-md)", fontWeight: "bold", fontFamily: "var(--font-mono)", color: "var(--accent-primary)" }}>
-                {rec.parcelNo}
-              </div>
-              <span style={{ padding: "2px 8px", fontSize: "var(--text-xs)", background: "rgba(255,149,0,0.15)", color: "var(--accent-primary)", border: "1px solid var(--accent-primary)" }}>
-                {rec.status}
-              </span>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", marginBottom: "8px" }}>
-              <div>Registered Area: <strong style={{ color: "var(--text-primary)" }}>{rec.areaHa.toFixed(3)} Ha</strong></div>
-              <div>RIM Sheet Reference: <strong style={{ color: "var(--text-primary)" }}>{rec.rimSheet}</strong></div>
-              <div>Licensed Surveyor: <strong style={{ color: "var(--text-primary)" }}>{rec.surveyor}</strong></div>
-            </div>
-
-            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", borderTop: "1px solid var(--border-subtle)", paddingTop: "6px" }}>
-              <strong>Mutation Genealogy:</strong> Parent Title: {rec.parentTitle} &rarr; Subdivided into {rec.children.length} Child Parcels ({rec.children.join(", ")})
-            </div>
-          </div>
-        ))}
+export const RegistryArchiveView: React.FC = () => (
+  <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "16px", height: "100%", overflow: "auto" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+      <Archive size={20} color="var(--accent-primary)" aria-hidden="true" />
+      <div>
+        <h2 style={{ margin: 0, fontSize: "18px", fontWeight: 600, color: "var(--text-primary)" }}>
+          Registry Archive
+        </h2>
+        <p style={{ margin: "4px 0 0", fontSize: "13px", color: "var(--text-secondary)" }}>
+          Historical title and mutation records
+        </p>
       </div>
     </div>
-  );
-};
+
+    <section
+      role="status"
+      style={{ display: "flex", alignItems: "flex-start", gap: "12px", padding: "16px", border: "1px solid var(--border-warning, #D97706)", borderRadius: "8px", background: "var(--bg-tertiary)" }}
+    >
+      <AlertTriangle size={18} color="var(--status-warning, #D97706)" aria-hidden="true" />
+      <div>
+        <strong style={{ color: "var(--text-primary)" }}>Registry archive lookup is unavailable</strong>
+        <p style={{ margin: "8px 0 0", fontSize: "13px", lineHeight: 1.5, color: "var(--text-secondary)" }}>
+          This build has no connected authoritative registry or licensed historical records. It cannot verify title status, parcel history, surveyor identity, RIM sheets, or lodgements.
+        </p>
+        <p style={{ margin: "8px 0 0", fontSize: "13px", lineHeight: 1.5, color: "var(--text-secondary)" }}>
+          Check records through the relevant registry's official process and retain the source evidence with your project.
+        </p>
+      </div>
+    </section>
+  </div>
+);
