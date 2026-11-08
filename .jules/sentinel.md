@@ -1,0 +1,4 @@
+## 2025-02-27 - Cross-Site Scripting (XSS) via Unsanitized SVG Injection
+**Vulnerability:** The application takes SVG HTML output from `renderCrossSectionSvg` and injects it directly into the DOM using `dangerouslySetInnerHTML` in `CrossSectionView.tsx` without sanitization.
+**Learning:** Even when the immediate source of SVG strings is internally generated, rendering raw SVG via `dangerouslySetInnerHTML` without sanitization creates an XSS vulnerability vector, especially in Electron renderer processes or browser environments where DOM context is shared. The project lacks a unified sanitization pipeline for rich/SVG content.
+**Prevention:** Always use a robust sanitization library like `DOMPurify` before injecting raw HTML or SVG into the DOM via `dangerouslySetInnerHTML`, ensuring that SVG profiles are enabled (`USE_PROFILES: { svg: true }`) so that benign elements are retained while malicious scripts are stripped.
