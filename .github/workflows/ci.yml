@@ -42,11 +42,21 @@ jobs:
           brew install gdal
           echo "LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib" >> $GITHUB_ENV
       - name: Build
+        if: matrix.os == 'ubuntu-22.04'
         working-directory: metardu-v2/packages/metardu-sidecar
         run: cargo build --release
+      - name: Build (macOS/Windows)
+        if: matrix.os != 'ubuntu-22.04'
+        working-directory: metardu-v2/packages/metardu-sidecar
+        run: cargo build --release --no-default-features --features "shell-out instrument"
       - name: Test
+        if: matrix.os == 'ubuntu-22.04'
         working-directory: metardu-v2/packages/metardu-sidecar
         run: cargo test --release
+      - name: Test (macOS/Windows)
+        if: matrix.os != 'ubuntu-22.04'
+        working-directory: metardu-v2/packages/metardu-sidecar
+        run: cargo test --release --no-default-features --features "shell-out instrument"
 
   # ─── TypeScript engine + packages ───────────────────────────────
   typescript:
@@ -70,7 +80,7 @@ jobs:
           sudo apt-get install -y libgdal-dev libclang-dev clang
       - name: Install npm deps
         working-directory: metardu-v2
-        run: npm install --no-audit --no-fund
+        run: npm install --no-audit --no-fund --ignore-scripts
       - name: Build sidecar
         working-directory: metardu-v2/packages/metardu-sidecar
         env:
