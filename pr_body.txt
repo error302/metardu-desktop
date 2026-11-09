@@ -1,0 +1,5 @@
+🚨 Severity: HIGH
+💡 Vulnerability: Cross-Site Scripting (XSS) vulnerability via directly rendering an SVG string into the DOM using `dangerouslySetInnerHTML`.
+🎯 Impact: If the SVG geometry or labels contain malicious user input, it could execute arbitrary JavaScript in the application context.
+🔧 Fix: Wrapped the `svgHtml` content with `DOMPurify.sanitize(..., { USE_PROFILES: { svg: true } })` to strip any malicious scripts while preserving necessary SVG tags.
+✅ Verification: The DOM is now sanitized using the industry-standard `dompurify` library and tests continue to pass successfully.
