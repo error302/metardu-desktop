@@ -4063,49 +4063,6 @@ Verification:
 - A fresh instrument-feature release build was still running at this entry; its final output is recorded in the verification addendum.
 
 Evidence limits: Type-level and fixture tests do not establish interoperability with a live receiver or field accuracy. Rejected records preserve the received line for review but do not explain which parser/checksum condition failed. The default-feature Rust test/build gate remains constrained by the missing GDAL Windows import library.
-Task ID: community-extension-project-artifact-v1
-Agent: Codex - 6 November 2026
-Task: Save bounded community extension outputs as portable, project-linked draft artifacts.
-
-Work Log:
-- Added a host-validated project artifact schema and bounded run/list IPC. The host records canonical input/output JSON, exact package/module digests, input/output SHA-256, plugin metadata claims, project ID/version, timestamp, and immutable Community / Draft state.
-- Added a SQLite v8 migration and version-checked persistence. The project version is checked both before extension execution and immediately before storing the result. Per-project stored extension JSON is capped at 32 MiB and 10,000 artifacts.
-- Added a user-triggered “Run and save to active project” action and a project artifact viewer in Community Extensions.
-- Advanced project bundles to v2 with artifact JSON/digest checks and v1 import compatibility.
-- Added ADR-0029 and a scoped implementation brief. No survey method or accuracy is inferred from a saved artifact or its digests.
-
-Verification (build/typecheck only; no runtime or field acceptance):
-~~~text
-npm run build --workspace @metardu/ipc-schemas
-> @metardu/ipc-schemas@0.1.0 build
-> tsc -p tsconfig.json
-exit code 0.
-
-npm exec --workspace @metardu/desktop -- tsc --noEmit
-exit code 0; no output.
-
-npx tsc -p tsconfig.renderer-check.json --noEmit
-exit code 0; no output.
-
-npm run build --workspace @metardu/desktop
-> @metardu/desktop@0.2.0 build
-> tsc -p tsconfig.json && node ../../scripts/build-desktop-preload.mjs
-Sandboxed preload bundled; only Electron remains external.
-
-npm run build:renderer
-vite v8.1.5 building client environment for production...
-✓ 2491 modules transformed.
-✓ built in 2.05s
-Existing browser-externalization warnings for node:zlib, fs, path, and util remain.
-
-git diff --check: exit code 0; no whitespace diagnostics.
-~~~
-- Tests were not run. No Electron runtime smoke, SQLite migration exercise, run/save UI interaction, bundle round trip, source-data processing, geometry/coverage/residual check, recipient-system round trip, real survey, or professional review was performed.
-
-Stage Summary and limits:
-- Small bounded JSON extension results can now be retained with project/version and digest provenance and preserved in a portable project bundle. The community module still receives only explicit JSON and has no live project, file, network, database, point-cloud, or instrument access.
-- This is a persistence step toward extensible international survey workflows, not the complete capture-to-delivery automation described by the example practice. Automated feature geometry, curve sampling, breaklines, coverage, control residuals, actual deliverable-file verification, large LiDAR processing, CAD/GIS/BIM recipient checks, and human professional review remain separate gates.
-- Preserve the staged frontend deletion and all concurrent work. Commit only the artifact feature paths and this task's worklog append.
 
 Stage Summary:
 - Source and focused verification are complete locally. Commit and Desktop-branch push evidence will be appended after delivery.
@@ -4585,6 +4542,77 @@ Stage Summary:
 - The current persisted project and point-cloud record set can now be exported to and restored from an offline `.mdp` folder, subject to the stated asset scope. Source bytes and stored declarations are retained without coordinate transformation. Broader instrument, CAD/GIS handoff, CRS-operation, plugin-processing, classification, field, and native runtime claims remain separate work.
 
 ---
+Task ID: native-desktop-promotion-readiness
+Agent: Codex - 5 November 2026
+Task: Repair and inspect the actual native synthetic topographic workflow before a Desktop-in-development promotion.
+
+Work Log:
+- Pinned Electron 45.2.2 to match the installed SQLite Node-API 10 dependency, corrected the sidecar location, and bundled the sandbox preload. Renderer Node access remains disabled; sandbox and context isolation remain enabled.
+- Computed a separate, explicitly synthetic 42-point topographic project through native UI, preserving the earlier project's newer sectional result. Kept declared CRS/vertical context and missing date/approval explicit. Retained the exact surface geometry rather than regenerating a terrain for preview/export.
+- Corrected DXF elevation/contour segment preservation, readable collision-checked display labels, preview point display and computed-draft PDF layout. Rejected earlier PDF visual drafts remain retained.
+- Actual native final DXF independent ezdxf inspection: 42 exact XYZ points, 180 TIN lines, 80 contour segments, seven quarter-metre levels, metre units, zero audit errors and zero repairs. SHA-256 ded781dcfd49b6ca02da783dec78dbc2b6d684c205ca3151d0181e0fa73e6a50.
+- Actual native final A4 landscape PDF: one 841.89 x 595.28 point page with a 3508 x 2480 raster plan, recorded scale 1:500, explicit computed-draft status, readable seven-level contours and separate legend/scale. Poppler review passed. SHA-256 df9d6a7b2223cc96c7ca331f1da9f79348bf055ad2d8c46284b0195fc74915db. This is not a vector PDF.
+- Final native files, parser receipts and four real workflow images are retained under C:/Users/user/.codex/visualizations/2026/10/22/01a165b5-7f3e-74f2-8335-e70c5dd35dcf/. The X draft has four images and descriptions attached; it remains unpublished, pending final action-time approval.
+- Corrected the blank basemap's percentage-height target to absolute inset zero within its positioned viewport. Renderer types/build pass; native verification remains OPEN because Computer Use returns a Chrome screenshot for the selected Electron window, including after session reset. Stopped input rather than treating that mismatched capture as acceptance. Rust-only coordinate transformation and missing-reference rejection remain unchanged.
+
+Verification (retained terminal output, not field proof):
+~~~text
+Desktop test-results/native-promotion-desktop-final.log:
+ Test Files  38 passed | 1 skipped (39)
+      Tests  353 passed | 7 skipped (360)
+Engine test-results/native-promotion-engine-final.log:
+ Test Files  46 passed (46)
+      Tests  885 passed (885)
+Sidecar test-results/native-promotion-rust-final.log:
+running 219 tests
+test result: ok. 219 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+npm test --workspace @metardu/report-pdf:
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+~~~
+- Current engine npx tsc --noEmit and renderer npx tsc -p tsconfig.renderer-check.json --noEmit exited 0 with no output.
+- Current npm run build --workspace @metardu/desktop exited 0: Sandboxed preload bundled; only Electron remains external.
+- Current npm run build:renderer exited 0, log test-results/native-renderer-map-layout.log: built in 2.20s.
+- Default GDAL build remains unavailable because gdal_i.lib is absent. The 219-test run uses --release --no-default-features --features instrument and does not cover GDAL. A fresh release binary build is not claimed in this task; the native workflow used the existing built Rust sidecar.
+- The AGENT.md-required scripts/electron-smoke.sh and upload/METARDU-DESKTOP-MASTER-PLAN.md are absent. Actual native app/sidecar/SQLite/computation/export checks are recorded separately and do not make the missing script pass.
+
+Stage Summary and limits:
+- Native synthetic computation and matching DXF/PDF outputs were inspected; no real survey or professional approval is implied. Source tests are distinct from native, receiving-CAD, calibrated-print and field evidence.
+- Desktop dependency audit, packaging/signing, authenticated Desktop-Web pairing, baseline native basemap acceptance and field/professional gates remain OPEN. Do not claim Desktop released, automated pairing available, zero vulnerabilities or full platform readiness.
+- Preserve pre-existing portable-bundle changes, untracked geodesy helpers and staged frontend deletion. No Desktop commit/push has been made for this task; eventual staging requires exact task-owned paths/hunks, including only this appended worklog entry.
+
+---
+Task ID: native-desktop-gis-points-and-contours-followup
+Agent: Codex, 5 November 2026
+Task: Restore the actual native topographic GIS layers and preserve source point names.
+
+Work Log:
+- Reproduced the blank overlay after viewport sizing was repaired. Reprojection completed, but MapView rendered only boundaries/beacons; topographic-only outputs left no features and stale progress text.
+- Added retained point/contour rendering using the existing Rust-projected coordinates, source ID labels, independent layer controls and completed/no-visible-feature status. No geodesy fallback or survey geometry recomputation was added.
+- Fixed the production image CSP for only the already configured Esri and three OpenTopoMap HTTPS origins. All sandbox/isolation settings remain enabled.
+- The initial overlay tests failed for missing point/contour features; the CSP artifact test failed for blocked configured origins. The source-name regression failed with T1/T2 instead of the retained instrument identifiers. All then passed after the implementation.
+- Actual native UI showed all 42 retained source-ID points and 80 contour segments. Independently hid contours, then points, verified each result, restored both layers and saved desktop-gis-point-ids-verified.png in the existing task artifact directory. The provider's no-imagery placeholder is kept distinct from the working overlay and street fallback.
+
+Verbatim terminal evidence:
+~~~text
+npm exec --workspace @metardu/desktop -- vitest run src/tests/map-geometry.test.ts src/tests/topographic-overlay.test.ts src/tests/preload-bundle.test.ts
+ Test Files  3 passed (3)
+      Tests  39 passed (39)
+
+npm test --workspace @metardu/desktop
+ Test Files  39 passed | 1 skipped (40)
+      Tests  358 passed | 7 skipped (365)
+
+npm run build:renderer
+ built in 1.68s
+~~~
+Renderer npx tsc -p tsconfig.renderer-check.json --noEmit exited zero with no output. Build log: metardu-v2/test-results/native-gis-overlay-renderer.log. Complete Desktop test log: metardu-v2/test-results/native-gis-overlay-tests.log. Earlier engine/Rust evidence remains separate; no Rust math changed in this follow-up.
+
+Stage Summary:
+- Native synthetic GIS display and visibility controls are now verified. Provider imagery coverage, external CAD/print/field acceptance, dependency/security/packaging and authenticated Desktop-Web pairing remain open. The existing frontend staged deletion, portable-bundle work and untracked geodesy helpers remain preserved and excluded from this task.
+- Actual-capture video and stronger X caption are prepared, not published. Specific video upload was rejected by automatic review pending media approval. A combined exact-media/exact-copy upload/publication question is pending; no workaround used.
+
+---
 Task ID: public-map-reference-layer-v1
 Agent: Codex - 6 November 2026
 Task: Add an explicit, visual-only public cadastral map layer and document the international workflow boundary.
@@ -4772,3 +4800,48 @@ Stage Summary and limits:
 - Surveyors can now explicitly pass a small saved project output to a local community tool without granting the tool project-store or filesystem access. The core remains country-neutral and preserves declared-versus-verified context.
 - Inputs above the v1 limit are not processed. Chunked LAS/LAZ/COPC processing, durable project-linked plugin artifacts and provenance, publisher verification, and method review remain required gates.
 - Preserve the pre-existing staged frontend deletion and concurrent topographic, map, export, dependency, recovery, and worklog changes. Commit only this task's files/hunks and this task's appended worklog entry.
+
+---
+Task ID: community-extension-project-artifact-v1
+Agent: Codex - 6 November 2026
+Task: Save bounded community extension outputs as portable, project-linked draft artifacts.
+
+Work Log:
+- Added a host-validated project artifact schema and bounded run/list IPC. The host records canonical input/output JSON, exact package/module digests, input/output SHA-256, plugin metadata claims, project ID/version, timestamp, and immutable Community / Draft state.
+- Added a SQLite v8 migration and version-checked persistence. The project version is checked both before extension execution and immediately before storing the result. Per-project stored extension JSON is capped at 32 MiB and 10,000 artifacts.
+- Added a user-triggered “Run and save to active project” action and a project artifact viewer in Community Extensions.
+- Advanced project bundles to v2 with artifact JSON/digest checks and v1 import compatibility.
+- Added ADR-0029 and a scoped implementation brief. No survey method or accuracy is inferred from a saved artifact or its digests.
+
+Verification (build/typecheck only; no runtime or field acceptance):
+~~~text
+npm run build --workspace @metardu/ipc-schemas
+> @metardu/ipc-schemas@0.1.0 build
+> tsc -p tsconfig.json
+exit code 0.
+
+npm exec --workspace @metardu/desktop -- tsc --noEmit
+exit code 0; no output.
+
+npx tsc -p tsconfig.renderer-check.json --noEmit
+exit code 0; no output.
+
+npm run build --workspace @metardu/desktop
+> @metardu/desktop@0.2.0 build
+> tsc -p tsconfig.json && node ../../scripts/build-desktop-preload.mjs
+Sandboxed preload bundled; only Electron remains external.
+
+npm run build:renderer
+vite v8.1.5 building client environment for production...
+✓ 2491 modules transformed.
+✓ built in 2.05s
+Existing browser-externalization warnings for node:zlib, fs, path, and util remain.
+
+git diff --check: exit code 0; no whitespace diagnostics.
+~~~
+- Tests were not run. No Electron runtime smoke, SQLite migration exercise, run/save UI interaction, bundle round trip, source-data processing, geometry/coverage/residual check, recipient-system round trip, real survey, or professional review was performed.
+
+Stage Summary and limits:
+- Small bounded JSON extension results can now be retained with project/version and digest provenance and preserved in a portable project bundle. The community module still receives only explicit JSON and has no live project, file, network, database, point-cloud, or instrument access.
+- This is a persistence step toward extensible international survey workflows, not the complete capture-to-delivery automation described by the example practice. Automated feature geometry, curve sampling, breaklines, coverage, control residuals, actual deliverable-file verification, large LiDAR processing, CAD/GIS/BIM recipient checks, and human professional review remain separate gates.
+- Preserve the staged frontend deletion and all concurrent work. Commit only the artifact feature paths and this task's worklog append.

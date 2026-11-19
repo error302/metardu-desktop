@@ -1,6 +1,6 @@
 /** Project-referenced topographic surface draft workflow. */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { MAX_TOPOGRAPHIC_TIN_POINTS, runTopographicWorkflow, type TopoPoint, type TopoWorkflowOutput } from "@metardu/engine-flight-planning";
 import { SurveyCanvas, type SurveyPoint, type SurveyContour, type SurveyTriangle } from "@metardu/ui-components";
 import { useSurveyState } from "../SurveyStateContext.js";
@@ -18,6 +18,13 @@ export const TopographicView: React.FC = () => {
   const [result, setResult] = useState<TopoWorkflowOutput | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showPointLabels, setShowPointLabels] = useState(false);
+  const [showTin, setShowTin] = useState(false);
+  useEffect(() => {
+    const saved = activeProject?.output as TopoWorkflowOutput | undefined;
+    setResult(saved?.evidenceStatus === "computed-draft-unadjusted" && Array.isArray(saved.tin?.vertices)
+      && Array.isArray(saved.tin?.triangles) && Array.isArray(saved.contours) && Array.isArray(saved.spotHeights) ? saved : null);
+  }, [activeProject?.id, activeProject?.output]);
 
   const crsSrid = activeProject?.crsSrid;
   const crsLabel = projectCrsLabel(crsSrid, activeProject?.countryCode);
@@ -178,16 +185,22 @@ export const TopographicView: React.FC = () => {
           <div style={{ padding: "8px 12px", marginBottom: "10px", border: "1px solid var(--status-warning)", color: "var(--text-secondary)", fontSize: "var(--text-sm)" }}>
             Computed draft · {result.coordinateContext?.horizontalCrsLabel} · vertical reference user-declared/unverified · no least-squares adjustment or residual check.
           </div>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:8}}>
+            <label><input type="checkbox" checked={showPointLabels} onChange={e=>setShowPointLabels(e.target.checked)} /> Point labels</label>
+            <label><input type="checkbox" checked={showTin} onChange={e=>setShowTin(e.target.checked)} /> TIN edges</label>
+            <span>Retained contours · {result.contourInterval ? `${result.contourInterval} m interval` : "interval not retained in this older draft"} · all {result.tin.vertices.length} points</span>
+          </div>
           <SurveyCanvas
-            height={350}
+            height={440}
             title="Topographic Surface Draft"
-            showPointLabels={true}
-            triangles={result.tin.triangles.map((tri): SurveyTriangle => ({
+            showPointLabels={showPointLabels}
+            points={result.tin.vertices.map(point => ({...point,label:point.id}))}
+            triangles={(showTin ? result.tin.triangles : []).map((tri): SurveyTriangle => ({
               a: { easting: result.tin.vertices[tri[0]]!.easting, northing: result.tin.vertices[tri[0]]!.northing },
               b: { easting: result.tin.vertices[tri[1]]!.easting, northing: result.tin.vertices[tri[1]]!.northing },
               c: { easting: result.tin.vertices[tri[2]]!.easting, northing: result.tin.vertices[tri[2]]!.northing },
             }))}
-            contours={result.contours.map((contour): SurveyContour => ({ elevation: contour.elevation, coordinates: contour.coordinates }))}
+            contours={result.contours.map((contour): SurveyContour => ({ elevation: contour.elevation, coordinates: contour.coordinates, color: "#bfa778" }))}
             spotHeights={result.spotHeights.map((height): SurveyPoint => ({ easting: height.easting, northing: height.northing, elevation: height.elevation }))}
           />
           <h3 style={{ fontSize: "var(--text-lg)", marginBottom: "8px", fontFamily: "var(--font-mono)", marginTop: "12px" }}>Surface summary</h3>

@@ -12,6 +12,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Download, FileText, FileSpreadsheet, FileCode, Map, Globe, FileBox, Printer, FolderArchive, FileJson } from "lucide-react";
 import { useSurveyState } from "../SurveyStateContext.js";
 import { COUNTRY_OPTIONS, getPlanSheet } from "../countries.js";
+import { canExportDeclaredTopographicDxf } from "../declared-topographic-export.js";
 import { SHEET_SIZES_PT } from "../map-svg.js";
 
 interface ExporterInfo {
@@ -130,6 +131,8 @@ export const ExportPanel: React.FC = () => {
     return null;
   }, [activeProject, surveyState, countryCode]);
   const resolvedSurveyOutput = resolveSurveyOutput();
+  const computedTopoDraft = canExportDeclaredTopographicDxf("dxf", resolvedSurveyOutput?.output, activeProject?.crsSrid ?? NaN, false);
+  useEffect(() => { setProjectName(activeProject?.name ?? ""); }, [activeProject?.id]);
   const effectiveCountryCode = activeProject?.countryCode || surveyState?.countryCode || countryCode;
 
   // Draft plan-sheet export. It does not establish statutory compliance.
@@ -144,6 +147,7 @@ export const ExportPanel: React.FC = () => {
           projectName: string;
           countryCode?: string;
           surveyorName?: string;
+          date?: string;
           sheetSize?: string;
           orientation?: "landscape" | "portrait";
         }) => Promise<{ canceled: true } | { canceled: false; filePath: string; widthPx: number; heightPx: number; scaleDenominator: number; summary: string }> } };
@@ -159,9 +163,10 @@ export const ExportPanel: React.FC = () => {
       if (!country) throw new Error("Select a jurisdiction for the draft plan export.");
       const result = await api({
         surveyOutput: output,
-        projectName: projectName || "Survey Plan",
+        projectName: projectName || activeProject?.name || "Survey Plan",
         countryCode: country,
         surveyorName: surveyorName,
+        date: surveyDate || undefined,
         sheetSize: planSheetSize,
         orientation: planOrientation,
       });
@@ -189,6 +194,7 @@ export const ExportPanel: React.FC = () => {
           projectName: string;
           countryCode?: string;
           surveyorName?: string;
+          date?: string;
           sheetSize?: string;
           orientation?: "landscape" | "portrait";
           scaleDenominator?: number;
@@ -205,9 +211,10 @@ export const ExportPanel: React.FC = () => {
       if (!country) throw new Error("Select a jurisdiction for the draft report export.");
       const result = await api({
         surveyOutput: output,
-        projectName: projectName || "Survey Plan",
+        projectName: projectName || activeProject?.name || "Survey Plan",
         countryCode: country,
         surveyorName: surveyorName,
+        date: surveyDate || undefined,
         sheetSize: planSheetSize,
         orientation: planOrientation,
       });
@@ -238,6 +245,7 @@ export const ExportPanel: React.FC = () => {
           projectName: string;
           countryCode?: string;
           surveyorName?: string;
+          date?: string;
           sheetSize?: string;
           orientation?: "landscape" | "portrait";
         }) => Promise<{ canceled: true } | { canceled: false; bookletPath: string; pageCount: number; pngFiles: Array<{ label: string; path: string; bytes: number }>; reportFiles: Array<{ label: string; path: string; bytes: number }> }> } };
@@ -253,9 +261,10 @@ export const ExportPanel: React.FC = () => {
       if (!country) throw new Error("Select a jurisdiction for the draft plan booklet export.");
       const result = await api({
         surveyOutput: output,
-        projectName: projectName || "Survey Plan Booklet",
+        projectName: projectName || activeProject?.name || "Survey Plan Booklet",
         countryCode: country,
         surveyorName: surveyorName,
+        date: surveyDate || undefined,
         sheetSize: planSheetSize,
         orientation: planOrientation,
       });
@@ -304,7 +313,7 @@ export const ExportPanel: React.FC = () => {
         const countryProfile = COUNTRY_OPTIONS.find((option) => option.code === resolved.country);
         const countryPrimarySrid = countryProfile?.config.geodeticFramework.primarySRID;
         if (countryPrimarySrid !== activeProject.crsSrid) {
-          throw new Error(
+          if (!canExportDeclaredTopographicDxf(selectedFormat, resolved.output, activeProject.crsSrid, outputWgs84)) throw new Error(
             `Export is blocked: this exporter currently labels coordinates with the jurisdiction profile CRS (EPSG:${String(countryPrimarySrid ?? "unknown")}), ` +
             `but this project records EPSG:${activeProject.crsSrid}. Exporting would mislabel the coordinates.`,
           );
@@ -315,7 +324,7 @@ export const ExportPanel: React.FC = () => {
         ...(activeProject?.crsSrid !== undefined ? { crsSrid: activeProject.crsSrid } : {}),
         outputWgs84,
         projectMetadata: {
-          projectName,
+          projectName: projectName || activeProject?.name || "",
           surveyorName,
           licenseNumber,
           surveyDate,
@@ -561,7 +570,7 @@ export const ExportPanel: React.FC = () => {
             <Download size={14} />
             {planExporting ? "Exporting plan…" : "Export 300 DPI PNG"}
           </button>
-          <button
+          {!computedTopoDraft && <button
             onClick={exportPlanBooklet}
             disabled={planExporting || bookletExporting || reportExporting}
             title="Multi-parcel projects: one plan per parcel + a booklet PDF with an index page"
@@ -574,11 +583,11 @@ export const ExportPanel: React.FC = () => {
           >
             <FolderArchive size={14} />
             {bookletExporting ? "Building booklet…" : "Export Parcel Booklet (PDF)"}
-          </button>
+          </button>}
           <button
             onClick={exportPlanReport}
             disabled={planExporting || bookletExporting || reportExporting}
-            title="Draft report with a 300 DPI map page; regulator acceptance is not asserted"
+            title="Computed draft plan at the selected paper size; reference and approval remain unverified"
             style={{
               display: "inline-flex", alignItems: "center", gap: "6px", padding: "8px 14px",
               borderRadius: "6px", border: "1px solid var(--accent-primary)",
@@ -587,7 +596,7 @@ export const ExportPanel: React.FC = () => {
             }}
           >
             <FileText size={14} />
-            {reportExporting ? "Building report…" : "Draft Plan Report (PDF)"}
+            {reportExporting ? "Building report…" : "Download Draft Plan PDF"}
           </button>
         </div>
 

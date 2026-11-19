@@ -638,3 +638,9 @@ describe("summarizeGeometry", () => {
     expect(summarizeGeometry(emptyMapGeometry())).toBe("no plottable geometry");
   });
 });
+
+// A native topographic project retains instrument IDs on its TIN vertices.
+it("preserves source TIN point identifiers rather than replacing them with display indices", () => {
+ const geometry=extractMapGeometry({tin:{vertices:[{id:"STA-0042",easting:500000,northing:9850000,elevation:100},{label:"BM-A",easting:500010,northing:9850000,elevation:101}]}});
+ expect(geometry.fieldPoints.map(point=>point.label)).toEqual(["STA-0042","BM-A"]);
+});

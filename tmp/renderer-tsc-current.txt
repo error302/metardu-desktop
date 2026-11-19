@@ -1,0 +1,93 @@
+apps/desktop/src/renderer/views/DwgCadView.tsx(77,26): error TS2339: Property 'surveyState' does not exist on type 'SurveyStateContextValue'.
+apps/desktop/src/renderer/views/ExportPanel.tsx(139,7): error TS18004: No value exists in scope for the shorthand property 'country'. Either declare one or provide an initializer.
+apps/desktop/src/renderer/views/ExportPanel.tsx(377,65): error TS2339: Property 'vertices' does not exist on type '{}'.
+apps/desktop/src/renderer/views/FieldBookView.tsx(73,25): error TS2345: Argument of type '(prev: ({ id: string; bs: number; is: number | null; fs: number | null; rl: number; remark: string; } | { id: string; bs: number | null; is: number; fs: number | null; rl: number; remark: string; } | { ...; })[]) => { ...; }[]' is not assignable to parameter of type 'SetStateAction<({ id: string; bs: number; is: number | null; fs: number | null; rl: number; remark: string; } | { id: string; bs: number | null; is: number; fs: number | null; rl: number; remark: string; } | { id: string; ... 4 more ...; remark: string; })[]>'.
+  Type '(prev: ({ id: string; bs: number; is: number | null; fs: number | null; rl: number; remark: string; } | { id: string; bs: number | null; is: number; fs: number | null; rl: number; remark: string; } | { ...; })[]) => { ...; }[]' is not assignable to type '(prevState: ({ id: string; bs: number; is: number | null; fs: number | null; rl: number; remark: string; } | { id: string; bs: number | null; is: number; fs: number | null; rl: number; remark: string; } | { ...; })[]) => ({ ...; } | ... 1 more ... | { ...; })[]'.
+    Type '{ id: string; bs: number | null; is: number | null; fs: number | null; rl: number; remark: string; }[]' is not assignable to type '({ id: string; bs: number; is: number | null; fs: number | null; rl: number; remark: string; } | { id: string; bs: number | null; is: number; fs: number | null; rl: number; remark: string; } | { id: string; ... 4 more ...; remark: string; })[]'.
+      Type '{ id: string; bs: number | null; is: number | null; fs: number | null; rl: number; remark: string; }' is not assignable to type '{ id: string; bs: number; is: number | null; fs: number | null; rl: number; remark: string; } | { id: string; bs: number | null; is: number; fs: number | null; rl: number; remark: string; } | { id: string; ... 4 more ...; remark: string; }'.
+        Type '{ id: string; bs: number | null; is: number | null; fs: number | null; rl: number; remark: string; }' is not assignable to type '{ id: string; bs: number | null; is: number | null; fs: number; rl: number; remark: string; }'.
+          Types of property 'fs' are incompatible.
+            Type 'number | null' is not assignable to type 'number'.
+              Type 'null' is not assignable to type 'number'.
+apps/desktop/src/renderer/views/FieldBookView.tsx(275,7): error TS2353: Object literal may only specify known properties, and 'crCorr' does not exist in type '{ pointId: string; remark: string; faceCombo: string; hzCorr: number; vCorr: number; sdCorr: number; horizDist: number; zenAngle: number; deltaH: number; deltaE: number; deltaN: number; deltaZ: number; easting: number; northing: number; elevation: number; distPPM: number; }'.
+apps/desktop/src/renderer/views/FieldBookView.tsx(303,65): error TS2339: Property 'crCorr' does not exist on type '{ pointId: string; remark: string; faceCombo: string; hzCorr: number; vCorr: number; sdCorr: number; horizDist: number; zenAngle: number; deltaH: number; deltaE: number; deltaN: number; deltaZ: number; easting: number; northing: number; elevation: number; distPPM: number; }'.
+apps/desktop/src/renderer/views/FieldBookView.tsx(378,31): error TS2345: Argument of type 'LevelObservation[]' is not assignable to parameter of type 'SetStateAction<({ id: string; bs: number; is: number | null; fs: number | null; rl: number; remark: string; } | { id: string; bs: number | null; is: number; fs: number | null; rl: number; remark: string; } | { id: string; ... 4 more ...; remark: string; })[]>'.
+  Type 'LevelObservation[]' is not assignable to type '({ id: string; bs: number; is: number | null; fs: number | null; rl: number; remark: string; } | { id: string; bs: number | null; is: number; fs: number | null; rl: number; remark: string; } | { id: string; ... 4 more ...; remark: string; })[]'.
+    Type 'LevelObservation' is not assignable to type '{ id: string; bs: number; is: number | null; fs: number | null; rl: number; remark: string; } | { id: string; bs: number | null; is: number; fs: number | null; rl: number; remark: string; } | { id: string; ... 4 more ...; remark: string; }'.
+      Type 'LevelObservation' is not assignable to type '{ id: string; bs: number | null; is: number | null; fs: number; rl: number; remark: string; }'.
+        Types of property 'fs' are incompatible.
+          Type 'number | null' is not assignable to type 'number'.
+            Type 'null' is not assignable to type 'number'.
+apps/desktop/src/renderer/views/FieldBookView.tsx(508,31): error TS2345: Argument of type 'LevelObservation[]' is not assignable to parameter of type 'SetStateAction<({ id: string; bs: number; is: number | null; fs: number | null; rl: number; remark: string; } | { id: string; bs: number | null; is: number; fs: number | null; rl: number; remark: string; } | { id: string; ... 4 more ...; remark: string; })[]>'.
+  Type 'LevelObservation[]' is not assignable to type '({ id: string; bs: number; is: number | null; fs: number | null; rl: number; remark: string; } | { id: string; bs: number | null; is: number; fs: number | null; rl: number; remark: string; } | { id: string; ... 4 more ...; remark: string; })[]'.
+    Type 'LevelObservation' is not assignable to type '{ id: string; bs: number; is: number | null; fs: number | null; rl: number; remark: string; } | { id: string; bs: number | null; is: number; fs: number | null; rl: number; remark: string; } | { id: string; ... 4 more ...; remark: string; }'.
+      Type 'LevelObservation' is not assignable to type '{ id: string; bs: number | null; is: number | null; fs: number; rl: number; remark: string; }'.
+        Types of property 'fs' are incompatible.
+          Type 'number | null' is not assignable to type 'number'.
+            Type 'null' is not assignable to type 'number'.
+apps/desktop/src/renderer/views/FlightPlanningView.tsx(42,5): error TS2322: Type '{ coordinates: [number, number][]; }' is not assignable to type 'SurveyArea'.
+  Types of property 'coordinates' are incompatible.
+    Type '[number, number][]' is not assignable to type '{ lat: number; lng: number; }[]'.
+      Type '[number, number]' is not assignable to type '{ lat: number; lng: number; }'.
+apps/desktop/src/renderer/views/FlightPlanningView.tsx(46,17): error TS2339: Property 'lng' does not exist on type 'Waypoint'.
+apps/desktop/src/renderer/views/FlightPlanningView.tsx(47,18): error TS2339: Property 'lat' does not exist on type 'Waypoint'.
+apps/desktop/src/renderer/views/FlightPlanningView.tsx(82,104): error TS2339: Property 'megapixels' does not exist on type 'CameraSpec'.
+apps/desktop/src/renderer/views/ImportPanel.tsx(320,35): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: { size?: number | undefined; strokeWidth?: number | undefined; }, context?: any): string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | ... 4 more ... | undefined', gave the following error.
+    Type '{ size: number; color: string; }' is not assignable to type 'IntrinsicAttributes & { size?: number | undefined; strokeWidth?: number | undefined; }'.
+      Property 'color' does not exist on type 'IntrinsicAttributes & { size?: number | undefined; strokeWidth?: number | undefined; }'.
+  Overload 2 of 2, '(props: { size?: number | undefined; strokeWidth?: number | undefined; }): string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | ... 4 more ... | undefined', gave the following error.
+    Type '{ size: number; color: string; }' is not assignable to type 'IntrinsicAttributes & { size?: number | undefined; strokeWidth?: number | undefined; }'.
+      Property 'color' does not exist on type 'IntrinsicAttributes & { size?: number | undefined; strokeWidth?: number | undefined; }'.
+apps/desktop/src/renderer/views/InstrumentMonitorView.tsx(323,29): error TS2532: Object is possibly 'undefined'.
+apps/desktop/src/renderer/views/InstrumentMonitorView.tsx(877,27): error TS18048: 'satellites' is possibly 'undefined'.
+apps/desktop/src/renderer/views/LandPortalSubmissionView.tsx(38,26): error TS2339: Property 'surveyState' does not exist on type 'SurveyStateContextValue'.
+apps/desktop/src/renderer/views/LSAView.tsx(127,27): error TS2339: Property 'fixed' does not exist on type '{ id: string; dimension: number; }'.
+apps/desktop/src/renderer/views/LSAView.tsx(131,30): error TS2339: Property 'fixed' does not exist on type '{ id: string; dimension: number; }'.
+apps/desktop/src/renderer/views/LSAView.tsx(134,51): error TS2339: Property 'fixed' does not exist on type '{ id: string; dimension: number; }'.
+apps/desktop/src/renderer/views/LSAView.tsx(514,33): error TS2339: Property 'sigma0Squared' does not exist on type 'LsResult'.
+apps/desktop/src/renderer/views/LSAView.tsx(515,35): error TS2339: Property 'chiSquarePasses' does not exist on type 'LsResult'.
+apps/desktop/src/renderer/views/OfficeManagementView.tsx(70,30): error TS2322: Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'BlobPart'.
+  Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+    Types of property 'buffer' are incompatible.
+      Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+        Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer'.
+          Types of property '[Symbol.toStringTag]' are incompatible.
+            Type '"SharedArrayBuffer"' is not assignable to type '"ArrayBuffer"'.
+apps/desktop/src/renderer/views/SigningPanel.tsx(47,16): error TS2339: Property 'signPdf' does not exist on type '{ signing?: { signPdf: (pdfBytesBase64: string, privateKeyBase64: string, surveyor: { name: string; registrationNumber: string; professionalBody: string; country: string; }) => Promise<SignResult>; verifyPdf: (pkcs7Base64: string, pdfBytesBase64: string) => Promise<...>; } | undefined; form3?: { ...; } | undefined; }'.
+apps/desktop/src/renderer/views/SigningPanel.tsx(58,28): error TS2339: Property 'signPdf' does not exist on type '{ signing?: { signPdf: (pdfBytesBase64: string, privateKeyBase64: string, surveyor: { name: string; registrationNumber: string; professionalBody: string; country: string; }) => Promise<SignResult>; verifyPdf: (pkcs7Base64: string, pdfBytesBase64: string) => Promise<...>; } | undefined; form3?: { ...; } | undefined; }'.
+apps/desktop/src/renderer/views/SigningPanel.tsx(68,16): error TS2339: Property 'verifyPdf' does not exist on type '{ signing?: { signPdf: (pdfBytesBase64: string, privateKeyBase64: string, surveyor: { name: string; registrationNumber: string; professionalBody: string; country: string; }) => Promise<SignResult>; verifyPdf: (pkcs7Base64: string, pdfBytesBase64: string) => Promise<...>; } | undefined; form3?: { ...; } | undefined; }'.
+apps/desktop/src/renderer/views/SyncPanel.tsx(121,7): error TS2304: Cannot find name 'setProjects'.
+apps/desktop/src/renderer/views/SyncPanel.tsx(136,27): error TS2304: Cannot find name 'setProjects'.
+apps/desktop/src/renderer/views/TopographicView.tsx(63,24): error TS2339: Property 'points' does not exist on type 'TopoWorkflowOutput'.
+apps/desktop/src/renderer/views/TopographicView.tsx(63,36): error TS7006: Parameter 'p' implicitly has an 'any' type.
+apps/desktop/src/renderer/views/TopographicView.tsx(64,28): error TS2339: Property 'breaklines' does not exist on type 'TopoWorkflowOutput'.
+apps/desktop/src/renderer/views/TopographicView.tsx(64,45): error TS7006: Parameter 'bl' implicitly has an 'any' type.
+apps/desktop/src/renderer/views/TraverseView.tsx(145,116): error TS2339: Property 'adjustedE' does not exist on type '{ id: string; easting: number; northing: number; adjE: number; adjN: number; }'.
+apps/desktop/src/renderer/views/TraverseView.tsx(145,139): error TS2339: Property 'adjustedN' does not exist on type '{ id: string; easting: number; northing: number; adjE: number; adjN: number; }'.
+apps/desktop/src/renderer/views/TraverseView.tsx(156,116): error TS2339: Property 'adjustedE' does not exist on type '{ id: string; easting: number; northing: number; adjE: number; adjN: number; }'.
+apps/desktop/src/renderer/views/TraverseView.tsx(156,139): error TS2339: Property 'adjustedN' does not exist on type '{ id: string; easting: number; northing: number; adjE: number; adjN: number; }'.
+apps/desktop/src/renderer/views/TraverseView.tsx(161,32): error TS2339: Property 'area' does not exist on type 'BowditchResult'.
+apps/desktop/src/renderer/views/TraverseView.tsx(167,116): error TS2339: Property 'adjustedE' does not exist on type '{ id: string; easting: number; northing: number; adjE: number; adjN: number; }'.
+apps/desktop/src/renderer/views/TraverseView.tsx(167,139): error TS2339: Property 'adjustedN' does not exist on type '{ id: string; easting: number; northing: number; adjE: number; adjN: number; }'.
+apps/desktop/src/renderer/views/TraverseView.tsx(241,29): error TS2345: Argument of type '{} | null' is not assignable to parameter of type 'number'.
+  Type 'null' is not assignable to type 'number'.
+apps/desktop/src/renderer/views/TraverseView.tsx(250,9): error TS2322: Type '{} | null' is not assignable to type 'number'.
+  Type 'null' is not assignable to type 'number'.
+apps/desktop/src/renderer/views/TraverseView.tsx(250,31): error TS2322: Type '{} | null' is not assignable to type 'number'.
+  Type 'null' is not assignable to type 'number'.
+apps/desktop/src/renderer/views/TraverseView.tsx(270,44): error TS2339: Property 'easting' does not exist on type 'RecordedLeg[]'.
+apps/desktop/src/renderer/views/TraverseView.tsx(270,65): error TS2339: Property 'northing' does not exist on type 'RecordedLeg[]'.
+apps/desktop/src/renderer/views/TraverseView.tsx(531,108): error TS2353: Object literal may only specify known properties, and 'color' does not exist in type 'SurveyPoint'.
+apps/desktop/src/renderer/views/TraverseView.tsx(533,107): error TS2353: Object literal may only specify known properties, and 'color' does not exist in type 'SurveyPoint'.
+packages/ui-components/src/canvas/SurveyLayers.tsx(298,28): error TS2339: Property 'label' does not exist on type 'SurveyPointLike'.
+packages/ui-components/src/canvas/SurveyLayers.tsx(301,18): error TS2339: Property 'label' does not exist on type 'SurveyPointLike'.
+packages/ui-components/src/hooks/useInstrumentConnection.ts(196,40): error TS2352: Conversion of type 'ConnectParams' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Index signature for type 'string' is missing in type 'ConnectParams'.
+packages/ui-components/src/panels/AppShell.tsx(707,59): error TS2322: Type 'ViewId' is not assignable to type 'CommandPaletteViewId'.
+  Type '"volumechange"' is not assignable to type 'CommandPaletteViewId'.
+npm notice
+npm notice New major version of npm available! 11.17.0 -> 12.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+npm notice To update run: npm install -g npm@12.2.0
+npm notice

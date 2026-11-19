@@ -28,6 +28,7 @@ import "ol/ol.css";
 import { useSurveyState } from "../SurveyStateContext.js";
 import { extractMapGeometry, summarizeGeometry, type MapUncertainty } from "../map-geometry.js";
 import { buildSurveyMapSvg, SHEET_SIZES_PT, type SurveyMapSvgResult } from "../map-svg.js";
+import { topographicOverlayFeatures } from "../topographic-overlay.js";
 import {
   createNetherlandsCadastralReferenceLayer,
   createNewZealandPrimaryParcelsReferenceLayer,
@@ -588,6 +589,8 @@ export const MapView: React.FC = () => {
       }
     }
 
+    source.addFeatures(topographicOverlayFeatures(geometry, project, layerVisibility));
+
     // Fit view to geometry extent
     const feats = source.getFeatures();
     if (feats.length > 0) {
@@ -597,7 +600,9 @@ export const MapView: React.FC = () => {
       }
       parcelExtentRef.current = ext;
       mapInstance.current?.getView().fit(ext, { padding: [60, 60, 60, 60], duration: 500, maxZoom: 19 });
-      setOverlayInfo(`Loaded ${geometry.beacons.length} beacons & ${geometry.boundaries.length} boundary parcels.`);
+      setOverlayInfo(`Loaded ${geometry.fieldPoints.length} survey points, ${geometry.contours.length} contour segments, ${geometry.beacons.length} beacons and ${geometry.boundaries.length} boundaries.`);
+    } else {
+      setOverlayInfo("No survey features are visible. Enable the relevant map layers.");
     }
   }, [activeProject, surveyState, layerVisibility]);
 
@@ -834,7 +839,7 @@ export const MapView: React.FC = () => {
 
       {/* Map Viewport Area */}
       <div style={{ position: "relative", flex: 1, minHeight: "400px", borderRadius: "4px", overflow: "hidden", border: "1px solid var(--border-default)" }}>
-        <div ref={mapRef} style={{ width: "100%", height: "100%", background: "#0D1117" }} />
+        <div ref={mapRef} style={{ position: "absolute", inset: 0, background: "#0D1117" }} />
 
         {/* Floating Layer Menu */}
         {showLayersMenu && (
@@ -847,6 +852,14 @@ export const MapView: React.FC = () => {
             <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <input type="checkbox" checked={layerVisibility.beacons} onChange={(e) => setLayerVisibility((p) => ({ ...p, beacons: e.target.checked }))} />
               Corner Beacons
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <input type="checkbox" checked={layerVisibility.fieldPoints} onChange={(e) => setLayerVisibility((p) => ({ ...p, fieldPoints: e.target.checked }))} />
+              Survey Points
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <input type="checkbox" checked={layerVisibility.contours} onChange={(e) => setLayerVisibility((p) => ({ ...p, contours: e.target.checked }))} />
+              Contours
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <input type="checkbox" checked={layerVisibility.errorEllipses} onChange={(e) => setLayerVisibility((p) => ({ ...p, errorEllipses: e.target.checked }))} />

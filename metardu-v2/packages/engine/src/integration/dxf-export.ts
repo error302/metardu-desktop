@@ -113,6 +113,8 @@ import { detectSurveyType, type SurveyType } from "../survey-type-detection.js";
 
 /** Options for the DXF exporter. */
 export interface DxfOptions extends IntegrationOptions {
+  /** Explicit saved project basis; must agree with retained topographic context. */
+  crsSrid?: number;
   /**
    * Whether to include the parcel polygon as a closed boundary
    * (default: true). Has no effect for topo/engineering outputs.
@@ -660,7 +662,7 @@ function generateTopoDxf(
 
   addTIN(
     doc,
-    output.tin.vertices.map((v) => ({ x: v.easting, y: v.northing })),
+    output.tin.vertices.map((v) => ({ x: v.easting, y: v.northing, z: v.elevation })),
     output.tin.triangles,
   );
 
@@ -675,14 +677,22 @@ function generateTopoDxf(
     })),
   );
 
-  if (includeCoordSchedule) {
-    addText(
-      doc,
-      `TOPOGRAPHIC SURVEY: SRID ${srid} | ${crsUrn}`,
-      { x: 0, y: -5 },
-      coordScheduleLayer,
-      2.0,
-    );
+  if (includeCoordSchedule && output.tin.vertices.length) {
+    const minE = Math.min(...output.tin.vertices.map(v => v.easting));
+    const minN = Math.min(...output.tin.vertices.map(v => v.northing));
+    const width = Math.max(...output.tin.vertices.map(v => v.easting)) - minE;
+    const textHeight = Math.min(2, Math.max(0.2, width / 65));
+    const metadata = options.projectMetadata;
+    const rows = [
+      `COMPUTED DRAFT - TOPOGRAPHIC SURVEY: SRID ${srid} | ${crsUrn}`,
+      `HEIGHT REFERENCE: ${output.coordinateContext?.verticalReference ?? "not recorded"}`,
+      "REFERENCE UNVERIFIED; POINTS UNADJUSTED; NOT PROFESSIONALLY APPROVED",
+      `PROJECT: ${metadata?.projectName ?? "not recorded"}`,
+      `SURVEY DATE: ${metadata?.surveyDate || "not recorded"}`,
+      `SURVEYOR: ${metadata?.surveyorName || "not recorded"}`,
+      `REGISTRATION: ${metadata?.licenseNumber || "not recorded"}`,
+    ].flatMap(row => row.replace(/[\r\n\u0000]/g, " ").match(/.{1,70}/g) ?? []);
+    rows.forEach((row, i) => addText(doc, row, {x:minE,y:minN-18-i*textHeight*1.8}, coordScheduleLayer, textHeight));
   }
 
   if (output.tin.vertices.length > 0) {
@@ -887,21 +897,6 @@ export const dxfExporter: IntegrationExporter<SurveyOutput, DxfOptions, DxfOutpu
       }
     }
 
-    const m = options.projectMetadata;
-    if (!m) {
-      errors.push("projectMetadata is required (invariant C1).");
-    } else {
-      const missing: string[] = [];
-      if (!m.projectName) missing.push("projectName");
-      if (!m.surveyorName) missing.push("surveyorName");
-      if (!m.licenseNumber) missing.push("licenseNumber");
-      if (!m.surveyDate) missing.push("surveyDate");
-      if (!m.adjustmentRunId) missing.push("adjustmentRunId");
-      if (missing.length > 0) {
-        errors.push(`projectMetadata incomplete. Missing: ${missing.join(", ")}.`);
-      }
-    }
-
     let surveyType: SurveyType;
     try {
       surveyType = detectSurveyType(input);
@@ -909,6 +904,23 @@ export const dxfExporter: IntegrationExporter<SurveyOutput, DxfOptions, DxfOutpu
       errors.push((e as Error).message);
       return { ok: false, errors, warnings };
     }
+
+    const computedDraft = surveyType === "topographic" && (input as TopoWorkflowOutput).evidenceStatus === "computed-draft-unadjusted";
+    const m = options.projectMetadata;
+    if (!m) {
+      errors.push("projectMetadata is required (invariant C1).");
+    } else {
+      const missing: string[] = [];
+      if (!m.projectName) missing.push("projectName");
+      if (!computedDraft && !m.surveyorName) missing.push("surveyorName");
+      if (!computedDraft && !m.licenseNumber) missing.push("licenseNumber");
+      if (!computedDraft && !m.surveyDate) missing.push("surveyDate");
+      if (!computedDraft && !m.adjustmentRunId) missing.push("adjustmentRunId");
+      if (missing.length > 0) {
+        errors.push(`projectMetadata incomplete. Missing: ${missing.join(", ")}.`);
+      }
+    }
+
 
     // Warning for countries without a documented layer-naming convention.
     // KE and GB have filed conventions; AU/ZA/DE now have country-correct
@@ -940,6 +952,18 @@ export const dxfExporter: IntegrationExporter<SurveyOutput, DxfOptions, DxfOutpu
       if (!output.tin || output.tin.vertices.length === 0) {
         errors.push("Input topographic survey output has no TIN vertices.");
       }
+      const context = output.coordinateContext;
+      if (context && (!Number.isSafeInteger(context.horizontalCrsEpsg) || context.horizontalCrsEpsg <= 0
+        || context.horizontalUnits !== "m" || context.referenceStatus !== "user-declared-unverified"
+        || typeof context.horizontalCrsLabel !== "string" || !context.horizontalCrsLabel.trim()
+        || typeof context.verticalReference !== "string" || !context.verticalReference.trim())) errors.push("Retained topographic reference is incomplete or unsupported.");
+      if (computedDraft && !context) errors.push("Computed draft requires its retained topographic reference; jurisdiction defaults cannot supply missing evidence.");
+      const source = context?.horizontalCrsEpsg ?? (validCodes.includes(options.countryCode) ? getCountryConfig(options.countryCode as CountryCode).geodeticFramework.primarySRID : undefined);
+      if (options.crsSrid !== undefined && options.crsSrid !== source) errors.push("Requested CRS contradicts the retained topographic source reference.");
+      if (options.outputWgs84) errors.push("Topographic DXF preserves source coordinates; geographic conversion is not performed by this exporter.");
+      if (output.tin?.vertices.some(v => !Number.isFinite(v.easting) || !Number.isFinite(v.northing) || !Number.isFinite(v.elevation))) errors.push("Topographic source coordinates and heights must be finite.");
+      if (output.contours?.some(c => !Number.isFinite(c.elevation) || c.coordinates.some(p => !Number.isFinite(p[0]) || !Number.isFinite(p[1])))) errors.push("Topographic contour coordinates and heights must be finite.");
+      if (computedDraft) warnings.push("COMPUTED DRAFT: source reference is user-declared/unverified; raw points are unadjusted and professional approval is not established.");
     } else if (surveyType === "engineering") {
       const output = input as EngineeringWorkflowOutput;
       if (!output.sections || output.sections.length === 0) {
@@ -962,7 +986,9 @@ export const dxfExporter: IntegrationExporter<SurveyOutput, DxfOptions, DxfOutpu
     const surveyType = detectSurveyType(input);
 
     const config = getCountryConfig(options.countryCode as CountryCode);
-    const srid = config.geodeticFramework.primarySRID;
+    const srid = surveyType === "topographic"
+      ? (input as TopoWorkflowOutput).coordinateContext?.horizontalCrsEpsg ?? config.geodeticFramework.primarySRID
+      : config.geodeticFramework.primarySRID;
     const crsUrn = `urn:ogc:def:crs:EPSG::${srid}`;
 
     const layerSpecs = getCountryDxfLayerSpecs(options.countryCode, surveyType);

@@ -122,6 +122,8 @@ export interface TopoWorkflowInput {
 
 /** Output of the topographic workflow. */
 export interface TopoWorkflowOutput {
+  /** Requested contour spacing; absent only on older saved drafts. */
+  contourInterval?: number;
   /** Generated TIN. */
   tin: TIN;
   /** Generated contours. */
@@ -417,6 +419,7 @@ export function runTopographicWorkflow(input: TopoWorkflowInput): TopoWorkflowOu
   }
 
   return {
+    contourInterval: input.contourInterval,
     tin,
     contours,
     spotHeights,

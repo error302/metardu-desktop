@@ -44,10 +44,11 @@ import {
 
 // ─── Types ───────────────────────────────────────────────────────
 
-/** A 2D point for DXF output (easting, northing in metres). */
+/** A survey coordinate in metres; absent z remains the existing 2D plane. */
 export interface DxfPoint {
   x: number;
   y: number;
+  z?: number;
 }
 
 /** A DXF layer definition. */
@@ -286,13 +287,13 @@ export function addContours(
   contours: { elevation: number; coordinates: [number, number][] }[],
 ): void {
   for (const contour of contours) {
-    for (let i = 0; i < contour.coordinates.length - 1; i += 2) {
+    for (let i = 0; i < contour.coordinates.length - 1; i++) {
       const a = contour.coordinates[i]!;
       const b = contour.coordinates[i + 1];
       if (!b) continue;
       doc.entities.modelSpace.addLine(
-        toVec3({ x: a[0], y: a[1] }),
-        toVec3({ x: b[0], y: b[1] }),
+        toVec3({ x: a[0], y: a[1], z: contour.elevation }),
+        toVec3({ x: b[0], y: b[1], z: contour.elevation }),
         { layerName: "CONTOURS" },
       );
     }
@@ -309,10 +310,10 @@ export function addSpotHeights(
   for (const sh of spotHeights) {
     // Small cross marker
     const s = 0.5;
-    doc.entities.modelSpace.addLine(toVec3({ x: sh.x - s, y: sh.y }), toVec3({ x: sh.x + s, y: sh.y }), { layerName: "SPOT-HEIGHTS" });
-    doc.entities.modelSpace.addLine(toVec3({ x: sh.x, y: sh.y - s }), toVec3({ x: sh.x, y: sh.y + s }), { layerName: "SPOT-HEIGHTS" });
+    doc.entities.modelSpace.addLine(toVec3({ x: sh.x - s, y: sh.y, z: sh.elevation }), toVec3({ x: sh.x + s, y: sh.y, z: sh.elevation }), { layerName: "SPOT-HEIGHTS" });
+    doc.entities.modelSpace.addLine(toVec3({ x: sh.x, y: sh.y - s, z: sh.elevation }), toVec3({ x: sh.x, y: sh.y + s, z: sh.elevation }), { layerName: "SPOT-HEIGHTS" });
     // Elevation text
-    addText(doc, `+${sh.elevation.toFixed(2)}`, { x: sh.x + 1, y: sh.y + 1 }, "SPOT-HEIGHTS", 1.5);
+    addText(doc, `+${sh.elevation.toFixed(2)}`, { x: sh.x + 1, y: sh.y + 1, z: sh.elevation }, "SPOT-HEIGHTS", 1.5);
   }
 }
 
@@ -569,5 +570,5 @@ export function generateSectionalDxf(
 // ─── Helper ──────────────────────────────────────────────────────
 
 function toVec3(p: DxfPoint): vec3_t {
-  return point3d(p.x, p.y, 0);
+  return point3d(p.x, p.y, p.z ?? 0);
 }

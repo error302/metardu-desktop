@@ -873,6 +873,8 @@ function drawFlightPatternDiagram(ctx: RenderContext, report: FlightPlanReportIn
 
 /** Input for a single-page, print-grade plan sheet PDF. */
 export interface SinglePlanPdfInput {
+  /** Suppresses statutory metadata for explicitly computed draft sheets. */
+  computedDraft?: boolean;
   /** Plan title (e.g. project name). */
   title: string;
   surveyorName?: string;
@@ -906,7 +908,7 @@ export async function renderSinglePlanPdf(input: SinglePlanPdfInput): Promise<Ui
   doc.setCreator("MetaRDU Desktop v2.0");
   doc.setSubject(
     [
-      "Statutory survey plan sheet",
+      input.computedDraft ? "Computed draft survey plan; not professionally approved" : "Statutory survey plan sheet",
       input.coordinateSystemLabel ? `CRS: ${input.coordinateSystemLabel}` : null,
       input.scaleDenominator ? `Scale 1:${input.scaleDenominator}` : null,
     ]

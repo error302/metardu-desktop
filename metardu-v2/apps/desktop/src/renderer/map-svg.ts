@@ -34,6 +34,7 @@
  * reprojects to WGS84 for the basemap; the print plan stays native.
  */
 
+import { placeRetainedContourLabels } from "@metardu/engine-flight-planning";
 import type { MapGeometry } from "./map-geometry.js";
 
 /** Rasterization density for the print map. */
@@ -268,7 +269,15 @@ export function buildSurveyMapSvg(
   const widthPt = options.widthPt ?? sheet?.widthPt ?? 842;   // A4 landscape
   const heightPt = options.heightPt ?? sheet?.heightPt ?? 595;
   const MARGIN = 36;
-  const TOP_STRIP_H = 40;                   // title bar
+  const computedDraft = options.planTypeLabel === "COMPUTED DRAFT";
+  const contourInk = computedDraft ? "#795536" : CONTOUR;
+  const planMono = computedDraft ? "Consolas, DejaVu Sans Mono, monospace" : FONT_MONO;
+  const planSans = computedDraft ? "Arial, DejaVu Sans, sans-serif" : FONT_SANS;
+  const draftTitle = `COMPUTED DRAFT - ${options.title}`;
+  const titleChars = Math.max(20, Math.floor((widthPt - 2*MARGIN) / 9));
+  const draftTitleLines = draftTitle.match(new RegExp(`.{1,${titleChars}}`, "g")) ?? [];
+  const draftCrsLines = (options.coordinateSystemLabel ?? "Reference not recorded").match(new RegExp(`.{1,${Math.max(20,Math.floor((widthPt-2*MARGIN)/6))}}`, "g")) ?? [];
+  const TOP_STRIP_H = computedDraft ? 20 + draftTitleLines.length*18 + draftCrsLines.length*12 : 40;                   // title bar
 
   // ─── Statutory title-block geometry ───────────────────────────────
   // When the country's planSheet defines a titleBlockLayout, a bordered
@@ -285,7 +294,8 @@ export function buildSurveyMapSvg(
   //     REFERENCE" + a long CRS name must never overlap).
   const statutory = options.titleBlockLayout;
   const statFooterLines = statutory?.statutoryFooterLines ?? [];
-  const noteLineCount = options.footerNote ? 2 : 0;   // footerNote caps at 2
+  const draftNoteLines = (options.footerNote ?? "").match(new RegExp(`.{1,${Math.max(20,Math.floor((widthPt-2*MARGIN)/4.6))}}`, "g")) ?? [];
+  const noteLineCount = options.footerNote ? (computedDraft ? draftNoteLines.length : 2) : 0;   // footerNote caps at 2
   const extraFooterLines = statFooterLines.length + noteLineCount;
   const bottomPad = MARGIN + Math.max(0, extraFooterLines * 8.5 - 8);
 
@@ -342,7 +352,7 @@ export function buildSurveyMapSvg(
   const statGridH = statGridLineCount > 0 ? statGridLineCount * 13 + 8 : 0;
   const statSealH = statutory && statutory.seal.position !== "none" ? 30 : 0;
   const statBlockH = statutory ? Math.max(statGridH, statCertH) + statSealH + 8 : 0;
-  const BOTTOM_STRIP_H = 44 + statBlockH;
+  const BOTTOM_STRIP_H = (computedDraft ? 106 : 44) + statBlockH;
 
   const mapLeft = MARGIN;
   const mapRight = widthPt - MARGIN;
@@ -350,6 +360,7 @@ export function buildSurveyMapSvg(
   const mapBottom = heightPt - bottomPad - BOTTOM_STRIP_H;
   const mapW = mapRight - mapLeft;
   const mapH = mapBottom - mapTop;
+  if (computedDraft && mapH < 100) throw new Error("Draft reference/title text leaves insufficient map space; choose a larger sheet or shorten the recorded text.");
 
   // ─── Collect every point we need to bound the extent ─────────────
   // Contour vertices are part of the plot (a topo plan's contours can
@@ -386,7 +397,11 @@ export function buildSurveyMapSvg(
   const fitScalePt = Math.min(mapW / extentW, mapH / extentH);
   const fixedDenom = options.scaleMode?.mode === "fixed" ? options.scaleMode.denominator : 0;
   const useFixed = Number.isFinite(fixedDenom) && fixedDenom > 0;
-  const scalePt = useFixed ? (1000 * 72) / (25.4 * fixedDenom) : fitScalePt;
+  const rawFitDenom = (1000 * 72) / (25.4 * fitScalePt);
+  const magnitude = 10 ** Math.floor(Math.log10(rawFitDenom));
+  const conventionalDenom = ([1, 2, 2.5, 5, 10].find(value => value * magnitude >= rawFitDenom) ?? 10) * magnitude;
+  const draftAutoDenom = computedDraft && !useFixed ? conventionalDenom : 0;
+  const scalePt = useFixed || draftAutoDenom ? (1000 * 72) / (25.4 * (useFixed ? fixedDenom : draftAutoDenom)) : fitScalePt;
 
   const drawnW = extentW * scalePt;
   const drawnH = extentH * scalePt;
@@ -401,7 +416,7 @@ export function buildSurveyMapSvg(
   // rounded for fit mode (1 pt = 1/72 in = 25.4/72 mm on paper).
   const scaleDenominator = useFixed
     ? fixedDenom
-    : Math.round((1000 * 72) / (25.4 * fitScalePt));
+    : draftAutoDenom || Math.round((1000 * 72) / (25.4 * fitScalePt));
   const fitsSheet = drawnW <= mapW + 0.5 && drawnH <= mapH + 0.5;
   // Ground metres per point — used by the scale bar. (== 1/scalePt.)
   const mPerPt = 1 / scalePt;
@@ -413,7 +428,7 @@ export function buildSurveyMapSvg(
   const parts: string[] = [];
   parts.push(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${widthPt}" height="${heightPt}" ` +
-    `viewBox="0 0 ${widthPt} ${heightPt}" font-family="${FONT_SANS}">`,
+    `viewBox="0 0 ${widthPt} ${heightPt}" font-family="${planSans}">`,
     `<rect width="100%" height="100%" fill="#FFFFFF"/>`,
   );
 
@@ -421,25 +436,32 @@ export function buildSurveyMapSvg(
   // Statutory header (titleBlockLabel) centered, plan-type prefix on the
   // title (left), CRS label (right). Mirrors per-country title-block
   // conventions so the sheet is filed as-is.
+  if (computedDraft) {
+    draftTitleLines.forEach((line,i) => parts.push(`<text x="${MARGIN}" y="${MARGIN+16+i*18}" font-size="15" font-weight="bold" fill="${INK}" font-family="${planMono}">${esc(line)}</text>`));
+    draftCrsLines.forEach((line,i) => parts.push(`<text x="${MARGIN}" y="${MARGIN+20+draftTitleLines.length*18+i*12}" font-size="9" fill="${MUTED}" font-family="${planMono}">${esc(line)}</text>`));
+    parts.push(`<line x1="${MARGIN}" y1="${mapTop-8}" x2="${widthPt-MARGIN}" y2="${mapTop-8}" stroke="${INK}"/>`);
+  } else {
   const titleText = options.planTypeLabel
     ? `${options.planTypeLabel} — ${options.title}`
     : options.title;
   parts.push(
-    `<text x="${MARGIN}" y="${MARGIN + 16}" font-size="15" font-weight="bold" fill="${INK}" font-family="${FONT_SANS}">${esc(titleText)}</text>`,
+    `<text x="${MARGIN}" y="${MARGIN + 16}" font-size="15" font-weight="bold" fill="${INK}" font-family="${planSans}">${esc(titleText)}</text>`,
   );
   if (options.titleBlockLabel) {
     parts.push(
-      `<text x="${widthPt / 2}" y="${MARGIN + 12}" text-anchor="middle" font-size="8" letter-spacing="1" fill="${MUTED}" font-family="${FONT_SANS}">${esc(options.titleBlockLabel)}</text>`,
+      `<text x="${widthPt / 2}" y="${MARGIN + 12}" text-anchor="middle" font-size="8" letter-spacing="1" fill="${MUTED}" font-family="${planSans}">${esc(options.titleBlockLabel)}</text>`,
     );
   }
   if (options.coordinateSystemLabel) {
     parts.push(
-      `<text x="${widthPt - MARGIN}" y="${MARGIN + 16}" font-size="9" text-anchor="end" fill="${MUTED}" font-family="${FONT_MONO}">${esc(options.coordinateSystemLabel)}</text>`,
+      `<text x="${widthPt - MARGIN}" y="${MARGIN + 16}" font-size="9" text-anchor="end" fill="${MUTED}" font-family="${planMono}">${esc(options.coordinateSystemLabel)}</text>`,
     );
   }
   parts.push(
     `<line x1="${MARGIN}" y1="${MARGIN + 24}" x2="${widthPt - MARGIN}" y2="${MARGIN + 24}" stroke="${INK}" stroke-width="1"/>`,
   );
+
+  }
 
   // ─── Map frame ───────────────────────────────────────────────────
   parts.push(
@@ -452,14 +474,14 @@ export function buildSurveyMapSvg(
       const x = toX(e);
       parts.push(
         `<line x1="${x}" y1="${mapTop}" x2="${x}" y2="${mapBottom}" stroke="${GRID}" stroke-width="0.6"/>`,
-        `<text x="${x + 3}" y="${mapBottom + 12}" font-size="7" fill="${MUTED}" font-family="${FONT_MONO}">${fmt(e)}</text>`,
+        `<text x="${x + 3}" y="${mapBottom + 12}" font-size="7" fill="${MUTED}" font-family="${planMono}">${fmt(e)}</text>`,
       );
     }
     for (let n = Math.ceil(minN / gridStepN) * gridStepN; n <= maxN; n += gridStepN) {
       const y = toY(n);
       parts.push(
         `<line x1="${mapLeft}" y1="${y}" x2="${mapRight}" y2="${y}" stroke="${GRID}" stroke-width="0.6"/>`,
-        `<text x="${mapLeft + 3}" y="${y - 3}" font-size="7" fill="${MUTED}" font-family="${FONT_MONO}">${fmt(n)}</text>`,
+        `<text x="${mapLeft + 3}" y="${y - 3}" font-size="7" fill="${MUTED}" font-family="${planMono}">${fmt(n)}</text>`,
       );
     }
 
@@ -475,7 +497,7 @@ export function buildSurveyMapSvg(
       // Boundary label near the first vertex.
       const v0 = boundary.vertices[0]!;
       parts.push(
-        `<text x="${toX(v0.easting) + 8}" y="${toY(v0.northing) - 8}" font-size="8.5" font-weight="bold" fill="${BOUNDARY}" font-family="${FONT_MONO}">${esc(boundary.label)}</text>`,
+        `<text x="${toX(v0.easting) + 8}" y="${toY(v0.northing) - 8}" font-size="8.5" font-weight="bold" fill="${BOUNDARY}" font-family="${planMono}">${esc(boundary.label)}</text>`,
       );
     }
 
@@ -485,7 +507,7 @@ export function buildSurveyMapSvg(
       const y = toY(beacon.northing);
       parts.push(
         `<circle cx="${x}" cy="${y}" r="4" fill="${BEACON}" stroke="#FFFFFF" stroke-width="1.4"/>`,
-        `<text x="${x + 6}" y="${y - 6}" font-size="8" fill="${BEACON_TEXT}" font-weight="bold" font-family="${FONT_MONO}">${esc(beacon.label)}</text>`,
+        `<text x="${x + 6}" y="${y - 6}" font-size="8" fill="${BEACON_TEXT}" font-weight="bold" font-family="${planMono}">${esc(beacon.label)}</text>`,
       );
     }
 
@@ -505,12 +527,25 @@ export function buildSurveyMapSvg(
         .map((v, i) => `${i === 0 ? "M" : "L"}${toX(v.easting).toFixed(2)},${toY(v.northing).toFixed(2)}`)
         .join(" ") + (contour.closed ? " Z" : "");
       parts.push(
-        `<path d="${d}" fill="none" stroke="${CONTOUR}" stroke-width="1" opacity="0.85"/>`,
+        `<path d="${d}" fill="none" stroke="${contourInk}" stroke-width="1" opacity="0.85"/>`,
       );
+      if (!computedDraft) {
       const v0 = contour.vertices[0]!;
       parts.push(
-        `<text x="${toX(v0.easting) + 3}" y="${toY(v0.northing) - 3}" font-size="6.5" fill="${CONTOUR}" font-family="${FONT_MONO}">${esc(contour.elevation.toFixed(1))}</text>`,
+        `<text x="${toX(v0.easting) + 3}" y="${toY(v0.northing) - 3}" font-size="6.5" fill="${contourInk}" font-family="${planMono}">${esc(contour.elevation.toFixed(1))}</text>`,
       );
+      }
+    }
+
+    if (computedDraft) {
+      const reserved = geometry.fieldPoints.map(p=>({left:toX(p.easting)-5,top:toY(p.northing)-5,right:toX(p.easting)+5,bottom:toY(p.northing)+5}));
+      reserved.push({left:0,top:0,right:widthPt,bottom:mapTop},{left:0,top:mapBottom,right:widthPt,bottom:heightPt},
+        {left:0,top:0,right:mapLeft,bottom:heightPt},{left:mapRight,top:0,right:widthPt,bottom:heightPt},
+        {left:mapRight-70,top:mapTop,right:mapRight,bottom:mapTop+70},
+        {left:mapLeft,top:mapBottom-70,right:mapLeft+115,bottom:mapBottom},
+        {left:mapRight-220,top:mapBottom-45,right:mapRight,bottom:mapBottom});
+      const labels=placeRetainedContourLabels(geometry.contours.map(c=>({elevation:c.elevation,coordinates:c.vertices.map(v=>[v.easting,v.northing] as [number,number])})),(e,n)=>({x:toX(e),y:toY(n)}),reserved,{width:widthPt,height:heightPt});
+      for(const label of labels) parts.push(`<text x="${label.x}" y="${label.y}" text-anchor="middle" dominant-baseline="middle" font-size="7" fill="${contourInk}" stroke="#FBFBF9" stroke-width="2" paint-order="stroke" font-family="${planMono}">${esc(label.text)}</text>`);
     }
 
     // ── North arrow (top-right inside the frame) ────────────────────
@@ -525,7 +560,7 @@ export function buildSurveyMapSvg(
     const targetPt = 110; // desired bar length in points
     const segM = niceStep(mPerPt * targetPt);
     const segPt = segM / mPerPt;
-    const sbY = mapBottom - 14;
+    const sbY = computedDraft ? mapBottom + 45 : mapBottom - 14;
     const sbX = mapRight - segPt - 10;
     const sbLabel = segM >= 1000 ? `${(segM / 1000).toFixed(segM % 1000 === 0 ? 0 : 1)} km` : `${fmt(segM)} m`;
     parts.push(
@@ -533,7 +568,7 @@ export function buildSurveyMapSvg(
       `<rect x="${sbX + segPt / 2}" y="${sbY - 4}" width="${segPt / 2}" height="6" fill="#FFFFFF" stroke="${INK}" stroke-width="0.8"/>`,
       `<line x1="${sbX}" y1="${sbY - 7}" x2="${sbX}" y2="${sbY + 5}" stroke="${INK}" stroke-width="1"/>`,
       `<line x1="${sbX + segPt}" y1="${sbY - 7}" x2="${sbX + segPt}" y2="${sbY + 5}" stroke="${INK}" stroke-width="1"/>`,
-      `<text x="${sbX + segPt / 2}" y="${sbY - 12}" text-anchor="middle" font-size="7.5" fill="${INK}" font-family="${FONT_MONO}">${sbLabel}</text>`,
+      `<text x="${sbX + segPt / 2}" y="${sbY - 12}" text-anchor="middle" font-size="7.5" fill="${INK}" font-family="${planMono}">${sbLabel}</text>`,
     );
 
     // ── Legend (bottom-left inside the frame) ───────────────────────
@@ -551,9 +586,9 @@ export function buildSurveyMapSvg(
       const lgW = 96;
       const lgH = 18 + legendRows.length * lgRowH + 6;
       const lgX = mapLeft + 10;
-      const lgY = mapBottom - lgH - 10;
+      const lgY = computedDraft ? mapBottom + 22 : mapBottom - lgH - 10;
       parts.push(
-        `<rect x="${lgX}" y="${lgY}" width="${lgW}" height="${lgH}" fill="#FFFFFF" stroke="${INK}" stroke-width="0.8"/>`,
+        `<rect x="${lgX}" y="${lgY}" width="${lgW}" height="${lgH}" fill="#FFFFFF" stroke="${INK}" stroke-width="0.8" data-role="legend"/>`,
         `<text x="${lgX + 6}" y="${lgY + 11}" font-size="7" font-weight="bold" letter-spacing="0.5" fill="${INK}">${esc(legendTitle)}</text>`,
       );
       legendRows.forEach((row, i) => {
@@ -568,7 +603,7 @@ export function buildSurveyMapSvg(
           );
         } else if (row.glyph === "contour") {
           parts.push(
-            `<line x1="${lgX + 6}" y1="${ry + 4}" x2="${lgX + 16}" y2="${ry + 4}" stroke="${CONTOUR}" stroke-width="1.2"/>`,
+            `<line x1="${lgX + 6}" y1="${ry + 4}" x2="${lgX + 16}" y2="${ry + 4}" stroke="${contourInk}" stroke-width="1.2"/>`,
           );
         } else {
           parts.push(
@@ -576,7 +611,7 @@ export function buildSurveyMapSvg(
           );
         }
         parts.push(
-          `<text x="${lgX + 22}" y="${ry + 7}" font-size="7" fill="${MUTED}" font-family="${FONT_MONO}">${esc(row.label)}</text>`,
+          `<text x="${lgX + 22}" y="${ry + 7}" font-size="7" fill="${MUTED}" font-family="${planMono}">${esc(row.label)}</text>`,
         );
       });
     }
@@ -619,17 +654,17 @@ export function buildSurveyMapSvg(
       const value = row.value ? fillStatTokens(row.value, tokenCtx) : "";
       const collides = fieldCollides(row.label, value);
       parts.push(
-        `<text x="${x}" y="${y}" font-size="6.5" font-weight="bold" fill="${INK}" font-family="${FONT_MONO}">${esc(row.label)}</text>`,
+        `<text x="${x}" y="${y}" font-size="6.5" font-weight="bold" fill="${INK}" font-family="${planMono}">${esc(row.label)}</text>`,
       );
       if (value && !collides) {
         parts.push(
-          `<text x="${x + colW - 8}" y="${y}" text-anchor="end" font-size="6.5" fill="${INK}" font-family="${FONT_MONO}">${esc(value)}</text>`,
+          `<text x="${x + colW - 8}" y="${y}" text-anchor="end" font-size="6.5" fill="${INK}" font-family="${planMono}">${esc(value)}</text>`,
         );
       } else if (value && collides) {
         // Too wide for the row — own line under the label (full value,
         // never truncated: statutory fields must carry the complete text).
         parts.push(
-          `<text x="${x}" y="${y + 10}" font-size="6.5" fill="${INK}" font-family="${FONT_MONO}">${esc(value)}</text>`,
+          `<text x="${x}" y="${y + 10}" font-size="6.5" fill="${INK}" font-family="${planMono}">${esc(value)}</text>`,
         );
       } else {
         // Blank statutory field — honest dotted underline for manual fill.
@@ -647,11 +682,11 @@ export function buildSurveyMapSvg(
       const certH = 16 + certWrapped.length * 8.5 + 6;
       parts.push(
         `<rect x="${certX}" y="${blockTop + 8}" width="${certW}" height="${certH}" fill="none" stroke="${INK}" stroke-width="0.7"/>`,
-        `<text x="${certX + 6}" y="${blockTop + 20}" font-size="6.5" font-weight="bold" letter-spacing="0.5" fill="${INK}" font-family="${FONT_MONO}">${esc(statutory.certification.heading)}</text>`,
+        `<text x="${certX + 6}" y="${blockTop + 20}" font-size="6.5" font-weight="bold" letter-spacing="0.5" fill="${INK}" font-family="${planMono}">${esc(statutory.certification.heading)}</text>`,
       );
       certWrapped.forEach((ln, i) => {
         parts.push(
-          `<text x="${certX + 6}" y="${blockTop + 31 + i * 8.5}" font-size="6" fill="${MUTED}" font-family="${FONT_MONO}">${esc(ln)}</text>`,
+          `<text x="${certX + 6}" y="${blockTop + 31 + i * 8.5}" font-size="6" fill="${MUTED}" font-family="${planMono}">${esc(ln)}</text>`,
         );
       });
     }
@@ -664,7 +699,7 @@ export function buildSurveyMapSvg(
       const sealY = blockTop + statBlockH - 18;
       parts.push(
         `<circle cx="${sealX}" cy="${sealY}" r="11" fill="none" stroke="${INK}" stroke-width="0.9" stroke-dasharray="2.5,1.6"/>`,
-        `<text x="${sealX}" y="${sealY + 15}" text-anchor="middle" font-size="5.5" fill="${MUTED}" font-family="${FONT_MONO}">${esc(statutory.seal.caption ?? "SURVEYOR'S SEAL")}</text>`,
+        `<text x="${sealX}" y="${sealY + 15}" text-anchor="middle" font-size="5.5" fill="${MUTED}" font-family="${planMono}">${esc(statutory.seal.caption ?? "SURVEYOR'S SEAL")}</text>`,
       );
     }
   }
@@ -682,7 +717,7 @@ export function buildSurveyMapSvg(
   let footerLineIdx = 0;
   for (const ln of statFooterLines) {
     parts.push(
-      `<text x="${MARGIN}" y="${footerY + 12 + footerLineIdx * 8.5}" font-size="6.5" fill="${MUTED}" font-family="${FONT_MONO}">${esc(ln)}</text>`,
+      `<text x="${MARGIN}" y="${footerY + 12 + footerLineIdx * 8.5}" font-size="6.5" fill="${MUTED}" font-family="${planMono}">${esc(ln)}</text>`,
     );
     footerLineIdx += 1;
   }
@@ -704,13 +739,14 @@ export function buildSurveyMapSvg(
     if (line) lines.push(line);
     // Cap at 2 rendered lines; any dropped remainder is marked with an
     // ellipsis so a statutory disclaimer is never silently truncated.
-    if (lines.length > 2) {
+    if (computedDraft) lines.splice(0, lines.length, ...draftNoteLines);
+    if (!computedDraft && lines.length > 2) {
       lines[1] = `${lines[1]!} …`;
       lines.length = 2;
     }
     lines.forEach((ln, i) => {
       parts.push(
-        `<text x="${MARGIN}" y="${footerY + 12 + (footerLineIdx + i) * 8.5}" font-size="7" fill="${MUTED}" font-family="${FONT_MONO}">${esc(ln)}</text>`,
+        `<text x="${MARGIN}" y="${footerY + 12 + (footerLineIdx + i) * 8.5}" font-size="7" fill="${MUTED}" font-family="${planMono}">${esc(ln)}</text>`,
       );
     });
   }

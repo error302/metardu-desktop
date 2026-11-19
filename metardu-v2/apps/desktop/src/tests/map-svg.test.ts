@@ -494,3 +494,24 @@ describe("statutory title-block layout", () => {
     expect(result.svg).toContain("CERTIFICATION OF SURVEYOR");
   });
 });
+describe("computed draft plan layout",()=>{
+ it("wraps the title and separates the retained CRS without dropping reference text",()=>{
+  const title="SYNTHETIC long project name ".repeat(6),reference="SYNTHETIC local benchmark ".repeat(8)+"END-OF-REFERENCE";
+  const result=buildSurveyMapSvg(cadastralGeometry(),{title,coordinateSystemLabel:"Saved project source reference",planTypeLabel:"COMPUTED DRAFT",footerNote:reference,date:"not recorded"});
+  expect(result.svg).toContain("END-OF-REFERENCE");expect(result.svg).toContain("not recorded");
+  const titleYs=[...result.svg.matchAll(/<text[^>]*\sy="([^"]+)"[^>]*font-size="15"[^>]*>/g)].map(m=>Number(m[1]));
+  expect(titleYs.length).toBeGreaterThan(1);
+  const crsMatch=result.svg.match(/<text[^>]*\sy="([^"]+)"[^>]*>Saved project source reference<\/text>/);expect(crsMatch).not.toBeNull();expect(Number(crsMatch![1])).toBeGreaterThan(Math.max(...titleYs)+10);
+ });
+ it("prints quarter-metre contour labels once per level",()=>{
+  const geometry=cadastralGeometry();geometry.contours=[{elevation:100.25,closed:false,vertices:[{label:"",easting:257110,northing:9857730},{label:"",easting:257190,northing:9857730}]},{elevation:100.25,closed:false,vertices:[{label:"",easting:257110,northing:9857760},{label:"",easting:257190,northing:9857760}]}];
+  const result=buildSurveyMapSvg(geometry,{title:"SYNTHETIC",planTypeLabel:"COMPUTED DRAFT"});expect(result.svg.match(/>100\.25<\/text>/g)).toHaveLength(1);
+ });
+});
+it("keeps computed-draft legend below the map and chooses a conventional fitting scale",()=>{
+ const result=buildSurveyMapSvg(cadastralGeometry(),{title:"SYNTHETIC",planTypeLabel:"COMPUTED DRAFT"});
+ const frame=result.svg.match(/<rect x="36" y="([\d.]+)" width="[\d.]+" height="([\d.]+)" fill="#FBFBF9"/);
+ const legend=result.svg.match(/<rect x="46" y="([\d.]+)" width="96" height="([\d.]+)"[^>]*data-role="legend"/);
+ expect(frame).not.toBeNull();expect(legend).not.toBeNull();expect(Number(legend![1])).toBeGreaterThan(Number(frame![1])+Number(frame![2])+12);
+ const magnitude=10**Math.floor(Math.log10(result.scaleDenominator));expect([1,2,2.5,5,10]).toContain(result.scaleDenominator/magnitude);expect(result.fitsSheet).toBe(true);
+});

@@ -36,7 +36,7 @@ function kenyaTopoOutput() {
   const points: TopoPoint[] = [];
   for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++)
     points.push({ id: `P${x}${y}`, easting: 1000 + x * 10, northing: 2000 + y * 10, elevation: 100 + x * 5 });
-  return runTopographicWorkflow({ points, tinTriangles: gridTinTriangles(5, 5), contourInterval: 5, country: KENYA,
+  return runTopographicWorkflow({ points, tinTriangles: gridTinTriangles(5, 5), contourInterval: 5, country: KENYA, coordinateContext: { horizontalCrsEpsg: KENYA.geodeticFramework.primarySRID, horizontalCrsLabel: "Synthetic fixture CRS", horizontalUnits: "m", verticalReference: "Synthetic local benchmark", referenceStatus: "user-declared-unverified" },
     planTitle: "Topo", surveyor: { name: "T", regNo: "LS/1234", dateOfSurvey: "2026-07-23" } });
 }
 

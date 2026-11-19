@@ -531,3 +531,6 @@ export {
 
 // Version
 export const ENGINE_VERSION = "0.5.0";
+
+// Pure display placement shared by retained screen and draft plan output.
+export { placeRetainedContourLabels } from "./documents/contour-label-layout.js";

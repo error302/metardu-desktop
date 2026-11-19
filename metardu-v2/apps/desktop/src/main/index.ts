@@ -82,6 +82,8 @@ import { CommunityExtensionPackageStore, MAX_COMMUNITY_EXTENSION_PACKAGE_BYTES }
 import { registerCommunityExtensionPackageRoutes } from "./community-extension-routes.js";
 import { PublicMapReferenceService } from "./public-map-reference.js";
 
+import { resolveSidecarBinary as findSidecarBinary } from "./sidecar-binary.js";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 process.on("uncaughtException", (err) => {
@@ -98,35 +100,14 @@ process.on("unhandledRejection", (reason) => {
 // In production (packaged): the binary is copied into resources/ by
 // electron-builder and we read it from process.resourcesPath.
 function resolveSidecarBinary(): string | null {
-  const possiblePaths: string[] = [];
-  const platformExt = process.platform === "win32" ? ".exe" : "";
-
-  // Production: packaged app
-  if (process.resourcesPath) {
-    possiblePaths.push(
-      path.join(process.resourcesPath, "metardu-sidecar" + platformExt),
-    );
-  }
-
-  // Development: walk up from apps/desktop/dist/main/ to find the repo root.
-  const devRoot = path.resolve(__dirname, "..", "..", "..");
-  possiblePaths.push(
-    path.join(devRoot, "packages", "metardu-sidecar", "target", "release", "metardu-sidecar" + platformExt),
-  );
-  possiblePaths.push(
-    path.join(devRoot, "packages", "metardu-sidecar", "target", "debug", "metardu-sidecar" + platformExt),
-  );
-
-  for (const candidate of possiblePaths) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  console.warn(
-    "[main] Sidecar binary not found. Running in standalone desktop mode.",
-  );
-  return null;
+  const binary = findSidecarBinary({
+    mainDirectory: __dirname,
+    resourcesPath: process.resourcesPath,
+    platform: process.platform,
+    packaged: app.isPackaged,
+  });
+  if (!binary) console.warn("[main] Sidecar binary not found. Running in standalone desktop mode.");
+  return binary;
 }
 
 // ─── Window state ─────────────────────────────────────────────────
@@ -297,7 +278,7 @@ function createWindow(): BrowserWindow {
     icon: fs.existsSync(logoPath) ? logoPath : undefined,
     show: true,
     webPreferences: {
-      preload: path.join(__dirname, "..", "preload", "index.js"),
+      preload: path.join(__dirname, "..", "preload", "index.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,

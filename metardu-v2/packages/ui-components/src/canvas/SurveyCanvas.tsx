@@ -17,7 +17,8 @@
  * or programmatic viewport control can use the layers + hook directly.
  */
 
-import React, { useState, useCallback, useMemo, type WheelEvent as ReactWheelEvent, type MouseEvent as ReactMouseEvent } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect, type MouseEvent as ReactMouseEvent } from "react";
+import { placeRetainedContourLabels } from "@metardu/engine-flight-planning";
 import {
   generateContours,
   computeIndexElevations,
@@ -133,7 +134,18 @@ export const SurveyCanvas: React.FC<SurveyCanvasProps> = ({
   showContourLabels = true,
   showContourLegend = true,
 }) => {
-  const canvasW = typeof width === "number" ? width : 800;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [measuredWidth, setMeasuredWidth] = useState(800);
+  useEffect(() => {
+    if (typeof width === "number" || !containerRef.current) return;
+    const element = containerRef.current;
+    const measure = () => { if (element.clientWidth > 0) setMeasuredWidth(element.clientWidth); };
+    measure();
+    const observer = new ResizeObserver(measure); observer.observe(element);
+    return () => observer.disconnect();
+  }, [width]);
+  const canvasW = typeof width === "number" ? width : measuredWidth;
   const canvasH = height;
 
   // ── Auto-generate contours ────────────────────────────────────
@@ -171,7 +183,8 @@ export const SurveyCanvas: React.FC<SurveyCanvasProps> = ({
 
   // ── Compute bounds from all data ──────────────────────────────
   const allPointsFlat = useMemo(() => {
-    const flat: SurveyPoint[] = [...points];
+    const flat: SurveyPoint[] = [...points, ...spotHeights];
+    for (const contour of allContours) for (const [easting, northing] of contour.coordinates) flat.push({ easting, northing });
     for (const l of lines) { flat.push(l.from, l.to); }
     for (const poly of polygons) flat.push(...poly.points);
     for (const tri of allTriangles) flat.push(tri.a, tri.b, tri.c);
@@ -183,12 +196,32 @@ export const SurveyCanvas: React.FC<SurveyCanvasProps> = ({
       );
     }
     return flat;
-  }, [points, lines, polygons, allTriangles, ellipses]);
+  }, [points, lines, polygons, allTriangles, ellipses, allContours, spotHeights]);
 
   const bounds = useMemo(() => computeDataBounds(allPointsFlat), [allPointsFlat]);
 
   // ── Viewport hook ─────────────────────────────────────────────
   const vp = useSurveyViewport(bounds, { canvasW, canvasH });
+
+  const retainedLabels = useMemo(() => {
+    if (autoContours || !showContourLabels) return [];
+    const reserved = points.map(point => {
+      const p = vp.toPixel(point);
+      return {left:p.x-7,top:p.y-7,right:p.x+(showPointLabels ? 80 : 7),bottom:p.y+(showPointLabels ? 16 : 7)};
+    });
+    for (const point of spotHeights) {
+      const p=vp.toPixel(point);reserved.push({left:p.x-6,top:p.y-10,right:p.x+65,bottom:p.y+8});
+    }
+    reserved.push({left:canvasW-90,top:0,right:canvasW,bottom:100});
+    return placeRetainedContourLabels(allContours,vp.transform,reserved,{width:canvasW,height:canvasH});
+  }, [autoContours, showContourLabels, allContours, points, spotHeights, vp.transform, vp.toPixel, canvasW, canvasH, showPointLabels]);
+
+  useEffect(() => {
+    const element=svgRef.current;if(!element)return;
+    const wheel=(event:WheelEvent)=>vp.onWheel(event);
+    element.addEventListener("wheel",wheel,{passive:false});
+    return ()=>element.removeEventListener("wheel",wheel);
+  }, [vp.onWheel]);
 
   // ── Grid spacing ──────────────────────────────────────────────
   const spacing = gridSpacing ?? Math.max(bounds.width, bounds.height) / 10;
@@ -203,12 +236,12 @@ export const SurveyCanvas: React.FC<SurveyCanvasProps> = ({
   } : null;
 
   return (
-    <div style={{ position: "relative", width: typeof width === "string" ? width : `${width}px`, height: `${height}px` }}>
+    <div ref={containerRef} style={{ position: "relative", width: typeof width === "string" ? width : `${width}px`, height: `${height}px` }}>
       <svg
+        ref={svgRef}
         width={width}
         height={height}
         style={{ backgroundColor, cursor: vp.isDragging ? "grabbing" : "grab", display: "block" }}
-        onWheel={vp.onWheel as (e: ReactWheelEvent<SVGSVGElement>) => void}
         onMouseDown={vp.onMouseDown as (e: ReactMouseEvent<SVGSVGElement>) => void}
         onMouseMove={vp.onMouseMove as (e: ReactMouseEvent<SVGSVGElement>) => void}
         onMouseUp={vp.onMouseUp}
@@ -231,9 +264,9 @@ export const SurveyCanvas: React.FC<SurveyCanvasProps> = ({
         {allContours.length > 0 && (
           <ContourLayer transform={vp.transform} contours={allContours}
             indexElevations={indexElevations}
-            minElevation={autoContours?.minElevation ?? bounds.minN}
-            maxElevation={autoContours?.maxElevation ?? bounds.maxN}
-            showLabels={showContourLabels}
+            minElevation={autoContours?.minElevation ?? Math.min(...allContours.map(c => c.elevation))}
+            maxElevation={autoContours?.maxElevation ?? Math.max(...allContours.map(c => c.elevation))}
+            showLabels={showContourLabels && !!autoContours}
             backgroundColor={backgroundColor} />
         )}
 
@@ -257,6 +290,10 @@ export const SurveyCanvas: React.FC<SurveyCanvasProps> = ({
         {spotHeights.length > 0 && (
           <SpotHeightLayer transform={vp.transform} spotHeights={spotHeights} />
         )}
+
+        {retainedLabels.map((label,i) => <text key={`retained-label-${i}`} x={label.x} y={label.y}
+          textAnchor="middle" dominantBaseline="middle" fill="#c6ae87" fontSize={9} fontFamily="monospace"
+          stroke={backgroundColor} strokeWidth={4} paintOrder="stroke">{label.text}</text>)}
 
         {/* Error ellipses */}
         {ellipses.length > 0 && (
