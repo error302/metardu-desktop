@@ -44,6 +44,30 @@ describe("parseCsv", () => {
     const result = parseCsv("");
     expect(result.observations).toHaveLength(0);
   });
+
+  it("preserves blank instrument fields as missing measurements", () => {
+    const result = parseCsv("PointID,TH,Hz,V,SD\nP1,,,,");
+    expect(result.type).toBe("total_station");
+    expect(result.observations).toHaveLength(1);
+    expect(Number.isNaN(result.observations[0]!.targetHeight)).toBe(true);
+    expect(Number.isNaN(result.observations[0]!.faceLeft!.hz)).toBe(true);
+    expect(Number.isNaN(result.observations[0]!.faceLeft!.sd)).toBe(true);
+  });
+
+  it("preserves empty CSV columns and quoted remarks", () => {
+    const result = parseCsv('PointID,TH,Hz,V,SD,FR_Hz,FR_V,FR_SD,Remark\nP1,1.5,,90,12,,,,"north, fence"');
+    expect(result.observations[0]!.faceLeft!.hz).toBeNaN();
+    expect(result.observations[0]!.faceLeft!.v).toBe(90);
+    expect(result.observations[0]!.remark).toBe("north, fence");
+  });
+
+  it("does not invent a benchmark RL for a level CSV", () => {
+    const result = parseCsv("ID,BS,IS,FS,RL\nBM1,1.2,,,\nCP1,,0.9,,");
+    expect(result.type).toBe("level");
+    expect(result.observations).toHaveLength(2);
+    expect(Number.isNaN(result.observations[0]!.rl)).toBe(true);
+    expect(result.observations[0]!.bs).toBe(1.2);
+  });
 });
 
 // ─── Leica GSI Parser ──────────────────────────────────────────

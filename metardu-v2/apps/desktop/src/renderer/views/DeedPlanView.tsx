@@ -569,7 +569,7 @@ export const DeedPlanView: React.FC = () => {
             {DOC_TITLE[docType]}
           </h2>
           <p style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)", margin: "2px 0 0 0" }}>
-            Prepare, validate, and digitally sign statutory deed plans per {cfg.countryName} regulatory framework.
+            Prepare a document export for review. Source coverage and requirements vary by jurisdiction; digital signing and regulator submission are unavailable here.
           </p>
         </div>
         <div style={{ display: "flex", gap: "6px" }}>

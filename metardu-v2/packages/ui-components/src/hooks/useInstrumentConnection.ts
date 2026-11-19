@@ -193,7 +193,8 @@ export function useInstrumentConnection(): UseInstrumentConnectionReturn {
     if (!api?.connect) return;
     setState((s) => ({ ...s, error: null, pending: true }));
     try {
-      const result = await api.connect(params as Record<string, unknown>);
+      const connectParams: Record<string, unknown> = { ...params };
+      const result = await api.connect(connectParams);
       setState({ connected: true, connectionId: result.connection_id, error: null, pending: false });
     } catch (e) {
       setState((s) => ({ ...s, error: (e as Error).message, pending: false }));

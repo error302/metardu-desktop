@@ -192,7 +192,7 @@ export interface DOP {
 }
 
 /** DOP quality rating. */
-export function dopRating(dop: DOP): "ideal" | "excellent" | "good" | "moderate" | "fair" | "poor" {
+export function dopRating(dop: Pick<DOP, "pdop">): "ideal" | "excellent" | "good" | "moderate" | "fair" | "poor" {
   const p = dop.pdop;
   if (p < 1) return "ideal";
   if (p < 2) return "excellent";
@@ -232,27 +232,27 @@ export function computeR95(hdop: number, uereM: number = 3.0): number {
 /** Parsed GGA (Global Positioning System Fix Data) sentence. */
 export interface GGA {
   time: string;           // UTC time hhmmss.sss
-  latitude: number;       // decimal degrees (positive = north)
-  longitude: number;      // decimal degrees (positive = east)
-  fixQuality: FixQuality;
-  satelliteCount: number;  // number of satellites used in fix
-  hdop: number;
-  altitude: number;       // meters above mean sea level
-  altitudeUnits: string;  // "M"
-  geoidSeparation: number; // meters (ellipsoid - geoid)
-  geoidUnits: string;
+  latitude: number | null;       // decimal degrees (positive = north); null when absent
+  longitude: number | null;      // decimal degrees (positive = east); null when absent
+  fixQuality: FixQuality | null; // null when the receiver left the field empty
+  satelliteCount: number | null; // null when the receiver left the field empty
+  hdop: number | null;
+  altitude: number | null;       // raw field; interpret only with altitudeUnits
+  altitudeUnits: string | null;  // raw unit token; never defaulted
+  geoidSeparation: number | null; // raw field; interpret only with geoidUnits
+  geoidUnits: string | null;     // raw unit token; never defaulted
   dgpsAge: number | null;  // seconds since last DGPS correction
   dgpsStationId: string | null;
 }
 
 /** Parsed GSA (Satellites and DOP) sentence. */
 export interface GSA {
-  mode: "A" | "M";        // A=automatic, M=manual
-  fixType: 1 | 2 | 3;     // 1=no fix, 2=2D, 3=3D
+  mode: string | null;    // raw receiver token; null when absent
+  fixType: 1 | 2 | 3 | null; // null when the receiver left the field empty
   satellites: string[];   // satellite PRNs used in fix
-  pdop: number;
-  hdop: number;
-  vdop: number;
+  pdop: number | null;
+  hdop: number | null;
+  vdop: number | null;
 }
 
 /** Parsed GSV (Satellites in View) sentence. */
@@ -342,25 +342,89 @@ function nmeaToDecimal(value: string, direction: string): number {
   return direction === "S" || direction === "W" ? -decimal : decimal;
 }
 
+/** Return null for an absent NMEA numeric field and undefined for malformed input. */
+function parseOptionalNmeaNumber(value: string | undefined): number | null | undefined {
+  if (value === undefined || value.trim() === "") return null;
+  const normalized = value.trim();
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized)) return undefined;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalNmeaInteger(value: string | undefined): number | null | undefined {
+  if (value === undefined || value.trim() === "") return null;
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) return undefined;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+/** Decode a GGA coordinate only when its value and hemisphere are both present and valid. */
+function parseGgaCoordinate(
+  value: string | undefined,
+  direction: string | undefined,
+  degreeDigits: 2 | 3,
+  maximumDegrees: 90 | 180,
+): number | null | undefined {
+  const rawValue = value?.trim() ?? "";
+  const rawDirection = direction?.trim() ?? "";
+  if (rawValue === "") return rawDirection === "" ? null : undefined;
+
+  const match = rawValue.match(degreeDigits === 2
+    ? /^(\d{2})(\d{2})(?:\.(\d+))?$/
+    : /^(\d{3})(\d{2})(?:\.(\d+))?$/);
+  if (!match) return undefined;
+  const degrees = Number(match[1]);
+  const minutes = Number(`${match[2]}.${match[3] ?? "0"}`);
+  if (!Number.isFinite(minutes) || minutes < 0 || minutes >= 60 || degrees > maximumDegrees || (degrees === maximumDegrees && minutes > 0)) {
+    return undefined;
+  }
+
+  const validDirection = degreeDigits === 2
+    ? rawDirection === "N" || rawDirection === "S"
+    : rawDirection === "E" || rawDirection === "W";
+  if (!validDirection) return undefined;
+
+  const decimal = degrees + minutes / 60;
+  return rawDirection === "S" || rawDirection === "W" ? -decimal : decimal;
+}
+
 /** Parse an NMEA GGA sentence. */
 export function parseGGA(sentence: string): GGA | null {
   // $GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,47.0,M,,*47
   const parts = sentence.split(",");
   if (parts.length < 15) return null;
 
+  const latitude = parseGgaCoordinate(parts[2], parts[3], 2, 90);
+  const longitude = parseGgaCoordinate(parts[4], parts[5], 3, 180);
+  const fixQuality = parseOptionalNmeaInteger(parts[6]);
+  const satelliteCount = parseOptionalNmeaInteger(parts[7]);
+  const hdop = parseOptionalNmeaNumber(parts[8]);
+  const altitude = parseOptionalNmeaNumber(parts[9]);
+  const geoidSeparation = parseOptionalNmeaNumber(parts[11]);
+  const dgpsAge = parseOptionalNmeaNumber(parts[13]);
+  if (
+    latitude === undefined || longitude === undefined || (latitude === null) !== (longitude === null) ||
+    fixQuality === undefined || (fixQuality !== null && (fixQuality < 0 || fixQuality > 9)) ||
+    satelliteCount === undefined || (satelliteCount !== null && (satelliteCount < 0 || satelliteCount > 99)) ||
+    hdop === undefined || (hdop !== null && hdop < 0) ||
+    altitude === undefined || geoidSeparation === undefined ||
+    dgpsAge === undefined || (dgpsAge !== null && dgpsAge < 0)
+  ) return null;
+
   return {
     time: parts[1] ?? "",
-    latitude: nmeaToDecimal(parts[2] ?? "", parts[3] ?? "N"),
-    longitude: nmeaToDecimal(parts[4] ?? "", parts[5] ?? "E"),
-    fixQuality: parseInt(parts[6] ?? "0", 10) as FixQuality,
-    satelliteCount: parseInt(parts[7] ?? "0", 10),
-    hdop: parseFloat(parts[8] ?? "0"),
-    altitude: parseFloat(parts[9] ?? "0"),
-    altitudeUnits: parts[10] ?? "M",
-    geoidSeparation: parseFloat(parts[11] ?? "0"),
-    geoidUnits: parts[12] ?? "M",
-    dgpsAge: parts[13] ? parseFloat(parts[13]) : null,
-    dgpsStationId: parts[14]?.split("*")[0] || null,
+    latitude,
+    longitude,
+    fixQuality: fixQuality as FixQuality | null,
+    satelliteCount,
+    hdop,
+    altitude,
+    altitudeUnits: parts[10]?.trim() || null,
+    geoidSeparation,
+    geoidUnits: parts[12]?.trim() || null,
+    dgpsAge,
+    dgpsStationId: parts[14]?.split("*")[0]?.trim() || null,
   };
 }
 
@@ -370,21 +434,35 @@ export function parseGSA(sentence: string): GSA | null {
   const parts = sentence.split(",");
   if (parts.length < 18) return null;
 
+  const rawFixType = parseOptionalNmeaInteger(parts[2]);
+  const pdop = parseOptionalNmeaNumber(parts[15]?.split("*")[0]);
+  const hdop = parseOptionalNmeaNumber(parts[16]?.split("*")[0]);
+  const vdop = parseOptionalNmeaNumber(parts[17]?.split("*")[0]);
+  if (
+    rawFixType === undefined || (rawFixType !== null && ![1, 2, 3].includes(rawFixType)) ||
+    pdop === undefined || (pdop !== null && pdop < 0) ||
+    hdop === undefined || (hdop !== null && hdop < 0) ||
+    vdop === undefined || (vdop !== null && vdop < 0)
+  ) return null;
+
   const satellites: string[] = [];
   for (let i = 3; i < 15; i++) {
     const part = parts[i];
     if (part && part.trim()) {
-      satellites.push(part.trim());
+      const satelliteId = part.trim();
+      if (!/^\d+$/.test(satelliteId)) return null;
+      if (/^0+$/.test(satelliteId)) continue;
+      satellites.push(satelliteId);
     }
   }
 
   return {
-    mode: (parts[1] ?? "A") as "A" | "M",
-    fixType: parseInt(parts[2] ?? "1", 10) as 1 | 2 | 3,
+    mode: parts[1]?.trim() || null,
+    fixType: rawFixType as 1 | 2 | 3 | null,
     satellites,
-    pdop: parseFloat(parts[15] ?? "0"),
-    hdop: parseFloat(parts[16] ?? "0"),
-    vdop: parseFloat(parts[17]?.split("*")[0] ?? "0"),
+    pdop,
+    hdop,
+    vdop,
   };
 }
 
@@ -799,25 +877,27 @@ export function parseNtripSourcetable(response: string): NtripMountpoint[] {
 /** GNSS quality metrics for the current session. */
 export interface GnssQualityMetrics {
   /** Current fix quality (from GGA) */
-  fixQuality: FixQuality;
+  fixQuality: FixQuality | null;
+  /** Fix dimension reported by GSA, when present. */
+  fixType: 1 | 2 | 3 | null;
   /** Number of satellites used in fix */
-  satellitesUsed: number;
+  satellitesUsed: number | null;
   /** Number of satellites visible (above elevation mask) */
   satellitesVisible: number;
   /** HDOP (horizontal dilution of precision) */
-  hdop: number;
+  hdop: number | null;
   /** VDOP (vertical dilution of precision) */
-  vdop: number;
+  vdop: number | null;
   /** PDOP (position dilution of precision) */
-  pdop: number;
+  pdop: number | null;
   /** Estimated horizontal accuracy (2DRMS, meters) */
-  horizontalAccuracyM: number;
+  horizontalAccuracyM: number | null;
   /** Estimated vertical accuracy (meters) */
-  verticalAccuracyM: number;
+  verticalAccuracyM: number | null;
   /** CEP (50% confidence, meters) */
-  cepM: number;
+  cepM: number | null;
   /** R95 (95% confidence radius, meters) */
-  r95M: number;
+  r95M: number | null;
   /** Ambiguity resolution ratio (AR ratio — should be >3 for reliable fix) */
   arRatio: number | null;
   /** Convergence time (seconds since reaching RTK fix) */
@@ -844,28 +924,31 @@ export function computeQualityMetrics(
   arRatio?: number | null,
   convergenceSec?: number | null,
 ): GnssQualityMetrics {
-  const fixQuality = gga?.fixQuality ?? 0;
-  const hdop = gga?.hdop ?? gsa?.hdop ?? 99;
-  const vdop = gsa?.vdop ?? 99;
-  const pdop = gsa?.pdop ?? 99;
+  const fixQuality = gga?.fixQuality ?? null;
+  const fixType = gsa?.fixType ?? null;
+  const satellitesUsed = gga?.satelliteCount ?? (gsa ? gsa.satellites.length : null);
+  const hdop = gga?.hdop ?? gsa?.hdop ?? null;
+  const vdop = gsa?.vdop ?? null;
+  const pdop = gsa?.pdop ?? null;
 
   const uereM = 3.0; // User Equivalent Range Error (typical for multi-constellation)
 
   const metrics: GnssQualityMetrics = {
     fixQuality,
-    satellitesUsed: gga?.satelliteCount ?? gsa?.satellites.length ?? 0,
+    fixType,
+    satellitesUsed,
     satellitesVisible,
     hdop,
     vdop,
     pdop,
-    horizontalAccuracyM: estimatedHorizontalAccuracy(hdop, uereM),
-    verticalAccuracyM: estimatedVerticalAccuracy(vdop, uereM),
-    cepM: computeCEP(hdop, uereM),
-    r95M: computeR95(hdop, uereM),
+    horizontalAccuracyM: hdop === null ? null : estimatedHorizontalAccuracy(hdop, uereM),
+    verticalAccuracyM: vdop === null ? null : estimatedVerticalAccuracy(vdop, uereM),
+    cepM: hdop === null ? null : computeCEP(hdop, uereM),
+    r95M: hdop === null ? null : computeR95(hdop, uereM),
     arRatio: arRatio ?? null,
     convergenceSec: convergenceSec ?? null,
-    surveyGrade: isSurveyGrade(fixQuality),
-    dopRating: dopRating({ pdop, hdop, vdop, tdop: 0, gdop: 0 }),
+    surveyGrade: fixQuality !== null && isSurveyGrade(fixQuality) && satellitesUsed !== null && hdop !== null && vdop !== null && pdop !== null,
+    dopRating: pdop === null ? "unknown" : dopRating({ pdop }),
     positionError: gst ? {
       rms: gst.rms,
       stddevLat: gst.stddevLat,
@@ -879,7 +962,7 @@ export function computeQualityMetrics(
 
 /** Generate a quality assessment summary. */
 export function assessQuality(metrics: GnssQualityMetrics): {
-  overall: "excellent" | "good" | "moderate" | "poor" | "no_fix";
+  overall: "excellent" | "good" | "moderate" | "poor" | "no_fix" | "incomplete";
   recommendation: string;
   issues: string[];
 } {
@@ -893,24 +976,38 @@ export function assessQuality(metrics: GnssQualityMetrics): {
     };
   }
 
-  if (metrics.satellitesUsed < 4) {
+  const missing: string[] = [];
+  if (metrics.fixQuality === null) missing.push("fix quality");
+  if (metrics.satellitesUsed === null) missing.push("satellite count");
+  if (metrics.hdop === null) missing.push("HDOP");
+  if (metrics.vdop === null) missing.push("VDOP");
+  if (metrics.pdop === null) missing.push("PDOP");
+  if (missing.length > 0) {
+    return {
+      overall: "incomplete",
+      recommendation: "Quality assessment is incomplete. Capture the missing receiver fields before relying on this assessment.",
+      issues: missing.map((field) => `${field} unavailable`),
+    };
+  }
+
+  if (metrics.satellitesUsed! < 4) {
     issues.push(`Only ${metrics.satellitesUsed} satellites used (minimum 4 required)`);
   }
 
-  if (metrics.hdop > 5) {
-    issues.push(`High HDOP (${metrics.hdop.toFixed(1)}) — poor satellite geometry`);
+  if (metrics.hdop! > 5) {
+    issues.push(`High HDOP (${metrics.hdop!.toFixed(1)}) — poor satellite geometry`);
   }
 
   if (metrics.arRatio !== null && metrics.arRatio < 3 && metrics.fixQuality === 4) {
     issues.push(`Low AR ratio (${metrics.arRatio.toFixed(1)}) — ambiguity resolution may be unreliable (need >3)`);
   }
 
-  if (metrics.surveyGrade && metrics.r95M > 0.05) {
+  if (metrics.surveyGrade && metrics.r95M !== null && metrics.r95M > 0.05) {
     issues.push(`R95 accuracy (${(metrics.r95M * 100).toFixed(1)} cm) exceeds survey tolerance (<5 cm)`);
   }
 
   let overall: "excellent" | "good" | "moderate" | "poor" = "good";
-  if (issues.length === 0 && metrics.surveyGrade && metrics.r95M < 0.02) {
+  if (issues.length === 0 && metrics.surveyGrade && metrics.r95M !== null && metrics.r95M < 0.02) {
     overall = "excellent";
   } else if (issues.length > 2) {
     overall = "poor";
@@ -923,6 +1020,7 @@ export function assessQuality(metrics: GnssQualityMetrics): {
     good: "Good quality. Safe to proceed with survey work.",
     moderate: "Moderate quality. Consider waiting for better satellite geometry or more satellites.",
     poor: "Poor quality. Wait for better conditions or check equipment.",
+    incomplete: "Quality assessment incomplete. Do not rely on an unverified quality result.",
   };
 
   return {

@@ -38,12 +38,46 @@ describe("makeProjectToWgs84", () => {
     });
   });
 
-  it("rejects an SRID that is not part of the selected country's config", async () => {
+  it("resolves an explicit global WGS84 UTM CRS without a country pack", async () => {
+    const { sidecar, call } = makeSidecar();
+    const project = makeProjectToWgs84(undefined, sidecar, 32633);
+    expect(project).not.toBeNull();
+
+    await expect(project!(391_779.2593, 5_820_072.1592, 32633)).resolves.toEqual({ lat: 25.2, lon: 55.3 });
+    expect(call).toHaveBeenCalledWith("geodesy.utm_inverse", {
+      easting: 391_779.2593,
+      northing: 5_820_072.1592,
+      zone: 33,
+      is_southern: false,
+      ellipsoid: "WGS84",
+    });
+  });
+
+  it("allows a global WGS84 CRS with an unconfigured legal jurisdiction", async () => {
+    const { sidecar, call } = makeSidecar();
+    const project = makeProjectToWgs84("ZZ", sidecar, 32756);
+    expect(project).not.toBeNull();
+
+    await project!(334_368.6336, 6_250_948.3454, 32756);
+    expect(call).toHaveBeenCalledWith("geodesy.utm_inverse", expect.objectContaining({
+      zone: 56,
+      is_southern: true,
+      ellipsoid: "WGS84",
+    }));
+  });
+
+  it("rejects coordinates labeled with a CRS other than the bound project CRS", async () => {
     const { sidecar, call } = makeSidecar();
     const project = makeProjectToWgs84("AE", sidecar)!;
 
-    await expect(project(500_000, 2_700_000, 9999)).rejects.toThrow(/not configured for country 'AE'/);
+    await expect(project(500_000, 2_700_000, 9999)).rejects.toThrow(/does not match project CRS EPSG:32640/);
     expect(call).not.toHaveBeenCalled();
+  });
+
+  it("does not create a transformation for an unknown CRS or a neutral project without a CRS", () => {
+    const { sidecar } = makeSidecar();
+    expect(makeProjectToWgs84(undefined, sidecar)).toBeNull();
+    expect(makeProjectToWgs84("ZZ", sidecar, 9999)).toBeNull();
   });
 
   it("rejects invalid geographic coordinates from the sidecar", async () => {

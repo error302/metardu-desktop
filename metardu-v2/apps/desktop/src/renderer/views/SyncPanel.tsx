@@ -118,7 +118,7 @@ export const SyncPanel: React.FC = () => {
       await api.login({ serverUrl: serverUrl.trim(), email: email.trim(), password });
       setLoggedIn(true);
       setStatus(await api.getStatus());
-      setProjects(await api.fetchProjects());
+      setRemoteProjects(await api.fetchProjects());
       setLastResult(`Connected as ${email.trim()}.`);
     } catch (e) {
       setError((e as Error).message);
@@ -133,7 +133,7 @@ export const SyncPanel: React.FC = () => {
     setBusy(true); setError(null);
     try {
       await api.logout();
-      setLoggedIn(false); setProjects([]); setConflicts([]); setStatus(null);
+      setLoggedIn(false); setRemoteProjects([]); setConflicts([]); setStatus(null);
       setLastResult("Disconnected.");
     } catch (e) {
       setError((e as Error).message);

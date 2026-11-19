@@ -16,6 +16,8 @@ path = "src/main.rs"
 # JSON protocol
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+base64 = "=0.22.1"
+sha2 = "=0.10.9"
 
 # Logging
 tracing = "0.1"
@@ -49,6 +51,14 @@ btleplug = { version = "0.11", optional = true }
 lazy_static = "1.4"
 uuid = { version = "1.8", features = ["v4"] }
 url = "2.5"
+# Robust-predicate planar Delaunay triangulation for topographic surfaces.
+spade = "2.15.1"
+# Bounded LAS/LAZ header and record inspection for local point-cloud workflows.
+las = { version = "=0.11.2", features = ["laz"] }
+# Inspect LAZ chunk-table extents before accepting a decoded record report.
+laz = "=0.13.0"
+# Community code runs as Wasm with no WASI and no host imports.
+wasmtime = { version = "=43.0.0", default-features = false, features = ["cranelift", "runtime", "std"] }
 
 [features]
 default = ["gdal-bindings", "instrument"]
@@ -63,6 +73,7 @@ instrument = ["dep:tokio-serial", "dep:btleplug"]
 [dev-dependencies]
 assert_matches = "1.5"
 tempfile = "3.10"
+wat = "=1.240.0"
 
 [profile.release]
 opt-level = 3

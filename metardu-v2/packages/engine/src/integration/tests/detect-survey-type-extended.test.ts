@@ -47,7 +47,7 @@ describe("detectSurveyType — all 10 types", () => {
     expect(detectSurveyType({ form3: {}, allBeacons: [], residuals: {}, sigma_0_sq: 0, passesCadastralTolerance: false, uncertainty: {} })).toBe("cadastral");
   });
   it("still detects topographic", () => {
-    expect(detectSurveyType({ tin: { vertices: [], triangles: [] }, contours: [], spotHeights: [], minElevation: 0, maxElevation: 0, meanSlope: 0, triangleCount: 0, topographicToleranceM: 0, maxResidualM: 0, pointUncertainty: {} })).toBe("topographic");
+    expect(detectSurveyType({ tin: { vertices: [], triangles: [] }, contours: [], spotHeights: [], minElevation: 0, maxElevation: 0, meanSlope: 0, triangleCount: 0, topographicToleranceM: null, maxResidualM: null, evidenceStatus: "computed-draft-unadjusted", pointUncertainty: {} })).toBe("topographic");
   });
   it("still detects engineering", () => {
     expect(detectSurveyType({ sections: [], cutVolume: 0, fillVolume: 0, netVolume: 0, engineeringToleranceM: 0, sectionCount: 0, maxCutDepth: 0, maxFillHeight: 0, pointUncertainty: {} })).toBe("engineering");

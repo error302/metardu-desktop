@@ -11,8 +11,8 @@
 //! defense-in-depth layer.
 
 use crate::adjustment::{adjust_least_squares, AdjustmentConfig, Observation, ParameterPrior};
-use crate::cogo::area::{ellipsoidal_area, shoelace_area, AreaUnit};
-use crate::cogo::intersection::{bearing_bearing, bearing_distance, distance_distance, Point2D};
+use crate::cogo::area::{planar_polygon_metrics, AreaUnit};
+use crate::cogo::intersection::{bearing_bearing, bearing_distance, distance_distance, midpoint_offset, radiation, Point2D};
 use crate::cogo::traverse::{bowditch_adjust, closed_traverse_misclosure, transit_adjust, TraverseLeg};
 use crate::dispatcher::HandlerError;
 use crate::geodesy::ecef::{ecef_to_geodetic, geodetic_to_ecef, ECEF, Ellipsoid};
@@ -371,6 +371,7 @@ pub async fn handle_transit_adjust(
 // ─── COGO: Intersection ──────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BearingBearingParams {
     pub p1: PointInput,
     pub bearing1_deg: f64,
@@ -379,9 +380,64 @@ pub struct BearingBearingParams {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct PointInput {
     pub easting: f64,
     pub northing: f64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RadiationParams {
+    pub origin: PointInput,
+    pub bearing_deg: f64,
+    pub distance_m: f64,
+}
+
+pub async fn handle_radiation(
+    params: serde_json::Value,
+) -> Result<serde_json::Value, HandlerError> {
+    let p: RadiationParams = serde_json::from_value(params)
+        .map_err(|e| HandlerError::InvalidParams(e.to_string()))?;
+    let result = radiation(
+        Point2D::new(p.origin.easting, p.origin.northing),
+        p.bearing_deg,
+        p.distance_m,
+    )
+    .map_err(|e| HandlerError::InvalidParams(e.to_string()))?;
+    Ok(serde_json::json!({ "easting": result.easting, "northing": result.northing }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OffsetSideInput {
+    Left,
+    Right,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MidpointOffsetParams {
+    pub start: PointInput,
+    pub end: PointInput,
+    pub offset_m: f64,
+    pub side: OffsetSideInput,
+}
+
+pub async fn handle_midpoint_offset(
+    params: serde_json::Value,
+) -> Result<serde_json::Value, HandlerError> {
+    let p: MidpointOffsetParams = serde_json::from_value(params)
+        .map_err(|e| HandlerError::InvalidParams(e.to_string()))?;
+    let left = matches!(p.side, OffsetSideInput::Left);
+    let result = midpoint_offset(
+        Point2D::new(p.start.easting, p.start.northing),
+        Point2D::new(p.end.easting, p.end.northing),
+        p.offset_m,
+        left,
+    )
+    .map_err(|e| HandlerError::InvalidParams(e.to_string()))?;
+    Ok(serde_json::json!({ "easting": result.easting, "northing": result.northing }))
 }
 
 pub async fn handle_bearing_bearing(
@@ -392,11 +448,12 @@ pub async fn handle_bearing_bearing(
     let p1 = Point2D::new(p.p1.easting, p.p1.northing);
     let p2 = Point2D::new(p.p2.easting, p.p2.northing);
     let result = bearing_bearing(p1, p.bearing1_deg, p2, p.bearing2_deg)
-        .map_err(|e| HandlerError::Internal(e.to_string()))?;
+        .map_err(|e| HandlerError::InvalidParams(e.to_string()))?;
     Ok(serde_json::json!({ "easting": result.easting, "northing": result.northing }))
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BearingDistanceParams {
     pub p1: PointInput,
     pub bearing1_deg: f64,
@@ -417,6 +474,7 @@ pub async fn handle_bearing_distance(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DistanceDistanceParams {
     pub p1: PointInput,
     pub r1_m: f64,
@@ -432,27 +490,16 @@ pub async fn handle_distance_distance(
     let p1 = Point2D::new(p.p1.easting, p.p1.northing);
     let p2 = Point2D::new(p.p2.easting, p.p2.northing);
     let result = distance_distance(p1, p.r1_m, p2, p.r2_m)
-        .map_err(|e| HandlerError::Internal(e.to_string()))?;
+        .map_err(|e| HandlerError::InvalidParams(e.to_string()))?;
     Ok(serde_json::json!({ "easting": result.easting, "northing": result.northing }))
 }
 
 // ─── COGO: Area ──────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AreaParams {
     pub points: Vec<(f64, f64)>,
-    /// Optional: compute ellipsoidal area. If omitted, returns planar
-    /// Shoelace only.
-    pub ellipsoidal: Option<EllipsoidalAreaParams>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct EllipsoidalAreaParams {
-    pub mean_latitude_deg: f64,
-    pub mean_height_m: f64,
-    pub point_scale_factor: f64,
-    #[serde(default = "default_ellipsoid_name")]
-    pub ellipsoid: String,
 }
 
 pub async fn handle_area(
@@ -460,25 +507,16 @@ pub async fn handle_area(
 ) -> Result<serde_json::Value, HandlerError> {
     let p: AreaParams = serde_json::from_value(params)
         .map_err(|e| HandlerError::InvalidParams(e.to_string()))?;
-    let planar = shoelace_area(&p.points);
-    let mut result = serde_json::json!({
+    let metrics = planar_polygon_metrics(&p.points)
+        .map_err(|e| HandlerError::InvalidParams(e.to_string()))?;
+    let planar = metrics.planar_area_sq_m;
+    let result = serde_json::json!({
         "planar_area_sq_m": planar,
         "planar_area_ha": AreaUnit::Hectares.convert_from_sq_metres(planar),
         "planar_area_acres": AreaUnit::Acres.convert_from_sq_metres(planar),
+        "perimeter_m": metrics.perimeter_m,
+        "edges": metrics.edges,
     });
-    if let Some(ell) = p.ellipsoidal {
-        let ellipsoid = lookup_ellipsoid(&ell.ellipsoid)?;
-        let ground = ellipsoidal_area(
-            planar,
-            ell.mean_latitude_deg,
-            ell.mean_height_m,
-            ell.point_scale_factor,
-            &ellipsoid,
-        );
-        result["ground_area_sq_m"] = serde_json::json!(ground);
-        result["ground_area_ha"] = serde_json::json!(AreaUnit::Hectares.convert_from_sq_metres(ground));
-        result["ground_area_acres"] = serde_json::json!(AreaUnit::Acres.convert_from_sq_metres(ground));
-    }
     Ok(result)
 }
 
@@ -507,4 +545,51 @@ pub async fn handle_adjustment_run(
     )
         .map_err(|e| HandlerError::Internal(e.to_string()))?;
     Ok(serde_json::to_value(result).map_err(|e| HandlerError::Internal(e.to_string()))?)
+}
+
+#[cfg(test)]
+mod cogo_handler_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn area_handler_returns_planar_only_metrics() {
+        let result = handle_area(serde_json::json!({
+            "points": [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]
+        })).await.unwrap();
+        assert_eq!(result["planar_area_sq_m"], 100.0);
+        assert_eq!(result["perimeter_m"], 40.0);
+        assert!(result.get("ground_area_sq_m").is_none());
+    }
+
+    #[tokio::test]
+    async fn area_handler_rejects_unverified_ground_context() {
+        let result = handle_area(serde_json::json!({
+            "points": [[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]],
+            "ellipsoidal": {
+                "mean_latitude_deg": 0.0,
+                "mean_height_m": 0.0,
+                "point_scale_factor": 1.0
+            }
+        })).await;
+        assert!(matches!(result, Err(HandlerError::InvalidParams(_))));
+    }
+
+    #[tokio::test]
+    async fn intersection_handlers_report_invalid_geometry_as_invalid_params() {
+        let parallel_bearings = handle_bearing_bearing(serde_json::json!({
+            "p1": { "easting": 0.0, "northing": 0.0 },
+            "bearing1_deg": 0.0,
+            "p2": { "easting": 0.0, "northing": 10.0 },
+            "bearing2_deg": 0.0
+        })).await;
+        assert!(matches!(parallel_bearings, Err(HandlerError::InvalidParams(_))));
+
+        let negative_radius = handle_distance_distance(serde_json::json!({
+            "p1": { "easting": 0.0, "northing": 0.0 },
+            "r1_m": -1.0,
+            "p2": { "easting": 10.0, "northing": 0.0 },
+            "r2_m": 5.0
+        })).await;
+        assert!(matches!(negative_radius, Err(HandlerError::InvalidParams(_))));
+    }
 }

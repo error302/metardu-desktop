@@ -23,6 +23,7 @@ export interface SurveyPointLike {
   easting: number;
   northing: number;
   elevation?: number;
+  label?: string;
 }
 
 export interface Bounds {

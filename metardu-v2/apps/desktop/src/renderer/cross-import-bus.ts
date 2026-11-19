@@ -47,6 +47,8 @@ export interface CrossImportEvents {
   /** COGOView pushes accumulated computed points for import. */
   "cogo:points": {
     points: Array<{ id: string; easting: number; northing: number; source: string }>;
+    /** Marks geometric previews that are not tied to a verified project reference system. */
+    evidenceStatus?: "draft_unverified";
   };
 
   /** TraverseView pushes LS adjusted coordinates + diagnostics. */
@@ -67,6 +69,14 @@ export interface CrossImportEvents {
   /** TopographicView pushes a surface model / TIN for LULC or contour. */
   "topo:surface": {
     points: Array<{ easting: number; northing: number; elevation: number }>;
+    coordinateContext?: {
+      horizontalCrsEpsg: number;
+      horizontalCrsLabel: string;
+      horizontalUnits: "m";
+      verticalReference: string;
+      referenceStatus: "user-declared-unverified";
+    };
+    evidenceStatus?: "computed-draft-unadjusted";
     breaklines?: Array<{ from: string; to: string }>;
   };
 
@@ -77,7 +87,7 @@ export interface CrossImportEvents {
     distance: number;
     bearing: number;
     zenithAngle?: number;
-    sigma: number;
+    sigma?: number;
   };
 
   /** LSAView pushes adjusted coordinates for deed plan / report. */
@@ -98,6 +108,37 @@ export interface CrossImportEvents {
       imageY: number;
       source: string;
     }>;
+  };
+
+  /** Instrument import pushes parsed field observations. */
+  "import:observations": {
+    format: string;
+    observations: Array<{
+      pointId: string;
+      easting?: number;
+      northing?: number;
+      elevation?: number;
+      ha?: number;
+      va?: number;
+      sd?: number;
+      stationId?: string;
+      code?: string;
+    }>;
+  };
+
+  /** Workflow views push geometric entities directly to CAD workspace. */
+  "cad:import_entities": {
+    source: string;
+    beacons?: Array<{ id: string; easting: number; northing: number; elevation?: number }>;
+    boundaries?: Array<{ name: string; vertices: Array<{ easting: number; northing: number }> }>;
+    contours?: Array<{ elevation: number; vertices: Array<{ easting: number; northing: number }> }>;
+  };
+
+  /** Boundary/traverse pushes directly to statutory Deed Plan generator. */
+  "deedplan:import_boundary": {
+    parcelNumber: string;
+    beacons: Array<{ id: string; easting: number; northing: number }>;
+    areaSqM?: number;
   };
 }
 

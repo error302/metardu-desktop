@@ -19,6 +19,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import type { ProjectCoordinateContext, ProjectDeliverableReview } from "@metardu/ipc-schemas";
 
 // ─── Types (mirrors project-store-core.ts, kept local to avoid bundling) ──
 
@@ -27,6 +28,10 @@ export interface StoredProject {
   name: string;
   description?: string;
   countryCode: string;
+  /** Explicit EPSG horizontal CRS, independent of legal jurisdiction. */
+  crsSrid?: number;
+  coordinateContext?: ProjectCoordinateContext;
+  coordinateContextStatus?: "invalid";
   surveyType: string;
   sourceView: string;
   output: unknown;
@@ -36,6 +41,8 @@ export interface StoredProject {
     scaleFit?: boolean;
     scaleDenominator?: number;
   };
+  deliveryReview?: ProjectDeliverableReview;
+  deliveryReviewStatus?: "invalid";
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -50,6 +57,8 @@ export interface CreateProjectInput {
   name: string;
   description?: string;
   countryCode: string;
+  crsSrid?: number;
+  coordinateContext?: ProjectCoordinateContext;
   surveyType: string;
   sourceView: string;
   output?: unknown;
@@ -61,10 +70,13 @@ export interface UpdateProjectInput {
   name?: string;
   description?: string;
   countryCode?: string;
+  crsSrid?: number | null;
+  coordinateContext?: ProjectCoordinateContext | null;
   surveyType?: string;
   sourceView?: string;
   output?: unknown;
   planSheet?: StoredProject["planSheet"];
+  deliveryReview?: ProjectDeliverableReview | null;
 }
 
 export interface UndoRedoState {
@@ -111,7 +123,7 @@ export interface UseProjectStoreReturn {
   /** Create a new project and make it active. */
   create: (input: Omit<CreateProjectInput, "sourceView" | "output">) => Promise<StoredProject | null>;
   /** Update a project's fields. */
-  update: (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "surveyType" | "planSheet">>) => Promise<void>;
+  update: (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "crsSrid" | "coordinateContext" | "surveyType" | "planSheet" | "deliveryReview">>) => Promise<void>;
   /** Delete a project. Active moves to most recent remaining. */
   remove: (id: string) => Promise<void>;
   /** Switch which project is active. */
@@ -197,7 +209,7 @@ export function useProjectStore(): UseProjectStoreReturn {
     return created;
   }, []);
 
-  const update = useCallback(async (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "surveyType" | "planSheet">>) => {
+  const update = useCallback(async (id: string, input: Partial<Pick<UpdateProjectInput, "name" | "description" | "countryCode" | "crsSrid" | "coordinateContext" | "surveyType" | "planSheet" | "deliveryReview">>) => {
     const api = apiRef.current;
     await api.update?.({ id, ...input });
   }, []);

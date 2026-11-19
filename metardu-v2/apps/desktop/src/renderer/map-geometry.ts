@@ -260,14 +260,15 @@ export function extractMapGeometry(output: unknown): MapGeometry {
   const tin = asRecord(rec.tin);
   if (tin) {
     asArray(tin.vertices).forEach((v, i) => {
-      const p = pointCoords(v);
-      if (p) fieldPoints.push({ label: `T${i + 1}`, ...p });
+      const p = beaconPoint(v, `T${i + 1}`);
+      if (p) fieldPoints.push(p);
     });
   }
-  // Topographic spot heights: spotHeights[].
+  const seenTopoPoints = new Set(fieldPoints.map(p => `${p.easting}:${p.northing}`));
+  // Topographic spot heights: selected annotations do not duplicate source markers.
   asArray(rec.spotHeights).forEach((s, i) => {
     const p = pointCoords(s);
-    if (p) fieldPoints.push({ label: `S${i + 1}`, ...p });
+    if (p && !seenTopoPoints.has(`${p.easting}:${p.northing}`)) { fieldPoints.push({ label: `S${i + 1}`, ...p }); seenTopoPoints.add(`${p.easting}:${p.northing}`); }
   });
   // Setting-out: designPoints[] + controlPoints[].
   asArray(rec.designPoints).forEach((d, i) => {

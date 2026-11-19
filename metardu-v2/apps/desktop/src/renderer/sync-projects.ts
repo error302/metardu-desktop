@@ -11,6 +11,7 @@
  */
 
 import type { PlanSheetSettings } from "../main/project-store-core.js";
+import type { ProjectCoordinateContext } from "@metardu/ipc-schemas";
 
 /** The subset of a stored project the sync payload is built from. */
 export interface StoredForSync {
@@ -18,6 +19,8 @@ export interface StoredForSync {
   name: string;
   description?: string;
   countryCode: string;
+  crsSrid?: number;
+  coordinateContext?: ProjectCoordinateContext;
   surveyType: string;
   sourceView: string;
   output: unknown;
@@ -64,6 +67,8 @@ export function projectFromStored(
     data: {
       output: stored.output,
       sourceView: stored.sourceView,
+      ...(stored.crsSrid !== undefined ? { crsSrid: stored.crsSrid } : {}),
+      ...(stored.coordinateContext ? { coordinateContext: stored.coordinateContext } : {}),
       ...(stored.planSheet ? { planSheet: stored.planSheet } : {}),
     },
   };

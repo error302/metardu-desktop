@@ -1,4 +1,8 @@
-import { getCountryConfig, type CountryCode } from "@metardu/country-config";
+import {
+  getCountryConfig,
+  getWgs84UtmProjectionZone,
+  type CountryCode,
+} from "@metardu/country-config";
 
 export interface GeodesySidecar {
   isRunning(): boolean;
@@ -18,36 +22,60 @@ export type ProjectToWgs84 = (
  * intentionally refuses legacy and regional datums.
  */
 export function makeProjectToWgs84(
-  countryCode: string,
+  countryCode: string | undefined,
   sidecar: GeodesySidecar | null,
+  sourceSridOverride?: number,
 ): ProjectToWgs84 | null {
   if (!sidecar || !sidecar.isRunning()) return null;
 
-  const config = getCountryConfig(countryCode as CountryCode);
-  if (!/^WGS\s*84$/i.test(config.geodeticFramework.datum.trim())) return null;
+  let config: ReturnType<typeof getCountryConfig> | undefined;
+  if (countryCode?.trim()) {
+    try {
+      config = getCountryConfig(countryCode.trim().toUpperCase() as CountryCode);
+    } catch {
+      // A project may have a CRS without a configured legal jurisdiction.
+      // The explicit EPSG CRS below remains the authority for this operation.
+    }
+  }
+
+  const resolvedSrid = sourceSridOverride ?? config?.geodeticFramework.primarySRID;
+  if (typeof resolvedSrid !== "number" || !Number.isSafeInteger(resolvedSrid) || resolvedSrid <= 0) return null;
+
+  const configuredZone = config?.geodeticFramework.projectionZones.find(
+    (candidate) => candidate.srid === resolvedSrid,
+  );
+  let zone = configuredZone;
+  if (configuredZone) {
+    // The country profile's projection parameters can only be used as a
+    // WGS84 operation when its source datum is WGS84. Projection inverse
+    // alone is not a regional datum transformation.
+    if (!/^WGS\s*84$/i.test(config!.geodeticFramework.datum.trim())) return null;
+  } else {
+    zone = getWgs84UtmProjectionZone(resolvedSrid) ?? undefined;
+  }
+  if (!zone) return null;
+
   const runningSidecar = sidecar;
 
-  return async (easting, northing, sourceSrid) => {
+  return async (easting, northing, requestedSrid) => {
+    if (requestedSrid !== undefined && requestedSrid !== resolvedSrid) {
+      throw new Error(`Requested CRS EPSG:${requestedSrid} does not match project CRS EPSG:${resolvedSrid}.`);
+    }
     if (!Number.isFinite(easting) || !Number.isFinite(northing)) {
       throw new Error("Projected coordinates must be finite numbers.");
-    }
-
-    const zone = config.geodeticFramework.projectionZones.find((candidate) => candidate.srid === sourceSrid);
-    if (!zone) {
-      throw new Error(`CRS EPSG:${sourceSrid} is not configured for country '${countryCode}'.`);
     }
 
     const validateGeographicResult = async (result: Promise<{ lat: number; lon: number }>) => {
       const point = await result;
       if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon) || Math.abs(point.lat) > 90 || Math.abs(point.lon) > 180) {
-        throw new Error(`The Rust geodesy service returned invalid geographic coordinates for EPSG:${sourceSrid}.`);
+        throw new Error(`The Rust geodesy service returned invalid geographic coordinates for EPSG:${resolvedSrid}.`);
       }
       return point;
     };
 
     if (zone.method === "Lambert Conformal Conic") {
       if (zone.standard_parallel_1_deg === undefined || zone.standard_parallel_2_deg === undefined) {
-        throw new Error(`LCC CRS EPSG:${sourceSrid} is missing its standard parallels.`);
+        throw new Error(`LCC CRS EPSG:${resolvedSrid} is missing its standard parallels.`);
       }
       return validateGeographicResult(runningSidecar.call("geodesy.lcc_inverse", {
         easting,
@@ -88,6 +116,6 @@ export function makeProjectToWgs84(
       }));
     }
 
-    throw new Error(`Projection method '${zone.method}' for EPSG:${sourceSrid} is not supported for WGS84 output.`);
+    throw new Error(`Projection method '${zone.method}' for EPSG:${resolvedSrid} is not supported for WGS84 output.`);
   };
 }

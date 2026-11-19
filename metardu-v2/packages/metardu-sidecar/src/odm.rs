@@ -510,9 +510,10 @@ mod tests {
     #[tokio::test]
     async fn test_process_photos_rejects_empty_photos_directory() {
         let temp = tempfile::tempdir().unwrap();
+        let output = tempfile::tempdir().unwrap();
         let params = OdmProcessParams {
             photos_path: temp.path().to_str().unwrap().to_string(),
-            output_path: "/tmp/output".to_string(),
+            output_path: output.path().join("output").to_string_lossy().to_string(),
             gcp_path: None,
             orthophoto_resolution_cm: 5.0,
             dem_resolution_cm: 5.0,
@@ -531,12 +532,13 @@ mod tests {
     #[tokio::test]
     async fn test_process_photos_rejects_unknown_mode() {
         let temp = tempfile::tempdir().unwrap();
+        let output = tempfile::tempdir().unwrap();
         // Create a fake photo so we pass the empty-directory check
         std::fs::write(temp.path().join("photo.jpg"), b"data").unwrap();
 
         let params = OdmProcessParams {
             photos_path: temp.path().to_str().unwrap().to_string(),
-            output_path: "/tmp/output".to_string(),
+            output_path: output.path().join("output").to_string_lossy().to_string(),
             gcp_path: None,
             orthophoto_resolution_cm: 5.0,
             dem_resolution_cm: 5.0,

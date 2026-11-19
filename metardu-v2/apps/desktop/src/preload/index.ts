@@ -17,6 +17,75 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Form3Input, SyncConfig, SyncProject, SyncStatus, SyncConflict, Form4Input, Lra27Input, BeaconCertificateInput, AuPlanOfSurveyInput, ZaSgDiagramInput, GbMeasuredSurveyReportInput, DeGrenzfeststellungInput } from "@metardu/engine-flight-planning";
 import type { StoredProject, ProjectStoreState, CreateProjectInput, UpdateProjectInput } from "../main/project-store-core.js";
+import type {
+  PointCloudImportResult,
+  PointCloudCoordinateContext,
+  PointCloudProjectSourceList,
+  PointCloudRecordInspectionJobStart,
+  PointCloudRecordInspectionJobStatus,
+  PointCloudPreviewStartResult,
+  PointCloudPreviewStatus,
+  PointCloudSourceVerification,
+  PointCloudSetSourceCoordinateContextResult,
+} from "../shared/point-cloud.js";
+import {
+  COMMUNITY_EXTENSION_PACKAGE_INSTALL_RESULT_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_LIST_SCHEMA,
+  COMMUNITY_EXTENSION_PACKAGE_RUN_INPUT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_ARTIFACT_LIST_INPUT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_ARTIFACT_LIST_RESULT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_RUN_INPUT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_RUN_RESULT_SCHEMA,
+  type CommunityExtensionPackageInstallResult,
+  type CommunityExtensionPackageList,
+  type CommunityExtensionPackageRunInput,
+  type CommunityExtensionProjectArtifact,
+  type CommunityExtensionProjectRunInput,
+  type CommunityExtensionProjectRunResult,
+  PLUGIN_RUN_INPUT_SCHEMA,
+  POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA,
+  POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA,
+  POINT_CLOUD_PREVIEW_START_INPUT_SCHEMA,
+  POINT_CLOUD_SOURCE_ID_SCHEMA,
+  PROJECT_BUNDLE_CANCEL_INPUT_SCHEMA,
+  PROJECT_BUNDLE_CANCEL_RESULT_SCHEMA,
+  PROJECT_BUNDLE_EXPORT_INPUT_SCHEMA,
+  PROJECT_BUNDLE_EXPORT_RESULT_SCHEMA,
+  PROJECT_BUNDLE_IMPORT_INPUT_SCHEMA,
+  PROJECT_BUNDLE_IMPORT_RESULT_SCHEMA,
+  PROJECT_BUNDLE_PROGRESS_SCHEMA,
+  PUBLIC_MAP_LINZ_CREDENTIAL_STATUS_SCHEMA,
+  PUBLIC_MAP_LINZ_FEATURE_COLLECTION_SCHEMA,
+  PUBLIC_MAP_LINZ_KEY_SCHEMA,
+  PUBLIC_MAP_LINZ_PARCEL_INPUT_SCHEMA,
+  PUBLIC_MAP_PDOK_TILE_INPUT_SCHEMA,
+  type ProjectBundleExportInput,
+  type ProjectBundleExportResult,
+  type ProjectBundleImportInput,
+  type ProjectBundleImportResult,
+  type ProjectBundleProgress,
+  POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA,
+  POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA,
+  validateSidecarParams,
+} from "@metardu/ipc-schemas";
+
+function requirePointCloudSourceId(value: string): string {
+  const parsed = POINT_CLOUD_SOURCE_ID_SCHEMA.safeParse(value);
+  if (!parsed.success) throw new Error("Point-cloud source identifier must be a UUID.");
+  return parsed.data;
+}
+
+function requirePointCloudInspectionJobId(value: string): string {
+  const parsed = POINT_CLOUD_INSPECTION_JOB_ID_SCHEMA.safeParse(value);
+  if (!parsed.success) throw new Error("Point-cloud inspection job identifier must be a UUID.");
+  return parsed.data;
+}
+
+function requirePointCloudPreviewJobId(value: string): string {
+  const parsed = POINT_CLOUD_PREVIEW_JOB_ID_SCHEMA.safeParse(value);
+  if (!parsed.success) throw new Error("Point-cloud preview job identifier must be a UUID.");
+  return parsed.data;
+}
 
 /** Result of any statutory DRAFT renderer — PDF plus verification status. */
 interface StatutoryResult {
@@ -66,6 +135,14 @@ const ALLOWED_METHODS = new Set<string>([
   "gnss.batch_estimate_covariance",
   // Adjustment engine.
   "adjustment.run",
+  // COGO view — computation remains inside the Rust sidecar.
+  "cogo.radiation",
+  "cogo.bearing_bearing",
+  "cogo.distance_distance",
+  "cogo.midpoint_offset",
+  "cogo.area",
+  // Robust planar Delaunay construction for topographic draft surfaces.
+  "topographic.build_tin",
 ]);
 
 function validateMethod(method: unknown): asserts method is string {
@@ -77,11 +154,52 @@ function validateMethod(method: unknown): asserts method is string {
 }
 
 const metarduApi = {
+  /** Curated public land references. Provider endpoints and secrets stay in the main process. */
+  publicMapReferences: {
+    getLinzCredentialStatus: async (): Promise<{ configured: boolean; secureStorageAvailable: boolean }> => {
+      const result = await ipcRenderer.invoke("metardu:public-map:linz-credential-status");
+      return PUBLIC_MAP_LINZ_CREDENTIAL_STATUS_SCHEMA.parse(result);
+    },
+    saveLinzApiKey: async (untrustedKey: string): Promise<{ configured: boolean; secureStorageAvailable: boolean }> => {
+      const key = PUBLIC_MAP_LINZ_KEY_SCHEMA.parse(untrustedKey);
+      const result = await ipcRenderer.invoke("metardu:public-map:save-linz-key", key);
+      return PUBLIC_MAP_LINZ_CREDENTIAL_STATUS_SCHEMA.parse(result);
+    },
+    clearLinzApiKey: async (): Promise<{ configured: boolean; secureStorageAvailable: boolean }> => {
+      const result = await ipcRenderer.invoke("metardu:public-map:clear-linz-key");
+      return PUBLIC_MAP_LINZ_CREDENTIAL_STATUS_SCHEMA.parse(result);
+    },
+    fetchPdokTile: async (untrustedInput: {
+      bbox3857: [number, number, number, number];
+      width: number;
+      height: number;
+    }): Promise<Uint8Array> => {
+      const input = PUBLIC_MAP_PDOK_TILE_INPUT_SCHEMA.parse(untrustedInput);
+      const result: unknown = await ipcRenderer.invoke("metardu:public-map:pdok-tile", input);
+      if (!(result instanceof Uint8Array) || result.byteLength > 4 * 1024 * 1024) {
+        throw new Error("Main process returned an invalid PDOK tile.");
+      }
+      return result;
+    },
+    fetchLinzPrimaryParcels: async (untrustedInput: { bbox4326: [number, number, number, number] }) => {
+      const input = PUBLIC_MAP_LINZ_PARCEL_INPUT_SCHEMA.parse(untrustedInput);
+      const result: unknown = await ipcRenderer.invoke("metardu:public-map:linz-parcels", input);
+      return PUBLIC_MAP_LINZ_FEATURE_COLLECTION_SCHEMA.parse(result);
+    },
+  },
   /** Invoke a sidecar RPC method. Method name is allowlisted. */
   sidecar: {
     call: async (method: string, params: unknown): Promise<unknown> => {
       validateMethod(method);
-      return ipcRenderer.invoke("metardu:sidecar:call", method, params);
+      const validation = validateSidecarParams(method, params);
+      if (validation && !validation.success) {
+        throw new Error(`Invalid parameters for ${method}: ${validation.error}`);
+      }
+      return ipcRenderer.invoke(
+        "metardu:sidecar:call",
+        method,
+        validation?.success ? validation.data : params,
+      );
     },
     /** Get current sidecar state: "stopped" | "starting" | "running" | "stopping" | "crashed". */
     getState: (): Promise<string> => ipcRenderer.invoke("metardu:sidecar:state"),
@@ -90,6 +208,62 @@ const metarduApi = {
       const listener = (_event: unknown, state: string): void => callback(state);
       ipcRenderer.on("metardu:sidecar:state", listener);
       return () => ipcRenderer.off("metardu:sidecar:state", listener);
+    },
+  },
+  /** Restricted community WebAssembly preview; selected module bytes never enter the renderer. */
+  plugins: {
+    /** Import a local .mdplug package. Importing validates and stores bytes; it does not execute them. */
+    installPackage: async (): Promise<CommunityExtensionPackageInstallResult> => {
+      const result = await ipcRenderer.invoke("metardu:plugins:installPackage");
+      const parsed = COMMUNITY_EXTENSION_PACKAGE_INSTALL_RESULT_SCHEMA.safeParse(result);
+      if (!parsed.success) throw new Error("Main process returned an invalid extension package install result.");
+      return parsed.data;
+    },
+    /** List local package summaries and any integrity issues without exposing file paths. */
+    listInstalled: async (): Promise<CommunityExtensionPackageList> => {
+      const result = await ipcRenderer.invoke("metardu:plugins:listInstalled");
+      const parsed = COMMUNITY_EXTENSION_PACKAGE_LIST_SCHEMA.safeParse(result);
+      if (!parsed.success) throw new Error("Main process returned an invalid extension package list.");
+      return parsed.data;
+    },
+    /** Run one installed package with explicit bounded JSON; no project capability is granted. */
+    runInstalled: async (request: CommunityExtensionPackageRunInput): Promise<unknown> => {
+      const parsed = COMMUNITY_EXTENSION_PACKAGE_RUN_INPUT_SCHEMA.safeParse(request);
+      if (!parsed.success) {
+        throw new Error(`Invalid installed extension request: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+      }
+      return ipcRenderer.invoke("metardu:plugins:runInstalled", parsed.data);
+    },
+    /** Run an installed package against explicit bounded JSON and save its draft output to the checked project version. */
+    runInstalledAndSave: async (request: CommunityExtensionProjectRunInput): Promise<CommunityExtensionProjectRunResult> => {
+      const parsed = COMMUNITY_EXTENSION_PROJECT_RUN_INPUT_SCHEMA.safeParse(request);
+      if (!parsed.success) {
+        throw new Error(`Invalid project extension request: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+      }
+      const result: unknown = await ipcRenderer.invoke("metardu:plugins:runInstalledAndSave", parsed.data);
+      const validated = COMMUNITY_EXTENSION_PROJECT_RUN_RESULT_SCHEMA.safeParse(result);
+      if (!validated.success) throw new Error("Main process returned an invalid saved community extension result.");
+      return validated.data;
+    },
+    /** List locally saved community draft results for one project without exposing filesystem paths. */
+    listProjectArtifacts: async (projectId: string): Promise<CommunityExtensionProjectArtifact[]> => {
+      const request = COMMUNITY_EXTENSION_PROJECT_ARTIFACT_LIST_INPUT_SCHEMA.safeParse({ projectId });
+      if (!request.success) throw new Error("Invalid project identity for community artifact listing.");
+      const result: unknown = await ipcRenderer.invoke("metardu:plugins:listProjectArtifacts", request.data);
+      const validated = COMMUNITY_EXTENSION_PROJECT_ARTIFACT_LIST_RESULT_SCHEMA.safeParse(result);
+      if (!validated.success) throw new Error("Main process returned an invalid community artifact list.");
+      return validated.data.artifacts;
+    },
+    pickModule: (): Promise<
+      | { canceled: true }
+      | { canceled: false; token: string; filename: string; sizeBytes: number; sha256: string; expiresAt: number; evictedPreviousSelection: boolean }
+    > => ipcRenderer.invoke("metardu:plugins:pickModule"),
+    run: async (request: { moduleToken: string; pluginId: string; version: string; input: unknown }): Promise<unknown> => {
+      const parsed = PLUGIN_RUN_INPUT_SCHEMA.safeParse(request);
+      if (!parsed.success) {
+        throw new Error(`Invalid community plugin request: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+      }
+      return ipcRenderer.invoke("metardu:plugins:run", parsed.data);
     },
   },
   /** App metadata. */
@@ -142,6 +316,48 @@ const metarduApi = {
       format: string;
       pointCount: number;
     }> => ipcRenderer.invoke("metardu:import:fieldData", filename, content),
+  },
+  /** Import a LAS/LAZ source into the active project through the native file picker. */
+  pointCloud: {
+    importSource: (): Promise<PointCloudImportResult> =>
+      ipcRenderer.invoke("metardu:pointcloud:importToActiveProject"),
+    listActiveProjectSources: (): Promise<PointCloudProjectSourceList> =>
+      ipcRenderer.invoke("metardu:pointcloud:listActiveProjectSources"),
+    setSourceCoordinateContext: (
+      sourceId: string,
+      coordinateContext: PointCloudCoordinateContext | null,
+    ): Promise<PointCloudSetSourceCoordinateContextResult> => {
+      const parsed = POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_INPUT_SCHEMA.safeParse({
+        sourceId: requirePointCloudSourceId(sourceId),
+        coordinateContext,
+      });
+      if (!parsed.success) throw new Error("Invalid point-cloud coordinate declaration.");
+      return ipcRenderer.invoke(
+        "metardu:pointcloud:setActiveProjectSourceCoordinateContext",
+        parsed.data,
+      ).then((result: unknown) => {
+        const validated = POINT_CLOUD_SET_SOURCE_COORDINATE_CONTEXT_RESULT_SCHEMA.safeParse(result);
+        if (!validated.success) throw new Error("Main process returned an invalid point-cloud coordinate declaration.");
+        return validated.data;
+      });
+    },
+    verifySource: (sourceId: string): Promise<PointCloudSourceVerification> =>
+      ipcRenderer.invoke("metardu:pointcloud:verifyActiveProjectSource", requirePointCloudSourceId(sourceId)),
+    startRecordInspection: (sourceId: string): Promise<PointCloudRecordInspectionJobStart> =>
+      ipcRenderer.invoke("metardu:pointcloud:startActiveProjectRecordInspection", requirePointCloudSourceId(sourceId)),
+    recordInspectionStatus: (jobId: string): Promise<PointCloudRecordInspectionJobStatus> =>
+      ipcRenderer.invoke("metardu:pointcloud:activeProjectRecordInspectionStatus", requirePointCloudInspectionJobId(jobId)),
+    cancelRecordInspection: (jobId: string): Promise<{ accepted: boolean }> =>
+      ipcRenderer.invoke("metardu:pointcloud:cancelActiveProjectRecordInspection", requirePointCloudInspectionJobId(jobId)),
+    startPreview: (sourceId: string): Promise<PointCloudPreviewStartResult> => {
+      const parsed = POINT_CLOUD_PREVIEW_START_INPUT_SCHEMA.safeParse({ sourceId: requirePointCloudSourceId(sourceId) });
+      if (!parsed.success) throw new Error("Invalid point-cloud preview source.");
+      return ipcRenderer.invoke("metardu:pointcloud:startActiveProjectPreview", parsed.data);
+    },
+    previewStatus: (jobId: string): Promise<PointCloudPreviewStatus> =>
+      ipcRenderer.invoke("metardu:pointcloud:activeProjectPreviewStatus", requirePointCloudPreviewJobId(jobId)),
+    cancelPreview: (jobId: string): Promise<{ accepted: boolean }> =>
+      ipcRenderer.invoke("metardu:pointcloud:cancelActiveProjectPreview", requirePointCloudPreviewJobId(jobId)),
   },
   /** Digital signature + seal (Tier 1 #4). */
   signing: {
@@ -545,18 +761,20 @@ const metarduApi = {
   /** Coordinate helpers (projected → WGS84) for the MapView overlay. */
   geo: {
     /**
-     * Convert projected coordinates (easting/northing in the country's
-     * primary SRID) to WGS84 lat/lon via the sidecar. Used by the MapView
+     * Convert projected coordinates in the explicit project CRS (or the
+     * configured jurisdiction profile CRS) to WGS84 via the sidecar. Used by the MapView
      * to place the active project's real survey geometry on the basemap.
-     * @param countryCode ISO 3166-1 alpha-2 (e.g. "KE")
-     * @param points Array of { easting, northing } in the country CRS
+     * @param countryCode Optional ISO 3166-1 alpha-2 jurisdiction
+     * @param points Array of { easting, northing } in the project CRS
+     * @param sourceSrid Optional explicit EPSG code, independent of jurisdiction
      * @returns Same-length array of { lat, lon } in WGS84 decimal degrees
      */
     projectToWgs84: (
-      countryCode: string,
+      countryCode: string | undefined,
       points: Array<{ easting: number; northing: number }>,
+      sourceSrid?: number,
     ): Promise<Array<{ lat: number; lon: number }>> =>
-      ipcRenderer.invoke("metardu:geo:projectToWgs84", countryCode, points),
+      ipcRenderer.invoke("metardu:geo:projectToWgs84", countryCode, points, sourceSrid),
   },
   /** Sync with metardu web (offline-first). The SyncClient lives in the
    *  main process; these handlers proxy to it. */
@@ -626,6 +844,32 @@ const metarduApi = {
       ipcRenderer.invoke("metardu:projects:getActive"),
     get: (id: string): Promise<StoredProject | null> =>
       ipcRenderer.invoke("metardu:projects:get", id),
+    exportBundle: async (untrustedInput: ProjectBundleExportInput): Promise<ProjectBundleExportResult> => {
+      const input = PROJECT_BUNDLE_EXPORT_INPUT_SCHEMA.parse(untrustedInput);
+      return PROJECT_BUNDLE_EXPORT_RESULT_SCHEMA.parse(
+        await ipcRenderer.invoke("metardu:projects:bundleExport", input),
+      );
+    },
+    importBundle: async (untrustedInput: ProjectBundleImportInput): Promise<ProjectBundleImportResult> => {
+      const input = PROJECT_BUNDLE_IMPORT_INPUT_SCHEMA.parse(untrustedInput);
+      return PROJECT_BUNDLE_IMPORT_RESULT_SCHEMA.parse(
+        await ipcRenderer.invoke("metardu:projects:bundleImport", input),
+      );
+    },
+    cancelBundle: async (operationId: string): Promise<{ accepted: boolean }> => {
+      const input = PROJECT_BUNDLE_CANCEL_INPUT_SCHEMA.parse({ operationId });
+      return PROJECT_BUNDLE_CANCEL_RESULT_SCHEMA.parse(
+        await ipcRenderer.invoke("metardu:projects:bundleCancel", input),
+      );
+    },
+    onBundleProgress: (callback: (progress: ProjectBundleProgress) => void): (() => void) => {
+      const listener = (_event: unknown, untrustedProgress: unknown): void => {
+        const parsed = PROJECT_BUNDLE_PROGRESS_SCHEMA.safeParse(untrustedProgress);
+        if (parsed.success) callback(parsed.data);
+      };
+      ipcRenderer.on("metardu:projects:bundleProgress", listener);
+      return () => ipcRenderer.off("metardu:projects:bundleProgress", listener);
+    },
     /** Subscribe to project store changes (toolbar + views stay live). Returns unsubscribe. */
     onChanged: (callback: (state: ProjectStoreState) => void): (() => void) => {
       const listener = (_event: unknown, state: ProjectStoreState): void => callback(state);

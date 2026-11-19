@@ -286,6 +286,28 @@ export {
   type SpotHeight,
   type TopoWorkflowInput,
   type TopoWorkflowOutput,
+  type TopographicCoordinateContext,
+  MAX_TOPOGRAPHIC_TIN_POINTS,
+  // Country-neutral client deliverable completeness gate
+  assessDeliverableReadiness,
+  type CoordinateReferenceField,
+  type DeliverableRequirement,
+  type FeatureRequirement,
+  type OutputRequirement,
+  type DeliverableProfile,
+  type ReferenceValue,
+  type DeliverableReferenceContext,
+  type FeatureReview,
+  type QualityCheckReview,
+  type IncludedArtifact,
+  type DeliverableReadinessInput,
+  type DeliverableReadinessState,
+  type DeliverableIssueSeverity,
+  type DeliverableReadinessIssue,
+  type DeliverableReadinessAssessment,
+  summarizeTopographicPointCodes,
+  type TopographicPointCodeCount,
+  type TopographicPointCodeEvidence,
   // Engineering (Phase 9B)
   runEngineeringWorkflow,
   type DesignSurface,
@@ -509,3 +531,6 @@ export {
 
 // Version
 export const ENGINE_VERSION = "0.5.0";
+
+// Pure display placement shared by retained screen and draft plan output.
+export { placeRetainedContourLabels } from "./documents/contour-label-layout.js";

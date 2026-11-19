@@ -148,6 +148,48 @@ describe("NMEA parsing", () => {
     expect(gga!.longitude).toBeGreaterThan(0); // East
   });
 
+  it("preserves empty GGA observations as null and keeps explicit zeros", () => {
+    const emptyFields = ["$GPGGA", "092750.000", "", "", "", "", "0", "", "", "", "", "", "", "", ""];
+    const noFix = parseGGA(emptyFields.join(","));
+    expect(noFix).not.toBeNull();
+    expect(noFix).toMatchObject({
+      latitude: null, longitude: null, fixQuality: 0, satelliteCount: null, hdop: null,
+      altitude: null, altitudeUnits: null, geoidSeparation: null, geoidUnits: null, dgpsAge: null,
+    });
+
+    const zeroFields = ["$GPGGA", "092750.000", "0000.0000", "N", "00000.0000", "E", "1", "0", "0.0", "0.0", "", "0.0", "", "0.0", "0"];
+    const zero = parseGGA(zeroFields.join(","));
+    expect(zero).not.toBeNull();
+    expect(zero).toMatchObject({
+      latitude: 0, longitude: 0, satelliteCount: 0, hdop: 0, altitude: 0,
+      altitudeUnits: null, geoidSeparation: 0, geoidUnits: null, dgpsAge: 0,
+    });
+  });
+
+  it("rejects malformed or partial GGA coordinates and measurements", () => {
+    const base = ["$GPGGA", "092750.000", "0128.4829", "S", "03649.2779", "E", "4", "13", "0.6", "1713.5", "M", "-21.3", "M", "", ""];
+    const malformedNumber = [...base];
+    malformedNumber[8] = "not-a-number";
+    expect(parseGGA(malformedNumber.join(","))).toBeNull();
+
+    const outOfRangeLatitude = [...base];
+    outOfRangeLatitude[2] = "9960.0";
+    expect(parseGGA(outOfRangeLatitude.join(","))).toBeNull();
+
+    const partialCoordinates = [...base];
+    partialCoordinates[4] = "";
+    partialCoordinates[5] = "";
+    expect(parseGGA(partialCoordinates.join(","))).toBeNull();
+
+    const wrongHemisphere = [...base];
+    wrongHemisphere[3] = "E";
+    expect(parseGGA(wrongHemisphere.join(","))).toBeNull();
+
+    const signedInteger = [...base];
+    signedInteger[6] = "+4";
+    expect(parseGGA(signedInteger.join(","))).toBeNull();
+  });
+
   it("should parse GSA with correct mode and fix type", () => {
     const gsa = parseGSA(GSA);
     expect(gsa).not.toBeNull();
@@ -155,6 +197,20 @@ describe("NMEA parsing", () => {
     expect(gsa!.fixType).toBe(3); // 3D fix
     expect(gsa!.satellites.length).toBe(5); // 04,05,09,12,24
     expect(gsa!.pdop).toBe(2.5);
+  });
+
+  it("preserves missing GSA quality fields and rejects malformed DOP values", () => {
+    const emptyFields = ["$GPGSA", "", "", ...Array(12).fill(""), "", "", ""];
+    const empty = parseGSA(emptyFields.join(","));
+    expect(empty).toMatchObject({ mode: null, fixType: null, pdop: null, hdop: null, vdop: null });
+
+    const zeroFields = ["$GPGSA", "A", "1", ...Array(12).fill(""), "0.0", "0.0", "0.0"];
+    const zero = parseGSA(zeroFields.join(","));
+    expect(zero).toMatchObject({ fixType: 1, pdop: 0, hdop: 0, vdop: 0 });
+
+    const malformedFields = [...zeroFields];
+    malformedFields[15] = "bad";
+    expect(parseGSA(malformedFields.join(","))).toBeNull();
   });
 
   it("should parse GSV", () => {
@@ -297,6 +353,23 @@ describe("Quality metrics", () => {
     expect(metrics.fixQuality).toBe(4);
     expect(metrics.surveyGrade).toBe(true);
     expect(metrics.satellitesUsed).toBe(13); // from GGA
+  });
+
+  it("keeps missing receiver quality fields incomplete instead of turning them into zero or 99", () => {
+    const metrics = computeQualityMetrics(null, null, null, 0);
+    expect(metrics.fixQuality).toBeNull();
+    expect(metrics.satellitesUsed).toBeNull();
+    expect(metrics.hdop).toBeNull();
+    expect(metrics.pdop).toBeNull();
+    expect(metrics.vdop).toBeNull();
+    expect(metrics.horizontalAccuracyM).toBeNull();
+    expect(metrics.r95M).toBeNull();
+    expect(metrics.dopRating).toBe("unknown");
+    expect(metrics.surveyGrade).toBe(false);
+    expect(assessQuality(metrics).overall).toBe("incomplete");
+
+    const noFix = parseGGA("$GPGGA,092750.000,,,,,0,,,,,,,,");
+    expect(assessQuality(computeQualityMetrics(noFix, null, null, 0)).overall).toBe("no_fix");
   });
 
   it("should assess quality correctly", () => {

@@ -10,6 +10,137 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Bound quadratic self-intersection work at the untrusted IPC boundary.
+pub const MAX_PLANAR_POLYGON_VERTICES: usize = 5_000;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PlanarEdgeMetrics {
+    /// Bearing in decimal degrees clockwise from the positive northing axis.
+    pub bearing_deg: f64,
+    pub distance_m: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PlanarPolygonMetrics {
+    /// Area on the supplied planar metre grid. This is not ground area.
+    pub planar_area_sq_m: f64,
+    pub perimeter_m: f64,
+    pub edges: Vec<PlanarEdgeMetrics>,
+}
+
+#[derive(Debug, thiserror::Error, PartialEq)]
+pub enum PolygonError {
+    #[error("Polygon must contain at least three distinct vertices")]
+    TooFewVertices,
+    #[error("Polygon exceeds the maximum of 5000 vertices")]
+    TooManyVertices,
+    #[error("Polygon coordinates must be finite numbers")]
+    NonFiniteCoordinate,
+    #[error("Polygon contains a zero-length edge or repeated adjacent vertex")]
+    ZeroLengthEdge,
+    #[error("Polygon ring self-intersects")]
+    SelfIntersection,
+    #[error("Polygon has zero planar area")]
+    Degenerate,
+    #[error("Polygon metric result is outside the finite numeric range")]
+    NonFiniteResult,
+}
+
+fn cross(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
+    (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+}
+
+fn on_segment(a: (f64, f64), b: (f64, f64), p: (f64, f64)) -> bool {
+    p.0 >= a.0.min(b.0)
+        && p.0 <= a.0.max(b.0)
+        && p.1 >= a.1.min(b.1)
+        && p.1 <= a.1.max(b.1)
+}
+
+fn segments_intersect(a: (f64, f64), b: (f64, f64), c: (f64, f64), d: (f64, f64)) -> bool {
+    let o1 = cross(a, b, c);
+    let o2 = cross(a, b, d);
+    let o3 = cross(c, d, a);
+    let o4 = cross(c, d, b);
+
+    if !o1.is_finite() || !o2.is_finite() || !o3.is_finite() || !o4.is_finite() {
+        return true;
+    }
+    if ((o1 > 0.0 && o2 < 0.0) || (o1 < 0.0 && o2 > 0.0))
+        && ((o3 > 0.0 && o4 < 0.0) || (o3 < 0.0 && o4 > 0.0))
+    {
+        return true;
+    }
+    (o1 == 0.0 && on_segment(a, b, c))
+        || (o2 == 0.0 && on_segment(a, b, d))
+        || (o3 == 0.0 && on_segment(c, d, a))
+        || (o4 == 0.0 && on_segment(c, d, b))
+}
+
+/// Validate a simple planar ring and return its grid-plane area, perimeter,
+/// and per-edge bearings/distances. Inputs are easting/northing metres.
+pub fn planar_polygon_metrics(points: &[(f64, f64)]) -> Result<PlanarPolygonMetrics, PolygonError> {
+    if points.len() > MAX_PLANAR_POLYGON_VERTICES {
+        return Err(PolygonError::TooManyVertices);
+    }
+    let mut ring = points.to_vec();
+    if ring.len() > 3 && ring.first() == ring.last() {
+        ring.pop();
+    }
+    if ring.len() < 3 {
+        return Err(PolygonError::TooFewVertices);
+    }
+    if ring.iter().any(|(e, n)| !e.is_finite() || !n.is_finite()) {
+        return Err(PolygonError::NonFiniteCoordinate);
+    }
+
+    let count = ring.len();
+    let mut edges = Vec::with_capacity(count);
+    let mut perimeter_m = 0.0;
+    for i in 0..count {
+        let a = ring[i];
+        let b = ring[(i + 1) % count];
+        let de = b.0 - a.0;
+        let dn = b.1 - a.1;
+        let distance_m = de.hypot(dn);
+        if !distance_m.is_finite() {
+            return Err(PolygonError::NonFiniteResult);
+        }
+        if distance_m == 0.0 {
+            return Err(PolygonError::ZeroLengthEdge);
+        }
+        perimeter_m += distance_m;
+        let bearing_deg = de.atan2(dn).to_degrees().rem_euclid(360.0);
+        edges.push(PlanarEdgeMetrics { bearing_deg, distance_m });
+    }
+    if !perimeter_m.is_finite() {
+        return Err(PolygonError::NonFiniteResult);
+    }
+
+    for i in 0..count {
+        let i_next = (i + 1) % count;
+        for j in (i + 1)..count {
+            let j_next = (j + 1) % count;
+            if i == j || i_next == j || j_next == i {
+                continue;
+            }
+            if segments_intersect(ring[i], ring[i_next], ring[j], ring[j_next]) {
+                return Err(PolygonError::SelfIntersection);
+            }
+        }
+    }
+
+    let planar_area_sq_m = shoelace_area(&ring);
+    if !planar_area_sq_m.is_finite() {
+        return Err(PolygonError::NonFiniteResult);
+    }
+    if planar_area_sq_m == 0.0 {
+        return Err(PolygonError::Degenerate);
+    }
+
+    Ok(PlanarPolygonMetrics { planar_area_sq_m, perimeter_m, edges })
+}
+
 /// Unit of the returned area value.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum AreaUnit {
@@ -46,10 +177,20 @@ pub fn shoelace_area(points: &[(f64, f64)]) -> f64 {
         return 0.0;
     }
     let n = points.len();
+    let origin = points[0];
     let mut sum = 0.0_f64;
+    let mut compensation = 0.0_f64;
     for i in 0..n {
         let j = (i + 1) % n;
-        sum += points[i].0 * points[j].1 - points[j].0 * points[i].1;
+        let xi = points[i].0 - origin.0;
+        let yi = points[i].1 - origin.1;
+        let xj = points[j].0 - origin.0;
+        let yj = points[j].1 - origin.1;
+        let cross = xi * yj - xj * yi;
+        let corrected = cross - compensation;
+        let next = sum + corrected;
+        compensation = (next - sum) - corrected;
+        sum = next;
     }
     (sum / 2.0).abs()
 }
@@ -164,6 +305,60 @@ mod tests {
         assert_eq!(shoelace_area(&[(0.0, 0.0), (100.0, 100.0)]), 0.0);
         assert_eq!(shoelace_area(&[(0.0, 0.0)]), 0.0);
         assert_eq!(shoelace_area(&[]), 0.0);
+    }
+
+    #[test]
+    fn test_planar_metrics_are_translation_invariant_for_large_grid_offsets() {
+        let points = [
+            (500_000.0, 9_500_000.0),
+            (500_100.0, 9_500_000.0),
+            (500_100.0, 9_500_100.0),
+            (500_000.0, 9_500_100.0),
+        ];
+        let metrics = planar_polygon_metrics(&points).unwrap();
+        assert!((metrics.planar_area_sq_m - 10_000.0).abs() < 1e-9);
+        assert!((metrics.perimeter_m - 400.0).abs() < 1e-9);
+        assert!((metrics.edges[0].bearing_deg - 90.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_planar_metrics_accept_an_explicit_closing_vertex() {
+        let metrics = planar_polygon_metrics(&[
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ])
+        .unwrap();
+        assert!((metrics.planar_area_sq_m - 100.0).abs() < 1e-12);
+        assert_eq!(metrics.edges.len(), 4);
+    }
+
+    #[test]
+    fn test_planar_metrics_reject_self_intersection_zero_edges_and_non_finite_values() {
+        assert_eq!(
+            planar_polygon_metrics(&[(0.0, 0.0), (10.0, 10.0), (0.0, 10.0), (10.0, 0.0)]),
+            Err(PolygonError::SelfIntersection)
+        );
+        assert_eq!(
+            planar_polygon_metrics(&[(0.0, 0.0), (10.0, 0.0), (10.0, 0.0), (0.0, 10.0)]),
+            Err(PolygonError::ZeroLengthEdge)
+        );
+        assert_eq!(
+            planar_polygon_metrics(&[
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (0.0, f64::INFINITY),
+            ]),
+            Err(PolygonError::NonFiniteCoordinate)
+        );
+    }
+
+    #[test]
+    fn test_planar_metrics_reject_polygon_over_vertex_limit() {
+        let points = vec![(0.0, 0.0); MAX_PLANAR_POLYGON_VERTICES + 1];
+        assert_eq!(planar_polygon_metrics(&points), Err(PolygonError::TooManyVertices));
     }
 
     /// Area unit conversions.

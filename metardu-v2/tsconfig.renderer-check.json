@@ -1,0 +1,17 @@
+{
+  "extends": "./apps/desktop/tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "rootDir": "./",
+    "paths": {
+      "@metardu/*": ["./packages/*/src/index.ts"]
+    }
+  },
+  "include": ["apps/desktop/src/renderer/**/*.ts", "apps/desktop/src/renderer/**/*.tsx"],
+  "exclude": ["node_modules", "dist", "src/tests"]
+}

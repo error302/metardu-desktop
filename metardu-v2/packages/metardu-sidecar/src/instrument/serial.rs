@@ -23,7 +23,7 @@ use tokio::sync::mpsc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{info, warn, debug, error};
 
-use super::nmea::{parse_nmea, NmeaSentence, NmeaData};
+use super::nmea::{parse_nmea, NmeaSentence};
 
 /// Instrument record parsed from serial data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,16 +201,7 @@ pub async fn open_serial_stream(
 
             let record = match effective_protocol {
                 DetectedProtocol::Nmea => {
-                    if let Some(sentence) = parse_nmea(&line) {
-                        Some(InstrumentRecord {
-                            record_type: "nmea".to_string(),
-                            data: serde_json::to_value(&sentence).unwrap_or_default(),
-                            raw: line,
-                            received_at_ms: now_ms,
-                        })
-                    } else {
-                        None // Invalid NMEA line, skip
-                    }
+                    parse_nmea_instrument_record(&line, now_ms)
                 }
                 DetectedProtocol::LeicaGsi => {
                     if let Some(record) = parse_gsi_record(&line) {
@@ -258,9 +249,48 @@ pub async fn open_serial_stream(
     Ok((bg_task, rx))
 }
 
+fn parse_nmea_instrument_record(line: &str, received_at_ms: u64) -> Option<InstrumentRecord> {
+    if let Some(sentence) = parse_nmea(line) {
+        return Some(InstrumentRecord {
+            record_type: "nmea".to_string(),
+            data: serde_json::to_value(&sentence).unwrap_or_default(),
+            raw: line.to_string(),
+            received_at_ms,
+        });
+    }
+
+    let sentence_type = nmea_fix_sentence_type(line)?;
+    Some(InstrumentRecord {
+        record_type: "nmea_rejected".to_string(),
+        data: serde_json::json!({
+            "sentence_type": sentence_type,
+            "validation_status": "rejected",
+            "reason": "NMEA parser or checksum validation failed",
+        }),
+        raw: line.to_string(),
+        received_at_ms,
+    })
+}
+
+fn nmea_fix_sentence_type(line: &str) -> Option<&'static str> {
+    let identifier = line
+        .trim()
+        .strip_prefix('$')?
+        .split(|character| character == ',' || character == '*')
+        .next()?;
+    if !identifier.is_ascii() || identifier.len() < 5 {
+        return None;
+    }
+    match identifier.get(2..)? {
+        "GGA" => Some("GGA"),
+        "GSA" => Some("GSA"),
+        _ => None,
+    }
+}
+
 /// Detect protocol from a single line of serial data.
 fn detect_protocol(line: &str) -> DetectedProtocol {
-    if line.starts_with('$') && line.len() > 5 {
+    if line.is_ascii() && line.starts_with('$') && line.len() > 5 {
         // $GPXXX, $GLXXX, $GAXXX, $GNXXX → NMEA
         let tag = &line[1..4];
         if tag.starts_with('G') || tag.starts_with('P') {
@@ -453,6 +483,29 @@ mod tests {
     fn test_detect_nmea() {
         assert_eq!(detect_protocol("$GPGGA,061530.00,..."), DetectedProtocol::Nmea);
         assert_eq!(detect_protocol("$GNGGA,061530.00,..."), DetectedProtocol::Nmea);
+        assert_eq!(detect_protocol("$éPGGA,061530.00,..."), DetectedProtocol::Unknown);
+    }
+
+    #[test]
+    fn test_rejected_gga_and_gsa_keep_raw_record_without_parsed_observations() {
+        for line in [
+            "$GPGGA,061530.00,0117.12345,S,03649.67890,E,4,12,not-a-number,1612.5,M,-34.2,M,1.0,1234",
+            "$GPGSA,A,3,04,05,09,12,24,25,29,31,,,,,2.5,bad,2.1",
+            "$GPGGA,061530.00,0117.12345,S,03649.67890,E,4,12,0.8,1612.5,M,-34.2,M,1.0,1234*FF",
+        ] {
+            let record = parse_nmea_instrument_record(line, 123).unwrap();
+            assert_eq!(record.record_type, "nmea_rejected");
+            assert_eq!(record.raw, line);
+            assert_eq!(record.received_at_ms, 123);
+            assert_eq!(record.data["validation_status"], "rejected");
+            assert!(record.data.get("latitude").is_none());
+            assert!(record.data.get("hdop").is_none());
+        }
+    }
+
+    #[test]
+    fn test_unrelated_invalid_line_is_not_emitted_as_a_point_observation() {
+        assert!(parse_nmea_instrument_record("not NMEA", 123).is_none());
     }
 
     #[test]

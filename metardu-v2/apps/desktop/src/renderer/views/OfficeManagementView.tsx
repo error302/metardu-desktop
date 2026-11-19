@@ -67,7 +67,9 @@ export const OfficeManagementView: React.FC = () => {
       });
 
       // Trigger download
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const pdfBuffer = new ArrayBuffer(pdfBytes.byteLength);
+      new Uint8Array(pdfBuffer).set(pdfBytes);
+      const blob = new Blob([pdfBuffer], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

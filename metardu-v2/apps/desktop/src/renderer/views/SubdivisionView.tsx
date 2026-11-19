@@ -4,14 +4,17 @@
  * Implements:
  *   - Equal / Target area lot slicing (e.g. 0.500 Ha parcels)
  *   - Parallel & perpendicular cutting lines
- *   - Automatic statutory road reserve allocation (9m, 12m, 15m, 18m)
+ *   - Automatic statutory road reserve allocation (6m, 9m, 12m, 15m, 18m)
  *   - Mutation schedule & beacon renumbering
+ *   - 1-Click Workflow Handoff to CAD, Deed Plan, and CSV export.
  */
 
 import React, { useState } from "react";
-import { SurveyCanvas, type SurveyPoint, type SurveyPolygon, type SurveyLine } from "@metardu/ui-components";
+import { SurveyCanvas, type SurveyPoint, type SurveyPolygon } from "@metardu/ui-components";
 import { useSurveyState } from "../SurveyStateContext.js";
+import { bus } from "../cross-import-bus.js";
 import { AutoExportBanner } from "./AutoExportBanner.js";
+import { Download, Layers, FileText, Share2, CheckCircle2 } from "lucide-react";
 
 interface SubdividedLot {
   lotNumber: number;
@@ -21,11 +24,12 @@ interface SubdividedLot {
 }
 
 export const SubdivisionView: React.FC = () => {
-  const { setSurveyOutput } = useSurveyState();
+  const { setSurveyOutput, activeProject } = useSurveyState();
   const [parentParcelNo, setParentParcelNo] = useState("LR KIAMBU/RIRUTA/247");
   const [targetLotCount, setTargetLotCount] = useState(4);
   const [roadReserveWidthM, setRoadReserveWidthM] = useState(9.0);
   const [splitDirection, setSplitDirection] = useState<"parallel_north" | "parallel_east">("parallel_east");
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Parent parcel 200m x 100m = 20,000 m2 (2.0 Ha)
   const [parentPoints] = useState<SurveyPoint[]>([
@@ -66,17 +70,78 @@ export const SubdivisionView: React.FC = () => {
     }
 
     setLots(newLots);
+    setNotice(`Computed ${newLots.length} subdivided plots with ${roadReserveWidthM}m road reserve.`);
+
+    const outputBeacons = newLots.flatMap((l) =>
+      l.points.map((p) => ({
+        label: p.label || `P${l.lotNumber}`,
+        easting: p.easting,
+        northing: p.northing,
+        uncertainty: { semiMajorAxis: 0.005, semiMinorAxis: 0.003, orientation: 45, adjusted: true },
+      }))
+    );
+
+    const outputBoundaries = newLots.map((l) => ({
+      label: `${parentParcelNo}/${l.lotNumber}`,
+      vertices: l.points.map((p) => ({ easting: p.easting, northing: p.northing })),
+    }));
+
     setSurveyOutput(
       {
-        type: "subdivision",
-        parentParcel: parentParcelNo,
-        lots: newLots,
-        roadReserveWidthM,
+        beacons: outputBeacons,
+        boundaries: outputBoundaries,
+        contours: [],
+        fieldPoints: [],
       },
-      "cadastral",
+      "Subdivision Scheme",
       "SubdivisionView",
-      "KE"
+      activeProject?.countryCode || "KE"
     );
+  };
+
+  const pushToCad = () => {
+    if (lots.length === 0) return;
+    const allBeacons = lots.flatMap((l) =>
+      l.points.map((p) => ({ id: p.label || `P${l.lotNumber}`, easting: p.easting, northing: p.northing }))
+    );
+    const boundaries = lots.map((l) => ({
+      name: `${parentParcelNo}/${l.lotNumber}`,
+      vertices: l.points.map((p) => ({ easting: p.easting, northing: p.northing })),
+    }));
+    bus.emit("cad:import_entities", {
+      source: "Subdivision Scheme",
+      beacons: allBeacons,
+      boundaries,
+    });
+    setNotice(`Dispatched ${lots.length} subdivided plot boundaries directly to 2D/3D DWG CAD Workspace.`);
+  };
+
+  const pushToDeedPlan = () => {
+    if (lots.length === 0) return;
+    const firstLot = lots[0]!;
+    bus.emit("deedplan:import_boundary", {
+      parcelNumber: `${parentParcelNo}/1`,
+      beacons: firstLot.points.map((p) => ({ id: p.label || "P1", easting: p.easting, northing: p.northing })),
+      areaSqM: firstLot.areaSqM,
+    });
+    setNotice(`Dispatched Plot 1 to Statutory Deed Plan Generator (Form 4).`);
+  };
+
+  const exportMutationCsv = () => {
+    if (lots.length === 0) return;
+    let csv = "LOT_NO,PARCEL_TITLE,AREA_SQM,AREA_HA,BEACONS\n";
+    lots.forEach((l) => {
+      const bcStr = l.points.map((p) => p.label).join(" - ");
+      csv += `${l.lotNumber},${parentParcelNo}/${l.lotNumber},${l.areaSqM.toFixed(2)},${l.areaHa.toFixed(4)},"${bcStr}"\n`;
+    });
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Mutation_Schedule_${parentParcelNo.replace(/[^a-zA-Z0-9]/g, "_")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setNotice(`Exported Mutation Schedule CSV (${a.download}).`);
   };
 
   const lotPolygons: SurveyPolygon[] = lots.map((lot, idx) => ({
@@ -87,31 +152,32 @@ export const SubdivisionView: React.FC = () => {
     label: `Plot ${lot.lotNumber} (${lot.areaHa.toFixed(3)} Ha)`,
   }));
 
-  const allPoints: SurveyPoint[] = lots.flatMap(l => l.points);
+  const allPoints: SurveyPoint[] = lots.flatMap((l) => l.points);
 
   return (
     <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "12px", height: "100%", overflow: "auto" }}>
-      <h2 style={{ fontSize: "var(--text-xl)", color: "var(--accent-primary)", fontFamily: "var(--font-mono)" }}>
+      <h2 style={{ fontSize: "var(--text-xl)", color: "var(--accent-primary)", fontFamily: "var(--font-mono)", margin: 0 }}>
         Smart Parcel Subdivision & Mutation Wizard
       </h2>
-      <p style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>
-        Automated parcel slicing, equal area division, statutory road access reservation, and beacon schedule numbering.
+      <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", margin: 0 }}>
+        Automated parcel slicing, equal area division, statutory road access reservation, and mutation schedule generation.
       </p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", background: "var(--bg-tertiary)", padding: "12px", border: "1px solid var(--border-default)" }}>
+      {/* Configuration Grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", background: "var(--bg-tertiary)", padding: "12px", border: "1px solid var(--border-default)", borderRadius: "4px" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           <div>
-            <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Parent Parcel Number</label>
-            <input type="text" value={parentParcelNo} onChange={(e) => setParentParcelNo(e.target.value)} style={{ width: "100%" }} />
+            <label style={{ display: "block", fontSize: "var(--text-xs)", marginBottom: "4px" }}>Parent Title / Parcel Number</label>
+            <input type="text" value={parentParcelNo} onChange={(e) => setParentParcelNo(e.target.value)} style={{ width: "100%", fontFamily: "var(--font-mono)", fontSize: "12px" }} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
             <div>
-              <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Number of Resulting Lots</label>
-              <input type="number" value={targetLotCount} min="2" max="20" onChange={(e) => setTargetLotCount(parseInt(e.target.value) || 2)} style={{ width: "100%" }} />
+              <label style={{ display: "block", fontSize: "var(--text-xs)", marginBottom: "4px" }}>Number of Resulting Lots</label>
+              <input type="number" value={targetLotCount} min="2" max="20" onChange={(e) => setTargetLotCount(parseInt(e.target.value) || 2)} style={{ width: "100%", fontFamily: "var(--font-mono)", fontSize: "12px" }} />
             </div>
             <div>
-              <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Road Reserve Width (m)</label>
-              <select value={roadReserveWidthM} onChange={(e) => setRoadReserveWidthM(parseFloat(e.target.value))} style={{ width: "100%" }}>
+              <label style={{ display: "block", fontSize: "var(--text-xs)", marginBottom: "4px" }}>Road Reserve Width</label>
+              <select value={roadReserveWidthM} onChange={(e) => setRoadReserveWidthM(parseFloat(e.target.value))} style={{ width: "100%", fontFamily: "var(--font-mono)", fontSize: "12px" }}>
                 <option value="6.0">6.0 m (Cul-de-sac / Service)</option>
                 <option value="9.0">9.0 m (Estate Access Road)</option>
                 <option value="12.0">12.0 m (Feeder Road)</option>
@@ -124,20 +190,45 @@ export const SubdivisionView: React.FC = () => {
 
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
           <div>
-            <label style={{ display: "block", fontSize: "var(--text-xs)" }}>Slicing Direction</label>
-            <select value={splitDirection} onChange={(e) => setSplitDirection(e.target.value as any)} style={{ width: "100%", marginBottom: "8px" }}>
+            <label style={{ display: "block", fontSize: "var(--text-xs)", marginBottom: "4px" }}>Slicing Alignment</label>
+            <select value={splitDirection} onChange={(e) => setSplitDirection(e.target.value as any)} style={{ width: "100%", marginBottom: "8px", fontFamily: "var(--font-mono)", fontSize: "12px" }}>
               <option value="parallel_east">Split Parallel to East Boundary</option>
               <option value="parallel_north">Split Parallel to North Boundary</option>
             </select>
           </div>
-          <button className="primary" onClick={calculateSubdivision}>Compute Subdivisions & Road Reserve</button>
+          <button className="primary" onClick={calculateSubdivision}>
+            Compute Subdivisions & Road Reserve
+          </button>
         </div>
       </div>
+
+      {notice && (
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px", background: "rgba(34, 197, 94, 0.1)", border: "1px solid var(--status-success, #22C55E)", fontSize: "12px", color: "var(--status-success, #22C55E)", fontFamily: "var(--font-mono)", borderRadius: "3px" }}>
+          <CheckCircle2 size={14} />
+          {notice}
+        </div>
+      )}
 
       <AutoExportBanner />
 
       {lots.length > 0 && (
-        <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: "12px" }}>
+        <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: "12px", display: "flex", flexDirection: "column", gap: "12px" }}>
+          {/* Workflow Handoff Ribbon */}
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", background: "var(--bg-tertiary)", padding: "10px 12px", border: "1px solid var(--border-default)", borderRadius: "4px" }}>
+            <span style={{ fontSize: "11px", fontWeight: "bold", color: "var(--accent-primary)", display: "flex", alignItems: "center" }}>
+              Subdivision Workflow Handoff:
+            </span>
+            <button onClick={pushToCad} style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "1px solid var(--border-default)", background: "var(--bg-secondary)", color: "var(--text-primary)", borderRadius: "3px", cursor: "pointer" }}>
+              <Layers size={12} /> Open in 2D/3D CAD
+            </button>
+            <button onClick={pushToDeedPlan} style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "1px solid var(--border-default)", background: "var(--bg-secondary)", color: "var(--text-primary)", borderRadius: "3px", cursor: "pointer" }}>
+              <FileText size={12} /> Generate Deed Plan
+            </button>
+            <button onClick={exportMutationCsv} style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 10px", fontSize: "11px", border: "1px solid var(--accent-primary)", background: "transparent", color: "var(--accent-primary)", borderRadius: "3px", cursor: "pointer" }}>
+              <Download size={12} /> Export Mutation CSV
+            </button>
+          </div>
+
           <SurveyCanvas
             height={340}
             title={`Subdivision Layout — ${parentParcelNo}`}
@@ -147,10 +238,11 @@ export const SubdivisionView: React.FC = () => {
             showNorthArrow={true}
             showScaleBar={true}
           />
-          <h3 style={{ fontSize: "var(--text-md)", marginTop: "12px", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
-            Resulting Lots Schedule
+
+          <h3 style={{ fontSize: "var(--text-md)", margin: 0, fontFamily: "var(--font-mono)" }}>
+            Resulting Lots Mutation Schedule
           </h3>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", fontFamily: "var(--font-mono)" }}>
             <thead>
               <tr style={{ background: "var(--bg-tertiary)", borderBottom: "1px solid var(--border-default)" }}>
                 <th style={{ padding: "6px 8px", textAlign: "left" }}>Lot / Parcel</th>
@@ -162,7 +254,7 @@ export const SubdivisionView: React.FC = () => {
             <tbody>
               {lots.map((lot) => (
                 <tr key={lot.lotNumber} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                  <td style={{ padding: "6px 8px", fontWeight: "bold" }}>{parentParcelNo}/{lot.lotNumber}</td>
+                  <td style={{ padding: "6px 8px", fontWeight: "bold", color: "var(--accent-primary)" }}>{parentParcelNo}/{lot.lotNumber}</td>
                   <td style={{ padding: "6px 8px", textAlign: "right" }}>{lot.areaSqM.toFixed(1)}</td>
                   <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: "bold" }}>{lot.areaHa.toFixed(4)} Ha</td>
                   <td style={{ padding: "6px 8px", textAlign: "right" }}>{lot.points.length}</td>

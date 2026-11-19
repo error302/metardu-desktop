@@ -1,9 +1,13 @@
 /**
- * LiDAR point cloud classification — DSM → DTM ground extraction.
+ * Experimental LiDAR PMF prototype.
  *
- * Inspired by the LinkedIn post showing GIS + Remote Sensing + LiDAR
- * point cloud classification. This module implements a progressive
- * morphological filter (PMF) to classify LiDAR points as:
+ * This unvalidated TypeScript experiment accepts an in-memory point array.
+ * It is not a LAS/LAZ/COPC reader, is not the Cloth Simulation Filter (CSF),
+ * and is not ready for survey deliverables. Keep it out of production UI and
+ * workflows until the method, edge cases, scale limits, and outputs have been
+ * independently validated.
+ *
+ * If run for research, it attempts to classify points as:
  *
  *   - Ground (bare earth) → used to generate DTM
  *   - Vegetation → removed for DTM
@@ -27,11 +31,9 @@
  *
  * # Performance
  *
- * Pure TypeScript implementation — suitable for up to ~100K points.
- * For millions of points, the Rust sidecar's `import/` module should
- * be used (future enhancement). The grid-based approach is O(n) in
- * the number of grid cells, which is much smaller than O(n²) for
- * point-to-point methods.
+ * This prototype has no established production point-count limit. Its grid
+ * allocation and morphological operations are not bounded for hostile or
+ * very large extents. Do not infer scalability from the grid representation.
  *
  * # References
  *
@@ -138,7 +140,9 @@ export function classifyLidarPoints(
   params: ClassificationParams = {},
 ): ClassificationResult {
   const startTime = Date.now();
-  const warnings: string[] = [];
+  const warnings: string[] = [
+    "Experimental PMF prototype only: not independently validated and not suitable for professional survey deliverables.",
+  ];
 
   const cellSize = params.cellSize ?? 1.0;
   const maxWindow = params.maxWindowSize ?? 20.0;

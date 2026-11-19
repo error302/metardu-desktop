@@ -24,8 +24,25 @@
  * in WAL mode for concurrent reads during writes.
  */
 
+import Database from "better-sqlite3";
+import { createHash, randomUUID } from "node:crypto";
 import type BetterSqlite3 from "better-sqlite3";
+import {
+  POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA,
+  COMMUNITY_EXTENSION_PROJECT_ARTIFACT_SCHEMA,
+  MAX_COMMUNITY_EXTENSION_ARTIFACT_PROJECT_BYTES,
+  MAX_COMMUNITY_EXTENSION_ARTIFACTS_PER_PROJECT,
+  PROJECT_BUNDLE_SNAPSHOT_SCHEMA,
+  PROJECT_COORDINATE_CONTEXT_SCHEMA,
+  PROJECT_DELIVERABLE_REVIEW_SCHEMA,
+  type ProjectBundleSnapshot,
+  type PointCloudCoordinateContext,
+  type ProjectCoordinateContext,
+  type ProjectDeliverableReview,
+  type CommunityExtensionProjectArtifact,
+} from "@metardu/ipc-schemas";
 import * as fs from "node:fs";
+import * as path from "node:path";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -34,10 +51,16 @@ export interface StoredProject {
   name: string;
   description?: string;
   countryCode: string;
+  /** Explicit EPSG horizontal CRS. Absent means no project CRS was assigned. */
+  crsSrid?: number;
+  coordinateContext?: ProjectCoordinateContext;
+  coordinateContextStatus?: "invalid";
   surveyType: string;
   sourceView: string;
   output: unknown;
   planSheet?: PlanSheetSettings;
+  deliveryReview?: ProjectDeliverableReview;
+  deliveryReviewStatus?: "invalid";
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -59,6 +82,8 @@ export interface CreateProjectInput {
   name: string;
   description?: string;
   countryCode: string;
+  crsSrid?: number;
+  coordinateContext?: ProjectCoordinateContext;
   surveyType: string;
   sourceView: string;
   output?: unknown;
@@ -70,10 +95,13 @@ export interface UpdateProjectInput {
   name?: string;
   description?: string;
   countryCode?: string;
+  crsSrid?: number | null;
+  coordinateContext?: ProjectCoordinateContext | null;
   surveyType?: string;
   sourceView?: string;
   output?: unknown;
   planSheet?: PlanSheetSettings;
+  deliveryReview?: ProjectDeliverableReview | null;
 }
 
 export type OperationKind = "create" | "update" | "delete" | "setActive";
@@ -87,9 +115,118 @@ export interface OperationLogEntry {
   timestamp: string;
 }
 
+/** Database metadata for a project-linked point-cloud source. Paths never cross IPC. */
+export interface StoredPointCloudSource {
+  id: string;
+  projectId: string | null;
+  fileName: string;
+  storageKey: string;
+  contentSha256: string;
+  fileSizeBytes: string;
+  sourceExtension: "las" | "laz";
+  format: "LAS" | "LAZ";
+  headerJson: string;
+  coordinateContextJson?: string | null;
+  importedAt: string;
+  latestRecordInspectionJson?: string | null;
+  latestRecordInspectionId?: string | null;
+  latestRecordInspectionSha256?: string | null;
+  latestRecordInspectionReaderVersion?: string | null;
+  latestRecordInspectionAt?: string | null;
+}
+
+export interface CreatePointCloudSourceInput {
+  projectId: string;
+  fileName: string;
+  storageKey: string;
+  contentSha256: string;
+  fileSizeBytes: string;
+  sourceExtension: "las" | "laz";
+  format: "LAS" | "LAZ";
+  headerJson: string;
+}
+
+export interface CreatePointCloudInspectionInput {
+  sourceId: string;
+  sourceSha256: string;
+  readerVersion: string;
+  inspectionJson: string;
+}
+
+export interface StoredPointCloudInspection {
+  id: string;
+  sourceId: string;
+  sourceSha256: string;
+  readerVersion: string;
+  inspectionJson: string;
+  inspectedAt: string;
+}
+
+export type StoredCommunityExtensionArtifact = CommunityExtensionProjectArtifact;
+
+export const COMMUNITY_EXTENSION_ARTIFACT_PROJECT_BYTE_LIMIT = MAX_COMMUNITY_EXTENSION_ARTIFACT_PROJECT_BYTES;
+
 // ─── Schema ──────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 8;
+
+const POINT_CLOUD_SOURCE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS point_cloud_sources (
+    id             TEXT PRIMARY KEY,
+    projectId      TEXT,
+    fileName       TEXT NOT NULL,
+    storageKey     TEXT NOT NULL,
+    contentSha256  TEXT NOT NULL CHECK (length(contentSha256) = 64),
+    fileSizeBytes  TEXT NOT NULL,
+    sourceExtension TEXT NOT NULL CHECK (sourceExtension IN ('las', 'laz')),
+    format         TEXT NOT NULL CHECK (format IN ('LAS', 'LAZ')),
+    headerJson     TEXT NOT NULL,
+    coordinateContext TEXT,
+    importedAt     TEXT NOT NULL,
+    FOREIGN KEY (projectId) REFERENCES projects(id) ON DELETE SET NULL,
+    UNIQUE (projectId, storageKey)
+  );
+  CREATE INDEX IF NOT EXISTS idx_point_cloud_sources_project
+    ON point_cloud_sources(projectId, importedAt DESC);
+`;
+
+const POINT_CLOUD_INSPECTION_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS point_cloud_inspections (
+    id             TEXT PRIMARY KEY,
+    sourceId       TEXT NOT NULL,
+    sourceSha256   TEXT NOT NULL CHECK (length(sourceSha256) = 64),
+    readerVersion  TEXT NOT NULL,
+    inspectionJson TEXT NOT NULL,
+    inspectedAt    TEXT NOT NULL,
+    FOREIGN KEY (sourceId) REFERENCES point_cloud_sources(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_point_cloud_inspections_source
+    ON point_cloud_inspections(sourceId, inspectedAt DESC, id DESC);
+`;
+
+const COMMUNITY_EXTENSION_ARTIFACT_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS community_extension_artifacts (
+    id TEXT PRIMARY KEY,
+    projectId TEXT NOT NULL,
+    projectVersion INTEGER NOT NULL CHECK (projectVersion >= 0),
+    pluginId TEXT NOT NULL,
+    pluginVersion TEXT NOT NULL,
+    pluginName TEXT NOT NULL,
+    publisherName TEXT NOT NULL,
+    licenseId TEXT NOT NULL,
+    packageSha256 TEXT NOT NULL CHECK (length(packageSha256) = 64),
+    moduleSha256 TEXT NOT NULL CHECK (length(moduleSha256) = 64),
+    inputJson TEXT NOT NULL,
+    inputSha256 TEXT NOT NULL CHECK (length(inputSha256) = 64),
+    outputJson TEXT NOT NULL,
+    outputSha256 TEXT NOT NULL CHECK (length(outputSha256) = 64),
+    trustState TEXT NOT NULL CHECK (trustState = 'community-draft'),
+    createdAt TEXT NOT NULL,
+    FOREIGN KEY (projectId) REFERENCES projects(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_community_extension_artifacts_project
+    ON community_extension_artifacts(projectId, createdAt DESC, id DESC);
+`;
 
 const SCHEMA_SQL = `
   -- Schema version tracking
@@ -103,10 +240,13 @@ const SCHEMA_SQL = `
     name        TEXT NOT NULL,
     description TEXT,
     countryCode TEXT NOT NULL DEFAULT '',
+    crsSrid     INTEGER,
+    coordinateContext TEXT,
     surveyType  TEXT NOT NULL DEFAULT '',
     sourceView  TEXT NOT NULL DEFAULT '',
     output      TEXT,          -- JSON-serialized survey workflow output
     planSheet   TEXT,          -- JSON-serialized PlanSheetSettings
+    deliveryReview TEXT,       -- JSON-serialized project delivery profile and review records
     createdAt   TEXT NOT NULL,
     updatedAt   TEXT NOT NULL,
     version     INTEGER NOT NULL DEFAULT 0
@@ -134,82 +274,42 @@ const SCHEMA_SQL = `
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+
+  ${POINT_CLOUD_SOURCE_SCHEMA_SQL}
+  ${POINT_CLOUD_INSPECTION_SCHEMA_SQL}
+  ${COMMUNITY_EXTENSION_ARTIFACT_SCHEMA_SQL}
 `;
 
 // ─── Database singleton ──────────────────────────────────────────
 
 let db: BetterSqlite3.Database | null = null;
+let configuredDatabasePath: string | null = null;
+
+/** Set the durable per-user database location before the first database read. */
+export function configureDatabasePath(databasePath: string): void {
+  if (!databasePath.trim()) throw new Error("A non-empty local database path is required.");
+  if (db && configuredDatabasePath !== databasePath) {
+    throw new Error("The project database is already open at a different path.");
+  }
+  configuredDatabasePath = databasePath;
+}
 
 /**
  * Open (or return the existing) SQLite database.
  * The database lives at <userData>/metardu.db.
  */
-const inMemoryProjects = new Map<string, any>();
-let activeProjId: string | null = null;
-
 export function getDatabase(): BetterSqlite3.Database {
   if (db) return db;
-
-  const mockDb: any = {
-    pragma: () => {},
-    exec: () => {},
-    close: () => {},
-    transaction: (fn: (...args: any[]) => any) => (...args: any[]) => fn(...args),
-    prepare: (sql: string) => {
-      return {
-        run: (...args: any[]) => {
-          if (sql.includes("INSERT INTO projects") || sql.includes("UPDATE projects") || sql.includes("INSERT OR IGNORE INTO projects")) {
-            const id = args[0];
-            inMemoryProjects.set(id, {
-              id: args[0],
-              name: args[1],
-              description: args[2],
-              countryCode: args[3],
-              surveyType: args[4],
-              sourceView: args[5],
-              output: args[6],
-              planSheet: args[7],
-              createdAt: args[8],
-              updatedAt: args[9],
-              version: args[10] || 0,
-            });
-          } else if (sql.includes("DELETE FROM projects")) {
-            inMemoryProjects.delete(args[0]);
-          } else if (sql.includes("INSERT OR REPLACE INTO active_project")) {
-            activeProjId = args[0];
-          }
-          return { changes: 1, lastInsertRowid: 1 };
-        },
-        get: (...args: any[]) => {
-          if (sql.includes("SELECT name FROM sqlite_master")) {
-            return { name: "schema_version" };
-          }
-          if (sql.includes("SELECT version FROM schema_version")) {
-            return { version: 1 };
-          }
-          if (sql.includes("SELECT projectId FROM active_project")) {
-            return { projectId: activeProjId };
-          }
-          if (sql.includes("SELECT * FROM projects WHERE id = ?")) {
-            return inMemoryProjects.get(args[0]) || undefined;
-          }
-          if (sql.includes("MAX(id)")) {
-            return { maxId: null };
-          }
-          return undefined;
-        },
-        all: () => {
-          if (sql.includes("SELECT * FROM projects")) {
-            return Array.from(inMemoryProjects.values());
-          }
-          return [];
-        },
-      };
-    },
-  };
-
-  db = mockDb as BetterSqlite3.Database;
-  migrate(db);
+  if (!configuredDatabasePath) {
+    throw new Error("The local project database path must be configured before opening it.");
+  }
+  if (configuredDatabasePath !== ":memory:") {
+    fs.mkdirSync(path.dirname(configuredDatabasePath), { recursive: true });
+  }
+  db = new Database(configuredDatabasePath);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  migrateDatabase(db);
   return db;
 }
 
@@ -225,7 +325,7 @@ export function closeDatabase(): void {
 
 // ─── Migrations ──────────────────────────────────────────────────
 
-function migrate(database: BetterSqlite3.Database): void {
+export function migrateDatabase(database: BetterSqlite3.Database): void {
   // Check if schema_version table exists.
   const hasVersion = database
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'")
@@ -249,8 +349,66 @@ function migrate(database: BetterSqlite3.Database): void {
     database.prepare("UPDATE schema_version SET version = ?").run(1);
   }
 
-  // Future migrations go here:
-  // if (current < 2) { ... database.prepare("UPDATE schema_version SET version = ?").run(2); }
+  if (current < 2) {
+    database.transaction(() => {
+      const projectColumns = database.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>;
+      if (!projectColumns.some((column) => column.name === "crsSrid")) {
+        database.exec("ALTER TABLE projects ADD COLUMN crsSrid INTEGER");
+      }
+      database.prepare("UPDATE schema_version SET version = ?").run(2);
+    })();
+  }
+
+  if (current < 3) {
+    database.transaction(() => {
+      database.exec(POINT_CLOUD_SOURCE_SCHEMA_SQL);
+      database.prepare("UPDATE schema_version SET version = ?").run(3);
+    })();
+  }
+
+  if (current < 4) {
+    database.transaction(() => {
+      database.exec(POINT_CLOUD_INSPECTION_SCHEMA_SQL);
+      database.prepare("UPDATE schema_version SET version = ?").run(4);
+    })();
+  }
+
+  if (current < 5) {
+    database.transaction(() => {
+      const projectColumns = database.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>;
+      if (!projectColumns.some((column) => column.name === "coordinateContext")) {
+        database.exec("ALTER TABLE projects ADD COLUMN coordinateContext TEXT");
+      }
+      database.prepare("UPDATE schema_version SET version = ?").run(5);
+    })();
+  }
+
+  if (current < 6) {
+    database.transaction(() => {
+      const sourceColumns = database.prepare("PRAGMA table_info(point_cloud_sources)").all() as Array<{ name: string }>;
+      if (sourceColumns.length > 0 && !sourceColumns.some((column) => column.name === "coordinateContext")) {
+        database.exec("ALTER TABLE point_cloud_sources ADD COLUMN coordinateContext TEXT");
+      }
+      database.prepare("UPDATE schema_version SET version = ?").run(6);
+    })();
+  }
+
+  if (current < 7) {
+    database.transaction(() => {
+      const projectColumns = database.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>;
+      if (!projectColumns.some((column) => column.name === "deliveryReview")) {
+        database.exec("ALTER TABLE projects ADD COLUMN deliveryReview TEXT");
+      }
+      database.prepare("UPDATE schema_version SET version = ?").run(7);
+    })();
+  }
+
+  if (current < 8) {
+    database.transaction(() => {
+      database.exec(COMMUNITY_EXTENSION_ARTIFACT_SCHEMA_SQL);
+      database.prepare("UPDATE schema_version SET version = ?").run(8);
+    })();
+  }
 }
 
 // ─── Project CRUD ────────────────────────────────────────────────
@@ -272,10 +430,392 @@ export function getProject(database: BetterSqlite3.Database, id: string): Stored
   return row ? rowToProject(row) : null;
 }
 
+export function createPointCloudSource(
+  database: BetterSqlite3.Database,
+  input: CreatePointCloudSourceInput,
+): StoredPointCloudSource {
+  const digest = input.contentSha256.toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error("Point-cloud source SHA-256 is invalid.");
+  if (input.storageKey !== `${digest}.${input.sourceExtension}`) {
+    throw new Error("Point-cloud source storage key does not match its hash and extension.");
+  }
+  if (!/^\d+$/.test(input.fileSizeBytes)) throw new Error("Point-cloud source size must be an unsigned byte count.");
+  if (input.format !== "LAS" && input.format !== "LAZ") throw new Error("Point-cloud source format is unsupported.");
+  JSON.parse(input.headerJson);
+
+  const existing = database
+    .prepare("SELECT *, coordinateContext AS coordinateContextJson FROM point_cloud_sources WHERE projectId = ? AND storageKey = ?")
+    .get(input.projectId, input.storageKey) as StoredPointCloudSource | undefined;
+  if (existing) {
+    if (existing.contentSha256 !== digest || existing.fileSizeBytes !== input.fileSizeBytes) {
+      throw new Error("Existing project source metadata conflicts with the verified content object.");
+    }
+    return existing;
+  }
+
+  const source: StoredPointCloudSource = {
+    id: crypto.randomUUID(),
+    projectId: input.projectId,
+    fileName: input.fileName,
+    storageKey: input.storageKey,
+    contentSha256: digest,
+    fileSizeBytes: input.fileSizeBytes,
+    sourceExtension: input.sourceExtension,
+    format: input.format,
+    headerJson: input.headerJson,
+    coordinateContextJson: null,
+    importedAt: new Date().toISOString(),
+  };
+  database
+    .prepare(
+      `INSERT INTO point_cloud_sources
+        (id, projectId, fileName, storageKey, contentSha256, fileSizeBytes, sourceExtension, format, headerJson, coordinateContext, importedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      source.id,
+      source.projectId,
+      source.fileName,
+      source.storageKey,
+      source.contentSha256,
+      source.fileSizeBytes,
+      source.sourceExtension,
+      source.format,
+      source.headerJson,
+      null,
+      source.importedAt,
+    );
+  return source;
+}
+
+export function listProjectPointCloudSources(
+  database: BetterSqlite3.Database,
+  projectId: string,
+): StoredPointCloudSource[] {
+  return database
+    .prepare(
+      `SELECT source.*, source.coordinateContext AS coordinateContextJson,
+         (SELECT inspection.inspectionJson
+          FROM point_cloud_inspections AS inspection
+          WHERE inspection.sourceId = source.id
+          ORDER BY inspection.inspectedAt DESC, inspection.id DESC
+          LIMIT 1) AS latestRecordInspectionJson,
+         (SELECT inspection.id
+          FROM point_cloud_inspections AS inspection
+          WHERE inspection.sourceId = source.id
+          ORDER BY inspection.inspectedAt DESC, inspection.id DESC
+          LIMIT 1) AS latestRecordInspectionId,
+         (SELECT inspection.sourceSha256
+          FROM point_cloud_inspections AS inspection
+          WHERE inspection.sourceId = source.id
+          ORDER BY inspection.inspectedAt DESC, inspection.id DESC
+          LIMIT 1) AS latestRecordInspectionSha256,
+         (SELECT inspection.readerVersion
+          FROM point_cloud_inspections AS inspection
+          WHERE inspection.sourceId = source.id
+          ORDER BY inspection.inspectedAt DESC, inspection.id DESC
+          LIMIT 1) AS latestRecordInspectionReaderVersion,
+         (SELECT inspection.inspectedAt
+          FROM point_cloud_inspections AS inspection
+          WHERE inspection.sourceId = source.id
+          ORDER BY inspection.inspectedAt DESC, inspection.id DESC
+          LIMIT 1) AS latestRecordInspectionAt
+       FROM point_cloud_sources AS source
+       WHERE source.projectId = ?
+       ORDER BY source.importedAt DESC, source.id ASC`,
+    )
+    .all(projectId) as StoredPointCloudSource[];
+}
+
+function assertCommunityExtensionArtifactDigests(artifact: CommunityExtensionProjectArtifact): void {
+  const inputDigest = createHash("sha256").update(artifact.inputJson, "utf8").digest("hex");
+  const outputDigest = createHash("sha256").update(artifact.outputJson, "utf8").digest("hex");
+  if (inputDigest !== artifact.inputSha256 || outputDigest !== artifact.outputSha256) {
+    throw new Error("Community extension artifact JSON does not match its recorded SHA-256 digest.");
+  }
+}
+
+export function listCommunityExtensionProjectArtifacts(
+  database: BetterSqlite3.Database,
+  projectId: string,
+): StoredCommunityExtensionArtifact[] {
+  const rows = database
+    .prepare("SELECT * FROM community_extension_artifacts WHERE projectId = ? ORDER BY createdAt DESC, id DESC LIMIT ?")
+    .all(projectId, MAX_COMMUNITY_EXTENSION_ARTIFACTS_PER_PROJECT) as StoredCommunityExtensionArtifact[];
+  return rows.map((row) => {
+    const artifact = COMMUNITY_EXTENSION_PROJECT_ARTIFACT_SCHEMA.parse(row);
+    assertCommunityExtensionArtifactDigests(artifact);
+    return artifact;
+  });
+}
+
+/** Persist a host-created extension result only while the project is still at the run's source version. */
+export function saveCommunityExtensionProjectArtifact(
+  database: BetterSqlite3.Database,
+  untrustedArtifact: StoredCommunityExtensionArtifact,
+): StoredCommunityExtensionArtifact {
+  const artifact = COMMUNITY_EXTENSION_PROJECT_ARTIFACT_SCHEMA.parse(untrustedArtifact);
+  assertCommunityExtensionArtifactDigests(artifact);
+  const project = getProject(database, artifact.projectId);
+  if (!project) throw new Error("The target project no longer exists.");
+  if (project.version !== artifact.projectVersion) {
+    throw new Error("The project changed while the extension ran; its result was not saved. Re-run it against the current project.");
+  }
+
+  const storage = database.prepare(
+    `SELECT COUNT(*) AS count,
+            COALESCE(SUM(length(CAST(inputJson AS BLOB)) + length(CAST(outputJson AS BLOB))), 0) AS payloadBytes
+     FROM community_extension_artifacts WHERE projectId = ?`,
+  ).get(artifact.projectId) as { count: number; payloadBytes: number };
+  const artifactBytes = Buffer.byteLength(artifact.inputJson, "utf8") + Buffer.byteLength(artifact.outputJson, "utf8");
+  if (storage.count >= MAX_COMMUNITY_EXTENSION_ARTIFACTS_PER_PROJECT
+    || storage.payloadBytes + artifactBytes > MAX_COMMUNITY_EXTENSION_ARTIFACT_PROJECT_BYTES) {
+    throw new Error("This project has reached its saved community artifact limit. Export or archive the project before adding more results.");
+  }
+
+  database.prepare(
+    `INSERT INTO community_extension_artifacts
+      (id, projectId, projectVersion, pluginId, pluginVersion, pluginName, publisherName, licenseId,
+       packageSha256, moduleSha256, inputJson, inputSha256, outputJson, outputSha256, trustState, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    artifact.id, artifact.projectId, artifact.projectVersion, artifact.pluginId, artifact.pluginVersion,
+    artifact.pluginName, artifact.publisherName, artifact.licenseId, artifact.packageSha256, artifact.moduleSha256,
+    artifact.inputJson, artifact.inputSha256, artifact.outputJson, artifact.outputSha256, artifact.trustState,
+    artifact.createdAt,
+  );
+  return artifact;
+}
+
+/** Capture the raw persisted project, source, and inspection rows for a portable bundle. */
+export function getProjectBundleSnapshot(
+  database: BetterSqlite3.Database,
+  projectId: string,
+): ProjectBundleSnapshot {
+  const project = database
+    .prepare(
+      `SELECT id, name, description, countryCode, crsSrid,
+              coordinateContext AS coordinateContextJson, surveyType, sourceView,
+              output AS outputJson, planSheet AS planSheetJson, deliveryReview AS deliveryReviewJson, createdAt, updatedAt, version
+       FROM projects WHERE id = ?`,
+    )
+    .get(projectId) as ProjectBundleSnapshot["project"] | undefined;
+  if (!project) throw new Error("Project no longer exists.");
+
+  const sources = database
+    .prepare(
+      `SELECT id, projectId, fileName, storageKey, contentSha256, fileSizeBytes,
+              sourceExtension, format, headerJson,
+              coordinateContext AS coordinateContextJson, importedAt
+       FROM point_cloud_sources
+       WHERE projectId = ?
+       ORDER BY importedAt ASC, id ASC`,
+    )
+    .all(projectId) as Array<Omit<ProjectBundleSnapshot["pointCloudSources"][number], "inspections">>;
+  const inspections = database
+    .prepare(
+      `SELECT inspection.id, inspection.sourceId, inspection.sourceSha256,
+              inspection.readerVersion, inspection.inspectionJson, inspection.inspectedAt
+       FROM point_cloud_inspections AS inspection
+       INNER JOIN point_cloud_sources AS source ON source.id = inspection.sourceId
+       WHERE source.projectId = ?
+       ORDER BY inspection.sourceId ASC, inspection.inspectedAt ASC, inspection.id ASC`,
+    )
+    .all(projectId) as ProjectBundleSnapshot["pointCloudSources"][number]["inspections"];
+  const inspectionsBySource = new Map<string, typeof inspections>();
+  for (const inspection of inspections) {
+    const records = inspectionsBySource.get(inspection.sourceId) ?? [];
+    records.push(inspection);
+    inspectionsBySource.set(inspection.sourceId, records);
+  }
+
+  const communityExtensionArtifacts = listCommunityExtensionProjectArtifacts(database, projectId);
+
+  return PROJECT_BUNDLE_SNAPSHOT_SCHEMA.parse({
+    format: "metardu-project-bundle",
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    project,
+    pointCloudSources: sources.map((source) => ({
+      ...source,
+      inspections: inspectionsBySource.get(source.id) ?? [],
+    })),
+    communityExtensionArtifacts,
+  });
+}
+
+/** Restore verified project rows with new local identities in one SQLite transaction. */
+export function restoreProjectBundleSnapshot(
+  database: BetterSqlite3.Database,
+  untrustedSnapshot: ProjectBundleSnapshot,
+): StoredProject {
+  const snapshot = PROJECT_BUNDLE_SNAPSHOT_SCHEMA.parse(untrustedSnapshot);
+  const extensionArtifacts = snapshot.communityExtensionArtifacts ?? [];
+  for (const artifact of extensionArtifacts) assertCommunityExtensionArtifactDigests(artifact);
+  const restoredProjectId = randomUUID();
+  const sourceIds = new Map(snapshot.pointCloudSources.map((source) => [source.id, randomUUID()]));
+
+  const restore = database.transaction(() => {
+    const project = snapshot.project;
+    database.prepare(
+      `INSERT INTO projects
+        (id, name, description, countryCode, crsSrid, coordinateContext, surveyType, sourceView, output, planSheet, deliveryReview, createdAt, updatedAt, version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      restoredProjectId,
+      project.name,
+      project.description,
+      project.countryCode,
+      project.crsSrid,
+      project.coordinateContextJson,
+      project.surveyType,
+      project.sourceView,
+      project.outputJson,
+      project.planSheetJson,
+      project.deliveryReviewJson ?? null,
+      project.createdAt,
+      project.updatedAt,
+      project.version,
+    );
+
+    const insertSource = database.prepare(
+      `INSERT INTO point_cloud_sources
+        (id, projectId, fileName, storageKey, contentSha256, fileSizeBytes,
+         sourceExtension, format, headerJson, coordinateContext, importedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const insertInspection = database.prepare(
+      `INSERT INTO point_cloud_inspections
+        (id, sourceId, sourceSha256, readerVersion, inspectionJson, inspectedAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    const insertExtensionArtifact = database.prepare(
+      `INSERT INTO community_extension_artifacts
+        (id, projectId, projectVersion, pluginId, pluginVersion, pluginName, publisherName, licenseId,
+         packageSha256, moduleSha256, inputJson, inputSha256, outputJson, outputSha256, trustState, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const source of snapshot.pointCloudSources) {
+      const restoredSourceId = sourceIds.get(source.id);
+      if (!restoredSourceId) throw new Error("Bundle source identity map is incomplete.");
+      insertSource.run(
+        restoredSourceId,
+        restoredProjectId,
+        source.fileName,
+        source.storageKey,
+        source.contentSha256,
+        source.fileSizeBytes,
+        source.sourceExtension,
+        source.format,
+        source.headerJson,
+        source.coordinateContextJson,
+        source.importedAt,
+      );
+      for (const inspection of source.inspections) {
+        insertInspection.run(
+          randomUUID(),
+          restoredSourceId,
+          inspection.sourceSha256,
+          inspection.readerVersion,
+          inspection.inspectionJson,
+          inspection.inspectedAt,
+        );
+      }
+    }
+
+    for (const artifact of extensionArtifacts) {
+      insertExtensionArtifact.run(
+        randomUUID(), restoredProjectId, artifact.projectVersion, artifact.pluginId, artifact.pluginVersion,
+        artifact.pluginName, artifact.publisherName, artifact.licenseId, artifact.packageSha256, artifact.moduleSha256,
+        artifact.inputJson, artifact.inputSha256, artifact.outputJson, artifact.outputSha256, artifact.trustState,
+        artifact.createdAt,
+      );
+    }
+
+    setActiveProjectId(database, restoredProjectId);
+    const restored = getProject(database, restoredProjectId);
+    if (!restored) throw new Error("Restored project could not be read back from SQLite.");
+    return restored;
+  });
+
+  return restore();
+}
+
+/** Save or clear a source-specific user declaration without touching source bytes. */
+export function setPointCloudSourceCoordinateContext(
+  database: BetterSqlite3.Database,
+  projectId: string,
+  sourceId: string,
+  coordinateContext: PointCloudCoordinateContext | null,
+): StoredPointCloudSource {
+  const source = database
+    .prepare("SELECT id FROM point_cloud_sources WHERE id = ? AND projectId = ?")
+    .get(sourceId, projectId) as { id: string } | undefined;
+  if (!source) throw new Error("Point-cloud source is not attached to the active project.");
+
+  const coordinateContextJson = coordinateContext === null
+    ? null
+    : JSON.stringify(POINT_CLOUD_COORDINATE_CONTEXT_SCHEMA.parse(coordinateContext));
+  database
+    .prepare("UPDATE point_cloud_sources SET coordinateContext = ? WHERE id = ? AND projectId = ?")
+    .run(coordinateContextJson, sourceId, projectId);
+  return database
+    .prepare("SELECT *, coordinateContext AS coordinateContextJson FROM point_cloud_sources WHERE id = ? AND projectId = ?")
+    .get(sourceId, projectId) as StoredPointCloudSource;
+}
+
+export function createPointCloudInspection(
+  database: BetterSqlite3.Database,
+  input: CreatePointCloudInspectionInput,
+): StoredPointCloudInspection {
+  const digest = input.sourceSha256.toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error("Point-cloud inspection SHA-256 is invalid.");
+  if (!input.readerVersion.trim()) throw new Error("Point-cloud inspection reader version is required.");
+  const inspection = JSON.parse(input.inspectionJson) as Record<string, unknown>;
+  if (inspection.readerVersion !== input.readerVersion) {
+    throw new Error("Point-cloud inspection reader version does not match its report.");
+  }
+
+  const source = database
+    .prepare("SELECT contentSha256 FROM point_cloud_sources WHERE id = ?")
+    .get(input.sourceId) as { contentSha256: string } | undefined;
+  if (!source) throw new Error("Point-cloud inspection source does not exist.");
+  if (source.contentSha256 !== digest) {
+    throw new Error("Point-cloud inspection digest does not match its retained source.");
+  }
+
+  const stored: StoredPointCloudInspection = {
+    id: crypto.randomUUID(),
+    sourceId: input.sourceId,
+    sourceSha256: digest,
+    readerVersion: input.readerVersion,
+    inspectionJson: input.inspectionJson,
+    inspectedAt: new Date().toISOString(),
+  };
+  database
+    .prepare(
+      `INSERT INTO point_cloud_inspections
+        (id, sourceId, sourceSha256, readerVersion, inspectionJson, inspectedAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      stored.id,
+      stored.sourceId,
+      stored.sourceSha256,
+      stored.readerVersion,
+      stored.inspectionJson,
+      stored.inspectedAt,
+    );
+  return stored;
+}
+
 export function createProjectInDb(
   database: BetterSqlite3.Database,
   input: CreateProjectInput,
 ): StoredProject {
+  const coordinateContext = input.coordinateContext === undefined
+    ? undefined
+    : validateCoordinateContext(input.coordinateContext);
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   const project: StoredProject = {
@@ -283,6 +823,8 @@ export function createProjectInDb(
     name: input.name,
     description: input.description,
     countryCode: input.countryCode,
+    crsSrid: input.crsSrid,
+    coordinateContext,
     surveyType: input.surveyType,
     sourceView: input.sourceView,
     output: input.output ?? null,
@@ -293,8 +835,8 @@ export function createProjectInDb(
   };
 
   const insert = database.prepare(`
-    INSERT INTO projects (id, name, description, countryCode, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO projects (id, name, description, countryCode, crsSrid, coordinateContext, surveyType, sourceView, output, planSheet, deliveryReview, createdAt, updatedAt, version)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   insert.run(
@@ -302,10 +844,13 @@ export function createProjectInDb(
     project.name,
     project.description ?? null,
     project.countryCode,
+    project.crsSrid ?? null,
+    project.coordinateContext ? JSON.stringify(project.coordinateContext) : null,
     project.surveyType,
     project.sourceView,
     JSON.stringify(project.output),
     project.planSheet ? JSON.stringify(project.planSheet) : null,
+    null,
     project.createdAt,
     project.updatedAt,
     project.version,
@@ -317,6 +862,28 @@ export function createProjectInDb(
   return project;
 }
 
+function validateCoordinateContext(value: unknown): ProjectCoordinateContext {
+  const parsed = PROJECT_COORDINATE_CONTEXT_SCHEMA.safeParse(value);
+  if (!parsed.success) {
+    const details = parsed.error.issues
+      .map((issue) => `${issue.path.join(".") || "coordinateContext"}: ${issue.message}`)
+      .join("; ");
+    throw new Error(`Project coordinate declarations are invalid: ${details}`);
+  }
+  return parsed.data;
+}
+
+function validateDeliveryReview(value: unknown): ProjectDeliverableReview {
+  const parsed = PROJECT_DELIVERABLE_REVIEW_SCHEMA.safeParse(value);
+  if (!parsed.success) {
+    const details = parsed.error.issues
+      .map((issue) => `${issue.path.join(".") || "deliveryReview"}: ${issue.message}`)
+      .join("; ");
+    throw new Error(`Project delivery review is invalid: ${details}`);
+  }
+  return parsed.data;
+}
+
 export function updateProjectInDb(
   database: BetterSqlite3.Database,
   input: UpdateProjectInput,
@@ -324,16 +891,30 @@ export function updateProjectInDb(
   const existing = getProject(database, input.id);
   if (!existing) return null;
 
+  const coordinateContextChanged = input.coordinateContext !== undefined;
+  const coordinateContext = input.coordinateContext === undefined
+    ? existing.coordinateContext
+    : input.coordinateContext === null ? undefined : validateCoordinateContext(input.coordinateContext);
+  const deliveryReviewChanged = input.deliveryReview !== undefined;
+  const deliveryReview = !deliveryReviewChanged
+    ? existing.deliveryReview
+    : input.deliveryReview === null ? undefined : validateDeliveryReview(input.deliveryReview);
+
   const now = new Date().toISOString();
   const updated: StoredProject = {
     ...existing,
     ...(input.name !== undefined ? { name: input.name } : {}),
     ...(input.description !== undefined ? { description: input.description } : {}),
     ...(input.countryCode !== undefined ? { countryCode: input.countryCode } : {}),
+    ...(input.crsSrid !== undefined ? { crsSrid: input.crsSrid ?? undefined } : {}),
+    coordinateContext,
+    ...(coordinateContextChanged ? { coordinateContextStatus: undefined } : {}),
     ...(input.surveyType !== undefined ? { surveyType: input.surveyType } : {}),
     ...(input.sourceView !== undefined ? { sourceView: input.sourceView } : {}),
     ...(input.output !== undefined ? { output: input.output } : {}),
     ...(input.planSheet !== undefined ? { planSheet: input.planSheet } : {}),
+    deliveryReview,
+    ...(deliveryReviewChanged ? { deliveryReviewStatus: undefined } : {}),
     updatedAt: now,
     version: existing.version + 1,
   };
@@ -341,18 +922,24 @@ export function updateProjectInDb(
   database
     .prepare(
       `UPDATE projects SET
-        name = ?, description = ?, countryCode = ?, surveyType = ?, sourceView = ?,
-        output = ?, planSheet = ?, updatedAt = ?, version = ?
+        name = ?, description = ?, countryCode = ?, crsSrid = ?,
+        coordinateContext = CASE WHEN ? THEN ? ELSE coordinateContext END, surveyType = ?, sourceView = ?,
+        output = ?, planSheet = ?, deliveryReview = CASE WHEN ? THEN ? ELSE deliveryReview END, updatedAt = ?, version = ?
       WHERE id = ?`,
     )
     .run(
       updated.name,
       updated.description ?? null,
       updated.countryCode,
+      updated.crsSrid ?? null,
+      coordinateContextChanged ? 1 : 0,
+      updated.coordinateContext ? JSON.stringify(updated.coordinateContext) : null,
       updated.surveyType,
       updated.sourceView,
       JSON.stringify(updated.output),
       updated.planSheet ? JSON.stringify(updated.planSheet) : null,
+      deliveryReviewChanged ? 1 : 0,
+      updated.deliveryReview ? JSON.stringify(updated.deliveryReview) : null,
       updated.updatedAt,
       updated.version,
       updated.id,
@@ -480,18 +1067,21 @@ export function importFromJson(
       for (const p of projects) {
         database
           .prepare(
-            `INSERT OR IGNORE INTO projects (id, name, description, countryCode, surveyType, sourceView, output, planSheet, createdAt, updatedAt, version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR IGNORE INTO projects (id, name, description, countryCode, crsSrid, coordinateContext, surveyType, sourceView, output, planSheet, deliveryReview, createdAt, updatedAt, version)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             p.id,
             p.name,
             p.description ?? null,
             p.countryCode,
+            p.crsSrid ?? null,
+            p.coordinateContext === undefined ? null : JSON.stringify(p.coordinateContext),
             p.surveyType,
             p.sourceView,
             JSON.stringify(p.output),
             p.planSheet ? JSON.stringify(p.planSheet) : null,
+            p.deliveryReview ? JSON.stringify(p.deliveryReview) : null,
             p.createdAt,
             p.updatedAt,
             p.version,
@@ -522,10 +1112,13 @@ interface Row {
   name: string;
   description: string | null;
   countryCode: string;
+  crsSrid: number | null;
+  coordinateContext: string | null;
   surveyType: string;
   sourceView: string;
   output: string | null;
   planSheet: string | null;
+  deliveryReview: string | null;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -541,15 +1134,42 @@ interface OpLogRow {
 }
 
 function rowToProject(row: Row): StoredProject {
+  let coordinateContext: ProjectCoordinateContext | undefined;
+  let coordinateContextStatus: "invalid" | undefined;
+  if (row.coordinateContext !== null) {
+    try {
+      const parsed = PROJECT_COORDINATE_CONTEXT_SCHEMA.safeParse(JSON.parse(row.coordinateContext) as unknown);
+      if (parsed.success) coordinateContext = parsed.data;
+      else coordinateContextStatus = "invalid";
+    } catch {
+      coordinateContextStatus = "invalid";
+    }
+  }
+  let deliveryReview: ProjectDeliverableReview | undefined;
+  let deliveryReviewStatus: "invalid" | undefined;
+  if (row.deliveryReview !== null) {
+    try {
+      const parsed = PROJECT_DELIVERABLE_REVIEW_SCHEMA.safeParse(JSON.parse(row.deliveryReview) as unknown);
+      if (parsed.success) deliveryReview = parsed.data;
+      else deliveryReviewStatus = "invalid";
+    } catch {
+      deliveryReviewStatus = "invalid";
+    }
+  }
   return {
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
     countryCode: row.countryCode,
+    crsSrid: row.crsSrid ?? undefined,
+    ...(coordinateContext ? { coordinateContext } : {}),
+    ...(coordinateContextStatus ? { coordinateContextStatus } : {}),
     surveyType: row.surveyType,
     sourceView: row.sourceView,
     output: row.output ? JSON.parse(row.output) : null,
     planSheet: row.planSheet ? JSON.parse(row.planSheet) : undefined,
+    ...(deliveryReview ? { deliveryReview } : {}),
+    ...(deliveryReviewStatus ? { deliveryReviewStatus } : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     version: row.version,

@@ -24,21 +24,19 @@
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Plus, FolderOpen, Folder, Pencil, Trash2, Check, X, Loader2, Star, FolderArchive, Sparkles, ChevronRight, Eye, EyeOff } from "lucide-react";
+import {
+  PROJECT_COORDINATE_CONTEXT_SCHEMA,
+  type ProjectBundleExportInput,
+  type ProjectBundleExportResult,
+  type ProjectBundleImportInput,
+  type ProjectBundleImportResult,
+  type ProjectBundleProgress,
+  type ProjectCoordinateContext,
+  type ProjectHorizontalUnit,
+} from "@metardu/ipc-schemas";
 import { useSurveyState } from "../SurveyStateContext.js";
 import { PROJECT_TEMPLATES, getTemplateById, type ProjectTemplate } from "../project-templates.js";
-
-// The supported-country list drives the create form's country picker.
-// Source of truth remains @metardu/country-config; this is the subset
-// surfaced in the Projects panel UI.
-const COUNTRIES: Array<{ code: string; label: string }> = [
-  { code: "KE", label: "Kenya" },
-  { code: "AU", label: "Australia" },
-  { code: "AE", label: "United Arab Emirates" },
-  { code: "ZA", label: "South Africa" },
-  { code: "GB", label: "United Kingdom" },
-  { code: "DE", label: "Germany" },
-  { code: "US", label: "United States" },
-];
+import { COUNTRY_OPTIONS, GLOBAL_WGS84_UTM_OPTIONS, projectCrsLabel } from "../countries.js";
 
 const SURVEY_TYPES = [
   "cadastral",
@@ -50,8 +48,152 @@ const SURVEY_TYPES = [
   "surface-comparison",
 ];
 
+type VerticalKind = NonNullable<ProjectCoordinateContext["verticalReference"]>["kind"];
+type VerticalUnit = NonNullable<ProjectCoordinateContext["verticalReference"]>["unit"];
+
+interface CoordinateContextForm {
+  horizontalUnit: ProjectHorizontalUnit;
+  coordinateEpoch: string;
+  verticalKind: VerticalKind | "";
+  verticalName: string;
+  verticalUnit: VerticalUnit;
+}
+
+const EMPTY_COORDINATE_CONTEXT_FORM: CoordinateContextForm = {
+  horizontalUnit: "unknown",
+  coordinateEpoch: "",
+  verticalKind: "",
+  verticalName: "",
+  verticalUnit: "unknown",
+};
+
+function coordinateContextFormFromSaved(context?: ProjectCoordinateContext): CoordinateContextForm {
+  return context ? {
+    horizontalUnit: context.horizontalUnit,
+    coordinateEpoch: context.coordinateEpoch === null ? "" : String(context.coordinateEpoch),
+    verticalKind: context.verticalReference?.kind ?? "",
+    verticalName: context.verticalReference?.name ?? "",
+    verticalUnit: context.verticalReference?.unit ?? "unknown",
+  } : { ...EMPTY_COORDINATE_CONTEXT_FORM };
+}
+
+function buildCoordinateContext(form: CoordinateContextForm): { context?: ProjectCoordinateContext | null; error?: string } {
+  let coordinateEpoch: number | null = null;
+  if (form.coordinateEpoch.trim()) {
+    coordinateEpoch = Number(form.coordinateEpoch);
+    if (!Number.isFinite(coordinateEpoch) || coordinateEpoch <= 0) {
+      return { error: "Coordinate epoch must be a positive decimal year or left blank." };
+    }
+  }
+
+  let verticalReference: ProjectCoordinateContext["verticalReference"] = null;
+  if (form.verticalKind) {
+    const name = form.verticalName.trim();
+    if (!name) return { error: "Name the vertical reference or leave it unrecorded." };
+    verticalReference = { kind: form.verticalKind, name, unit: form.verticalUnit };
+  }
+
+  if (form.horizontalUnit === "unknown" && coordinateEpoch === null && verticalReference === null) {
+    return { context: null };
+  }
+
+  const parsed = PROJECT_COORDINATE_CONTEXT_SCHEMA.safeParse({
+    schemaVersion: 1,
+    horizontalUnit: form.horizontalUnit,
+    coordinateEpoch,
+    verticalReference,
+    evidenceStatus: "user_declared_unverified",
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues.map((issue) => issue.message).join("; ") };
+  }
+  return { context: parsed.data };
+}
+
+function CoordinateContextFields({
+  value,
+  onChange,
+}: {
+  value: CoordinateContextForm;
+  onChange: (next: CoordinateContextForm) => void;
+}): React.ReactElement {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 190px), 1fr))", gap: 9, width: "100%" }}>
+      <label style={{ ...subLabelStyle, display: "flex", flexDirection: "column", gap: 4 }}>
+        Horizontal coordinate unit
+        <select style={inputStyle} value={value.horizontalUnit} onChange={(event) => onChange({ ...value, horizontalUnit: event.target.value as ProjectHorizontalUnit })}>
+          <option value="unknown">Not declared</option>
+          <option value="metre">Metre</option>
+          <option value="international_foot">International foot</option>
+          <option value="us_survey_foot">US survey foot</option>
+          <option value="degree">Degree</option>
+        </select>
+      </label>
+      <label style={{ ...subLabelStyle, display: "flex", flexDirection: "column", gap: 4 }}>
+        Coordinate epoch · decimal year
+        <input style={inputStyle} type="number" step="any" value={value.coordinateEpoch} onChange={(event) => onChange({ ...value, coordinateEpoch: event.target.value })} placeholder="Not recorded" />
+      </label>
+      <label style={{ ...subLabelStyle, display: "flex", flexDirection: "column", gap: 4 }}>
+        Vertical reference type
+        <select style={inputStyle} value={value.verticalKind} onChange={(event) => onChange({
+          ...value,
+          verticalKind: event.target.value as VerticalKind | "",
+          verticalName: event.target.value ? value.verticalName : "",
+        })}>
+          <option value="">Not recorded</option>
+          <option value="ellipsoidal">Ellipsoidal</option>
+          <option value="orthometric">Orthometric</option>
+          <option value="local">Local benchmark datum</option>
+          <option value="other">Other / documented</option>
+        </select>
+      </label>
+      {value.verticalKind && (
+        <>
+          <label style={{ ...subLabelStyle, display: "flex", flexDirection: "column", gap: 4 }}>
+            Vertical reference name
+            <input style={inputStyle} value={value.verticalName} onChange={(event) => onChange({ ...value, verticalName: event.target.value })} placeholder="Exact source label" maxLength={200} />
+          </label>
+          <label style={{ ...subLabelStyle, display: "flex", flexDirection: "column", gap: 4 }}>
+            Vertical coordinate unit
+            <select style={inputStyle} value={value.verticalUnit} onChange={(event) => onChange({ ...value, verticalUnit: event.target.value as VerticalUnit })}>
+              <option value="unknown">Not declared</option>
+              <option value="metre">Metre</option>
+              <option value="international_foot">International foot</option>
+              <option value="us_survey_foot">US survey foot</option>
+            </select>
+          </label>
+        </>
+      )}
+      <p style={{ gridColumn: "1 / -1", margin: 0, color: "var(--text-tertiary)", fontSize: 10, lineHeight: 1.45 }}>
+        These are user declarations for project context. They are unverified metadata; recording or editing them never transforms coordinates or verifies a datum.
+      </p>
+    </div>
+  );
+}
+
 function getProjectsApi(): unknown {
   return (window as unknown as { metardu?: { projects?: unknown } }).metardu?.projects;
+}
+
+type ProjectBundleApi = {
+  exportBundle: (input: ProjectBundleExportInput) => Promise<ProjectBundleExportResult>;
+  importBundle: (input: ProjectBundleImportInput) => Promise<ProjectBundleImportResult>;
+  cancelBundle: (operationId: string) => Promise<{ accepted: boolean }>;
+  onBundleProgress: (callback: (progress: ProjectBundleProgress) => void) => () => void;
+};
+
+function formatBundleBytes(value: string): string {
+  const bytes = Number(BigInt(value));
+  if (!Number.isFinite(bytes) || bytes < 0) return "unknown size";
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let size = bytes;
+  let unit = -1;
+  do {
+    size /= 1024;
+    unit += 1;
+  } while (size >= 1024 && unit < units.length - 1);
+  return `${size.toFixed(1)} ${units[unit]}`;
 }
 
 export const ProjectsPanel: React.FC = () => {
@@ -66,7 +208,10 @@ export const ProjectsPanel: React.FC = () => {
 
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
-  const [country, setCountry] = useState("KE");
+  const [country, setCountry] = useState("");
+  const [crsSrid, setCrsSrid] = useState("");
+  const [coordinateContextForm, setCoordinateContextForm] = useState<CoordinateContextForm>({ ...EMPTY_COORDINATE_CONTEXT_FORM });
+  const [activeCoordinateContextForm, setActiveCoordinateContextForm] = useState<CoordinateContextForm>({ ...EMPTY_COORDINATE_CONTEXT_FORM });
   const [surveyType, setSurveyType] = useState("cadastral");
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
@@ -84,12 +229,72 @@ export const ProjectsPanel: React.FC = () => {
   const [schemeExporting, setSchemeExporting] = useState(false);
   const [schemeResult, setSchemeResult] = useState<string | null>(null);
   const [schemeError, setSchemeError] = useState<string | null>(null);
+  const [bundleOperation, setBundleOperation] = useState<{
+    operationId: string;
+    mode: "export" | "import";
+    projectName?: string;
+    progress: ProjectBundleProgress | null;
+  } | null>(null);
+  const [bundleResult, setBundleResult] = useState<string | null>(null);
+  const [bundleError, setBundleError] = useState<string | null>(null);
   // Rename double-commit guard: blur fires after Enter/click commit, and
   // blur fires again on unmount — this ref stops the second write. Reset
   // in startRename, latched on commit/cancel.
   const committingRef = useRef(false);
 
   const electronMode = getProjectsApi() !== undefined;
+
+  const runBundleOperation = useCallback(async (mode: "export" | "import", projectId?: string, projectName?: string) => {
+    const api = (window as unknown as { metardu?: { projects?: Partial<ProjectBundleApi> } }).metardu?.projects;
+    if (!api?.onBundleProgress || !api.cancelBundle || !api.exportBundle || !api.importBundle) {
+      setBundleError("Project bundle recovery is unavailable in this Desktop build.");
+      return;
+    }
+    const operationId = window.crypto.randomUUID();
+    setBundleResult(null);
+    setBundleError(null);
+    setBundleOperation({ operationId, mode, projectName, progress: null });
+    const unsubscribe = api.onBundleProgress((progress) => {
+      if (progress.operationId === operationId) {
+        setBundleOperation((current) => current?.operationId === operationId ? { ...current, progress } : current);
+      }
+    });
+    try {
+      if (mode === "export") {
+        if (!projectId) throw new Error("Select a project before exporting its bundle.");
+        const result = await api.exportBundle({ operationId, projectId });
+        setBundleResult(result.canceled
+          ? "Project bundle export cancelled."
+          : `Saved ${result.sourceCount} point-cloud source${result.sourceCount === 1 ? "" : "s"} (${formatBundleBytes(result.totalBytes)}) to ${result.bundlePath}.`);
+      } else {
+        const result = await api.importBundle({ operationId });
+        setBundleResult(result.canceled
+          ? "Project bundle restore cancelled."
+          : `Restored “${result.project.name}” as a new local project with ${result.sourceCount} point-cloud source${result.sourceCount === 1 ? "" : "s"}.`);
+      }
+    } catch (operationError) {
+      setBundleError((operationError as Error).message);
+    } finally {
+      unsubscribe();
+      setBundleOperation((current) => current?.operationId === operationId ? null : current);
+    }
+  }, []);
+
+  const cancelBundleOperation = useCallback(async () => {
+    if (!bundleOperation) return;
+    const api = (window as unknown as { metardu?: { projects?: Partial<ProjectBundleApi> } }).metardu?.projects;
+    if (!api?.cancelBundle) return;
+    try {
+      const response = await api.cancelBundle(bundleOperation.operationId);
+      if (!response.accepted) setBundleResult("The operation is finishing and can no longer be cancelled.");
+    } catch (operationError) {
+      setBundleError((operationError as Error).message);
+    }
+  }, [bundleOperation]);
+
+  useEffect(() => {
+    setActiveCoordinateContextForm(coordinateContextFormFromSaved(activeProject?.coordinateContext));
+  }, [activeProject?.id, activeProject?.coordinateContext]);
 
   // Reset the armed-delete state after 2.5s so a stray second click
   // can't delete by accident.
@@ -111,19 +316,32 @@ export const ProjectsPanel: React.FC = () => {
   const handleCreate = useCallback(async () => {
     const trimmed = name.trim();
     if (!trimmed) { setError("Project name is required."); return; }
+    const coordinateContextResult = buildCoordinateContext(coordinateContextForm);
+    if (coordinateContextResult.error) {
+      setError(coordinateContextResult.error);
+      return;
+    }
     setBusy(true); setError(null); setLastResult(null);
     try {
       const templateNote = selectedTemplate ? ` (template: ${selectedTemplate.name})` : "";
-      await createProject({ name: trimmed, countryCode: country, surveyType });
+      await createProject({
+        name: trimmed,
+        countryCode: country,
+        crsSrid: crsSrid ? Number(crsSrid) : undefined,
+        ...(coordinateContextResult.context ? { coordinateContext: coordinateContextResult.context } : {}),
+        surveyType,
+      });
       setLastResult(`Created "${trimmed}"${templateNote} — now active.`);
       setName("");
+      setCrsSrid("");
+      setCoordinateContextForm({ ...EMPTY_COORDINATE_CONTEXT_FORM });
       setSelectedTemplate(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [name, country, surveyType, createProject, selectedTemplate]);
+  }, [name, country, crsSrid, coordinateContextForm, surveyType, createProject, selectedTemplate]);
 
   const handleSetActive = useCallback(async (id: string) => {
     setBusy(true); setError(null);
@@ -136,6 +354,41 @@ export const ProjectsPanel: React.FC = () => {
       setBusy(false);
     }
   }, [setActiveProject]);
+
+  const handleProjectCrsChange = useCallback(async (id: string, value: string) => {
+    setBusy(true); setError(null); setLastResult(null);
+    try {
+      const selectedSrid = value ? Number(value) : null;
+      await updateProject(id, { crsSrid: selectedSrid });
+      setLastResult(selectedSrid
+        ? `Project CRS set to ${projectCrsLabel(selectedSrid)}. Existing coordinates were not transformed.`
+        : "Explicit project CRS cleared. Existing coordinates were not transformed.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [updateProject]);
+
+  const handleSaveCoordinateContext = useCallback(async () => {
+    if (!activeProject) return;
+    const result = buildCoordinateContext(activeCoordinateContextForm);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setBusy(true); setError(null); setLastResult(null);
+    try {
+      await updateProject(activeProject.id, { coordinateContext: result.context ?? null });
+      setLastResult(result.context
+        ? "Project coordinate declarations saved as user-declared, unverified metadata."
+        : "Project coordinate context cleared. Coordinates were not changed.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [activeProject, activeCoordinateContextForm, updateProject]);
 
   const startRename = useCallback((id: string, currentName: string) => {
     setEditingId(id);
@@ -306,15 +559,64 @@ export const ProjectsPanel: React.FC = () => {
 
   return (
     <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "20px" }}>
-      <div>
-        <h2 style={{ fontSize: "18px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "4px" }}>
-          Projects
-        </h2>
-        <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-          Every workflow run saves into the active project. Switch projects to keep
-          surveys organized, then push them to metardu web from the Sync panel.
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 360px" }}>
+          <h2 style={{ fontSize: "18px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "4px" }}>
+            Projects
+          </h2>
+          <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+            Every workflow run saves into the active project. Switch projects to keep
+            surveys organized, then push them to metardu web from the Sync panel.
+          </p>
+        </div>
+        <button
+          onClick={() => void runBundleOperation("import")}
+          disabled={Boolean(bundleOperation)}
+          style={primaryButton(Boolean(bundleOperation))}
+          title="Restore a verified local project bundle as a new project"
+        >
+          {bundleOperation?.mode === "import" ? <Loader2 size={15} /> : <FolderOpen size={15} />}
+          Restore project bundle
+        </button>
+        <p style={{ flex: "1 1 100%", margin: 0, fontSize: 11, lineHeight: 1.45, color: "var(--text-tertiary)" }}>
+          A bundle contains saved project data, linked LAS/LAZ files, and their inspection history. Bundles are unencrypted local files; store them securely. Restore creates a new local project and does not transform coordinates or verify CRS declarations.
         </p>
       </div>
+
+      {(bundleOperation || bundleError || bundleResult) && (
+        <div
+          role={bundleError ? "alert" : "status"}
+          style={{ border: `1px solid ${bundleError ? "var(--border-error)" : "var(--border-default)"}`, borderRadius: 9, padding: "12px 14px", background: "var(--bg-secondary)" }}
+        >
+          {bundleOperation && (() => {
+            const progress = bundleOperation.progress;
+            const total = progress ? BigInt(progress.totalBytes) : 0n;
+            const completed = progress ? BigInt(progress.completedBytes) : 0n;
+            const phase = progress?.phase ?? "preparing";
+            const percent = phase === "publishing" && progress
+              ? progress.totalFiles > 0 ? Math.floor(progress.completedFiles * 100 / progress.totalFiles) : 100
+              : total > 0n ? Math.min(100, Number(completed * 100n / total)) : 0;
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ flex: "1 1 360px", minWidth: 220 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>
+                    {bundleOperation.mode === "export" ? `Backing up ${bundleOperation.projectName ?? "project"}` : "Restoring project bundle"} · {phase}
+                  </div>
+                  <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)" }}>
+                    {progress
+                      ? `${formatBundleBytes(progress.completedBytes)} of ${formatBundleBytes(progress.totalBytes)} · ${progress.completedFiles}/${progress.totalFiles} source files`
+                      : "Choose a folder in the file dialog to continue."}
+                  </div>
+                  {progress && <progress value={percent} max={100} style={{ display: "block", width: "100%", height: 6, marginTop: 8 }} />}
+                </div>
+                <button onClick={() => void cancelBundleOperation()} style={tinyButton(false)}>Cancel</button>
+              </div>
+            );
+          })()}
+          {bundleError && <p style={{ margin: 0, color: "var(--text-error)", fontSize: 12 }}>{bundleError}</p>}
+          {!bundleError && bundleResult && <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: 12 }}>{bundleResult}</p>}
+        </div>
+      )}
 
       {/* ─── Create ─────────────────────────────────────────────── */}
       <div style={{ border: "1px solid var(--border-default)", borderRadius: "10px", padding: "16px", background: "var(--bg-secondary)" }}>
@@ -330,7 +632,7 @@ export const ProjectsPanel: React.FC = () => {
 
         {/* ─── Template Cards ──────────────────────────────────── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "8px", marginBottom: "12px" }}>
-          {PROJECT_TEMPLATES.filter((t) => t.countryCode === country).map((tmpl) => (
+          {country ? PROJECT_TEMPLATES.filter((t) => t.countryCode === country).map((tmpl) => (
             <div
               key={tmpl.id}
               onClick={() => {
@@ -381,7 +683,11 @@ export const ProjectsPanel: React.FC = () => {
                 )}
               </div>
             </div>
-          ))}
+          )) : (
+            <p style={{ gridColumn: "1 / -1", margin: 0, padding: "12px", border: "1px dashed var(--border-default)", borderRadius: "8px", color: "var(--text-tertiary)", fontSize: "12px" }}>
+              Choose a configured jurisdiction to browse local templates, or create a neutral project without assigning a country. CRS and statutory requirements will remain unset until you provide them.
+            </p>
+          )}
         </div>
 
         {/* ─── Template Info Panel ─────────────────────────────── */}
@@ -436,10 +742,24 @@ export const ProjectsPanel: React.FC = () => {
             />
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-            <label style={subLabelStyle}>Country</label>
-            <select style={inputStyle} value={country} onChange={(e) => setCountry(e.target.value)}>
-              {COUNTRIES.map((c) => (
-                <option key={c.code} value={c.code}>{c.label}</option>
+            <label style={subLabelStyle}>Jurisdiction (optional)</label>
+            <select style={inputStyle} value={country} onChange={(e) => {
+              setCountry(e.target.value);
+              setSelectedTemplate(null);
+              setShowTemplateInfo(null);
+            }}>
+              <option value="">Unspecified — neutral project</option>
+              {COUNTRY_OPTIONS.map((option) => (
+                <option key={option.code} value={option.code}>{option.name}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: "1 1 260px" }}>
+            <label style={subLabelStyle}>Project CRS (optional)</label>
+            <select style={inputStyle} value={crsSrid} onChange={(e) => setCrsSrid(e.target.value)}>
+              <option value="">Not assigned</option>
+              {GLOBAL_WGS84_UTM_OPTIONS.map((option) => (
+                <option key={option.srid} value={option.srid}>{option.name} · EPSG:{option.srid}</option>
               ))}
             </select>
           </div>
@@ -456,7 +776,55 @@ export const ProjectsPanel: React.FC = () => {
             Create
           </button>
         </div>
+        <div style={{ marginTop: 12, padding: 12, border: "1px solid var(--border-default)", borderRadius: 8, background: "var(--bg-primary)" }}>
+          <div style={{ ...subLabelStyle, marginBottom: 8 }}>Coordinate context (optional)</div>
+          <CoordinateContextFields value={coordinateContextForm} onChange={setCoordinateContextForm} />
+        </div>
       </div>
+
+      {activeProject && (
+        <div style={{ border: "1px solid var(--border-default)", borderRadius: "10px", padding: "14px 16px", background: "var(--bg-secondary)" }}>
+          <label style={subLabelStyle}>Active project coordinate reference system</label>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginTop: "6px" }}>
+            <select
+              style={{ ...inputStyle, minWidth: 320, maxWidth: "100%" }}
+              value={activeProject.crsSrid?.toString() ?? ""}
+              onChange={(e) => void handleProjectCrsChange(activeProject.id, e.target.value)}
+              disabled={busy}
+              aria-label="Active project CRS"
+            >
+              <option value="">No explicit CRS override</option>
+              {GLOBAL_WGS84_UTM_OPTIONS.map((option) => (
+                <option key={option.srid} value={option.srid}>{option.name} · EPSG:{option.srid}</option>
+              ))}
+            </select>
+            <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+              {projectCrsLabel(activeProject.crsSrid, activeProject.countryCode)}
+            </span>
+          </div>
+          <p style={{ margin: "8px 0 0", fontSize: "11px", lineHeight: 1.45, color: "var(--text-tertiary)" }}>
+            Jurisdiction controls local workflows; this CRS records the coordinate basis. The selector currently includes EPSG WGS 84 / UTM zones worldwide. Choosing a CRS records metadata only and never transforms existing coordinates. Other datums and height systems need a verified operation or grid before conversion.
+          </p>
+          <div style={{ marginTop: 12, padding: 12, border: "1px solid var(--border-default)", borderRadius: 8, background: "var(--bg-primary)" }}>
+            <div style={{ ...subLabelStyle, marginBottom: 8 }}>Declared coordinate context</div>
+            {activeProject.coordinateContextStatus === "invalid" && (
+              <p role="alert" style={{ margin: "0 0 8px", color: "var(--accent-warning, #b54708)", fontSize: 11 }}>
+                Saved coordinate declarations could not be read. Review the fields and save a corrected declaration; coordinates have not been changed.
+              </p>
+            )}
+            {!activeProject.coordinateContext && activeProject.coordinateContextStatus !== "invalid" && (
+              <p style={{ margin: "0 0 8px", color: "var(--text-tertiary)", fontSize: 11 }}>
+                No coordinate context is recorded for this project. Existing projects stay undeclared until you save one here.
+              </p>
+            )}
+            <CoordinateContextFields value={activeCoordinateContextForm} onChange={setActiveCoordinateContextForm} />
+            <button onClick={() => void handleSaveCoordinateContext()} disabled={busy} style={{ ...primaryButton(busy), marginTop: 10 }}>
+              {busy ? <Loader2 size={14} strokeWidth={2} /> : <Check size={14} strokeWidth={2} />}
+              Save declarations
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ─── List ───────────────────────────────────────────────── */}
       {projects.length === 0 ? (
@@ -484,6 +852,7 @@ export const ProjectsPanel: React.FC = () => {
                 </th>
                 <th style={th}>Name</th>
                 <th style={th}>Country</th>
+                <th style={th}>CRS</th>
                 <th style={th}>Type</th>
                 <th style={th}>Source</th>
                 <th style={th}>Ver</th>
@@ -542,13 +911,26 @@ export const ProjectsPanel: React.FC = () => {
                         )}
                       </div>
                     </td>
-                    <td style={td}>{p.countryCode}</td>
+                    <td style={td}>{p.countryCode || "Not specified"}</td>
+                    <td style={td}>{projectCrsLabel(p.crsSrid, p.countryCode)}</td>
                     <td style={td}>{p.surveyType}</td>
                     <td style={td}>{p.sourceView}</td>
                     <td style={td}>v{p.version}</td>
                     <td style={td}>{new Date(p.updatedAt).toLocaleString()}</td>
                     <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
                       <span style={{ display: "inline-flex", gap: "6px", alignItems: "center" }}>
+                        <button
+                          onClick={() => void runBundleOperation("export", p.id, p.name)}
+                          disabled={Boolean(bundleOperation)}
+                          title="Create a portable project recovery bundle"
+                          aria-label={`Export ${p.name} project bundle`}
+                          style={tinyButton(Boolean(bundleOperation))}
+                        >
+                          {bundleOperation?.mode === "export" && bundleOperation.projectName === p.name
+                            ? <Loader2 size={12} />
+                            : <FolderArchive size={12} />}
+                          <span>Bundle</span>
+                        </button>
                         {!isActive && (
                           <button
                             onClick={() => void handleSetActive(p.id)}

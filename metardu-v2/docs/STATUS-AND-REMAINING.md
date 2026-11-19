@@ -4,6 +4,10 @@
 **Total commits:** 75+
 **Total tests:** 657 engine tests + 91 sidecar tests = 748 passing
 
+> Historical snapshot from 24 July 2026. It is not authoritative evidence of
+> current Desktop capabilities. Use `docs/INTERNATIONAL-DESKTOP-PRODUCT-PLAN.md`
+> for current point-cloud gates and delivery evidence.
+
 ---
 
 ## What's DONE (verified, tested, on GitHub)
@@ -37,7 +41,7 @@
 - ✅ Drone processing (GSD, ASPRS classification, overlap, report)
 - ✅ Surface comparison (cut/fill, stockpile, construction progress)
 - ✅ UK Measured Survey (RICS-compliant PDF renderer)
-- ✅ LiDAR point cloud classification (PMF, DTM/DSM)
+- ⚠️ LiDAR: LAS/LAZ import, inspection, and visualization groundwork only. The TypeScript PMF is experimental; Desktop has no validated classifier or DTM/DSM output.
 - ✅ Corridor design + GPR utility mapping + multi-user collaboration + interactive map canvas
 
 ### Country Configs (5 countries)

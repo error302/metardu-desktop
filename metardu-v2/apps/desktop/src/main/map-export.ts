@@ -21,6 +21,7 @@
  */
 
 import sharp from "sharp";
+import { retainedTopographicPlanContext } from "./draft-topographic-map.js";
 import { app, dialog, BrowserWindow } from "electron";
 import { renderParcelBookletPdf, renderSinglePlanPdf, renderStatutoryReportPdf } from "@metardu/report-pdf";
 import {
@@ -107,6 +108,7 @@ export interface AutoExportResult {
 export async function renderSurveyMapPng(
   input: MapExportInput,
 ): Promise<MapExportResult> {
+  input = { ...input, ...retainedTopographicPlanContext(input.surveyOutput, input.date) };
   const geometry = extractMapGeometry(input.surveyOutput);
   const summary = summarizeGeometry(geometry);
 
@@ -154,6 +156,7 @@ export async function renderSurveyMapPng(
 export async function renderStatutoryReport(
   input: MapExportInput,
 ): Promise<MapExportResult & { pdfBytes: Uint8Array }> {
+  if (retainedTopographicPlanContext(input.surveyOutput, input.date)) return renderSurveyMapPdf(input);
   const rendered = await renderSurveyMapPng(input);
   const sheet = resolveSheetPt(input.sheetSize, input.orientation);
   const pdfBytes = await renderStatutoryReportPdf({
@@ -184,8 +187,8 @@ export async function exportStatutoryReport(
   const rendered = await renderStatutoryReport(input);
 
   const saveResult = await dialog.showSaveDialog(parentWindow ?? undefined!, {
-    title: "Export Statutory Survey Report (PDF)",
-    defaultPath: `metardu-statutory-report.pdf`,
+    title: retainedTopographicPlanContext(input.surveyOutput) ? "Export Computed Draft Plan (PDF)" : "Export Statutory Survey Report (PDF)",
+    defaultPath: retainedTopographicPlanContext(input.surveyOutput) ? "metardu-computed-draft-plan.pdf" : "metardu-statutory-report.pdf",
     filters: [
       { name: "PDF Document", extensions: ["pdf"] },
       { name: "All Files", extensions: ["*"] },
@@ -216,6 +219,8 @@ export async function exportStatutoryReport(
 export async function renderSurveyMapPdf(
   input: MapExportInput,
 ): Promise<MapExportResult & { pdfBytes: Uint8Array }> {
+  const draft = retainedTopographicPlanContext(input.surveyOutput, input.date);
+  input = { ...input, ...draft };
   const rendered = await renderSurveyMapPng(input);
   const sheet = resolveSheetPt(input.sheetSize, input.orientation);
   const widthPt = sheet?.widthPt ?? 842;   // A4 landscape fallback (matches SVG builder)
@@ -228,6 +233,7 @@ export async function renderSurveyMapPdf(
     scaleDenominator: rendered.scaleDenominator,
     widthPt,
     heightPt,
+    computedDraft: !!draft,
     png: rendered.pngBytes,
   });
   return { ...rendered, pdfBytes };
@@ -530,6 +536,7 @@ async function renderParcelStatutoryReportPdf(
 export async function renderParcelBooklet(
   input: MapExportInput,
 ): Promise<ParcelBookletRenderResult> {
+  if (retainedTopographicPlanContext(input.surveyOutput)) throw new Error("Computed topographic drafts use the Draft Plan PDF; statutory parcel booklet certification is unavailable.");
   const geometry = extractMapGeometry(input.surveyOutput);
   const parcels: MapParcel[] = splitGeometryIntoParcels(input.surveyOutput, geometry);
 

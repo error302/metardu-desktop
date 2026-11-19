@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { publicMapReferenceCspPlugin } from "./scripts/public-map-reference-csp-plugin.js";
 
 // Renderer build config.
 // - Dev: `vite` serves at http://localhost:5173 with HMR. Electron loads this URL
@@ -19,7 +20,7 @@ import react from "@vitejs/plugin-react";
 // chunk. The initial load is just vendor-react + index (~160KB), with
 // view chunks loaded on-demand.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), publicMapReferenceCspPlugin()],
   root: ".",
   base: "./",
   build: {
